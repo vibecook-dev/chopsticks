@@ -11,12 +11,12 @@ const root = dirname(fileURLToPath(import.meta.url));
 const dist = join(root, 'dist');
 const ghostteaRoot = join(root, '..', '..', '..', '..', 'electron-ghostty');
 const shared = { bundle: true, sourcemap: true, logLevel: 'info' };
-const requireFromWorkbench = createRequire(import.meta.url);
+const requireFromGodview = createRequire(import.meta.url);
 const reactSingletonPlugin = {
-  name: 'workbench-react-singleton',
+  name: 'godview-react-singleton',
   setup(buildApi) {
     buildApi.onResolve({ filter: /^react(?:-dom)?(?:\/.*)?$/ }, (args) => ({
-      path: requireFromWorkbench.resolve(args.path),
+      path: requireFromGodview.resolve(args.path),
     }));
   },
 };
@@ -72,7 +72,7 @@ await Promise.all([
   cp(join(ghostteaRoot, 'packages', 'terminal-electron', 'dist', 'bridge-entry.js'), join(dist, 'bridge-entry.js')),
   cp(join(ghostteaRoot, 'packages', 'terminal-electron', 'dist', 'types.js'), join(dist, 'types.js')),
   cp(
-    requireFromWorkbench.resolve('@vibecook/ghosttea-react/terminal-render.worker.js'),
+    requireFromGodview.resolve('@vibecook/ghosttea-react/terminal-render.worker.js'),
     join(dist, 'terminal-render.worker.js'),
   ),
 ]);

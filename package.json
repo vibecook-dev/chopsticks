@@ -18,6 +18,16 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm typecheck && pnpm -r test",
+    "workbench": "pnpm --filter workbench start",
+    "workbench:bundle": "pnpm --filter workbench bundle",
+    "workbench:smoke": "pnpm --filter workbench smoke",
+    "workbench:test": "pnpm --filter workbench test",
+    "workbench:typecheck": "pnpm --filter workbench typecheck",
+    "godview": "pnpm --filter godview start",
+    "godview:bundle": "pnpm --filter godview bundle",
+    "godview:smoke": "pnpm --filter godview smoke",
+    "godview:test": "pnpm --filter godview test",
+    "godview:typecheck": "pnpm --filter godview typecheck",
     "pack:check": "pnpm build && node scripts/pack-check.mjs",
     "release:publish": "pnpm -r --filter './packages/**' typecheck && pnpm -r --filter './packages/**' test && pnpm -r --filter './packages/**' build && node scripts/publish-packages.mjs",
     "release:trust": "node scripts/trust-packages.mjs",
@@ -25,20 +35,7 @@
     "format": "prettier --write 'packages/*/src/**/*.{ts,tsx}'"
   },
   "engines": {
-    "node": ">=20"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "electron",
-      "esbuild"
-    ],
-    "overrides": {
-      "@vibecook/ghosttea": "link:../../electron-ghostty/packages/terminal-client",
-      "@vibecook/ghosttea-electron": "link:../../electron-ghostty/packages/terminal-electron",
-      "@vibecook/ghosttea-frame": "link:../../electron-ghostty/packages/terminal-frame",
-      "@vibecook/ghosttea-protocol": "link:../../electron-ghostty/packages/terminal-protocol",
-      "@vibecook/ghosttea-react": "link:../../electron-ghostty/packages/terminal-react"
-    }
+    "node": ">=22"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

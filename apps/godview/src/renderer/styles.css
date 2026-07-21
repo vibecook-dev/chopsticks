@@ -1,0 +1,483 @@
+:root {
+  color: #111111;
+  background: #f7f7f7;
+  color-scheme: light;
+  font-family: ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Monaco, Consolas, monospace;
+  font-synthesis: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #f7f7f7;
+}
+
+body {
+  user-select: none;
+}
+
+button,
+kbd {
+  font: inherit;
+}
+
+.godview-screen {
+  --monitor-bg: #f7f7f7;
+  --panel-bg: #ffffff;
+  --panel-border: #dedede;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--monitor-bg);
+}
+
+.godview-app {
+  position: relative;
+  z-index: 2;
+  width: 95vw;
+  height: 90vh;
+  max-width: 1600px;
+  min-width: 640px;
+  min-height: 430px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  background: var(--monitor-bg);
+  box-shadow: 0 30px 60px -15px rgb(0 0 0 / 34%);
+}
+
+.godview-header {
+  position: relative;
+  z-index: 20;
+  height: 40px;
+  flex: 0 0 40px;
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) auto minmax(160px, 1fr);
+  align-items: center;
+  padding: 0 15px;
+  border-bottom: 1px solid var(--panel-border);
+  background: var(--panel-bg);
+  -webkit-app-region: drag;
+}
+
+.godview-window-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.platform-darwin .godview-window-controls {
+  visibility: hidden;
+}
+
+.godview-window-controls i {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  box-shadow: inset 0 -1px 1px rgb(0 0 0 / 18%);
+}
+
+.godview-window-controls .is-close {
+  background: #ff5f57;
+}
+
+.godview-window-controls .is-minimize {
+  background: #febc2e;
+}
+
+.godview-window-controls .is-expand {
+  background: #28c840;
+}
+
+.godview-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: #242424;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+}
+
+.godview-title span {
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.godview-title small {
+  color: #999999;
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.godview-status-controls {
+  min-width: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  -webkit-app-region: no-drag;
+}
+
+.godview-status-controls button {
+  min-width: 0;
+  padding: 3px 7px;
+  border: 1px solid var(--panel-border);
+  border-radius: 5px;
+  color: #757575;
+  background: transparent;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: 120ms ease;
+}
+
+.godview-status-controls button:hover {
+  border-color: #777777;
+  color: #111111;
+  background: #f2f2f2;
+}
+
+.godview-status-controls kbd {
+  margin-left: 5px;
+  color: #b0b0b0;
+  font-size: 8px;
+  font-weight: 400;
+}
+
+.godview-swarm {
+  position: relative;
+  width: 100%;
+  height: 35%;
+  min-height: 170px;
+  flex: 0 0 35%;
+  overflow: hidden;
+  border-bottom: 1px solid var(--panel-border);
+  background: var(--panel-bg);
+  isolation: isolate;
+}
+
+.godview-swarm-grid {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background-image:
+    linear-gradient(rgb(0 0 0 / 2.2%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(0 0 0 / 2.2%) 1px, transparent 1px);
+  background-size: 24px 24px;
+  mask-image: radial-gradient(circle at center, black 20%, transparent 82%);
+}
+
+.godview-swarm-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 7px;
+  color: #a4a4a4;
+  text-align: center;
+  pointer-events: none;
+}
+
+.godview-swarm-empty span {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+}
+
+.godview-swarm-empty small {
+  color: #b8b8b8;
+  font-size: 9px;
+}
+
+.agent-bubble {
+  --idle-bg: #e7e7e7;
+  --idle-text: #666666;
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  color: var(--idle-text);
+  background: var(--idle-bg);
+  box-shadow: none;
+  text-align: center;
+  cursor: grab;
+  touch-action: none;
+  will-change: width, height, transform;
+  transition:
+    color 260ms ease,
+    background-color 260ms ease,
+    border-color 260ms ease,
+    box-shadow 180ms ease;
+}
+
+.agent-bubble:active {
+  cursor: grabbing;
+}
+
+.agent-bubble:focus-visible {
+  outline: 2px solid var(--agent-color);
+  outline-offset: 4px;
+}
+
+.agent-bubble.is-working {
+  z-index: 4;
+  border-color: #111111;
+  color: #ffffff;
+  background: #242424;
+  animation: agent-breathe 3s ease-in-out infinite;
+}
+
+.agent-bubble.is-waiting {
+  z-index: 5;
+  border-color: #000000;
+  color: #ffffff;
+  background: #000000;
+  animation: agent-waiting 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+.agent-bubble.is-linked {
+  border-color: var(--agent-color);
+  box-shadow:
+    0 0 0 4px var(--agent-color),
+    0 0 18px color-mix(in srgb, var(--agent-color) 46%, transparent);
+}
+
+.agent-bubble-glyph {
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  color: currentColor;
+  font-size: 58px;
+  font-weight: 800;
+  line-height: 1;
+  opacity: 0.055;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.agent-bubble.is-working .agent-bubble-glyph,
+.agent-bubble.is-waiting .agent-bubble-glyph {
+  opacity: 0.12;
+}
+
+.agent-bubble-copy {
+  position: relative;
+  z-index: 2;
+  max-width: 78%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.05;
+  pointer-events: none;
+}
+
+.agent-bubble-copy strong {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-bubble.is-working .agent-bubble-copy strong {
+  font-size: 13px;
+}
+
+.agent-bubble.is-waiting .agent-bubble-copy strong {
+  font-size: 16px;
+}
+
+.agent-bubble-provider {
+  margin-top: 3px;
+  color: currentColor;
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  opacity: 0.58;
+  text-transform: uppercase;
+}
+
+.agent-bubble-branch {
+  display: none;
+  max-width: 100%;
+  margin-bottom: 4px;
+  overflow: hidden;
+  font-size: 7px;
+  opacity: 0.67;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-bubble.is-working .agent-bubble-branch,
+.agent-bubble.is-waiting .agent-bubble-branch {
+  display: block;
+}
+
+.agent-bubble-branch::before {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 5px rgb(74 222 128 / 80%);
+  content: '';
+}
+
+.agent-bubble-status {
+  position: absolute;
+  right: 0;
+  bottom: 7px;
+  left: 0;
+  z-index: 2;
+  font-size: 6px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  opacity: 0.48;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+@keyframes agent-breathe {
+  0%,
+  100% {
+    filter: drop-shadow(0 8px 10px rgb(0 0 0 / 18%));
+  }
+  50% {
+    filter: drop-shadow(0 12px 17px rgb(0 0 0 / 34%));
+  }
+}
+
+@keyframes agent-waiting {
+  0%,
+  100% {
+    filter: drop-shadow(0 9px 13px rgb(0 0 0 / 24%));
+  }
+  50% {
+    filter: drop-shadow(0 17px 24px rgb(0 0 0 / 40%));
+  }
+}
+
+.godview-terminal-deck {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  background: #ece8dc;
+}
+
+.godview-terminal-label {
+  position: absolute;
+  z-index: 15;
+  top: 0;
+  right: 0;
+  max-width: 45%;
+  padding: 3px 9px;
+  overflow: hidden;
+  border-bottom-left-radius: 6px;
+  color: #ffffff;
+  background: #111111;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.godview-terminal-deck .ghostty-window,
+.godview-terminal-deck .ghosttea-workspace-body,
+.godview-terminal-deck .terminal-host,
+.godview-terminal-deck .ghostty-pane {
+  background: #ece8dc;
+}
+
+.godview-terminal-deck .ghostty-window {
+  width: 100%;
+  height: 100%;
+}
+
+.godview-terminal-deck .ghosttea-workspace-sidebar {
+  display: none;
+}
+
+.godview-terminal-deck .ghostty-pane.is-active {
+  z-index: 2;
+  box-shadow: inset 0 0 0 1px var(--pane-link-color);
+}
+
+.godview-terminal-deck .ghostty-split-divider {
+  background: #d2cec3;
+}
+
+.godview-terminal-deck .ghostty-pane-access {
+  top: 24px;
+  color: rgb(20 20 20 / 60%);
+  border-color: rgb(0 0 0 / 12%);
+  background: rgb(247 247 247 / 80%);
+}
+
+.godview-scanlines,
+.godview-vignette {
+  position: fixed;
+  z-index: 30;
+  inset: 0;
+  pointer-events: none;
+}
+
+.godview-scanlines {
+  background: linear-gradient(to bottom, transparent 50%, rgb(0 0 0 / 6%) 51%);
+  background-size: 100% 3px;
+  opacity: 0.32;
+}
+
+.godview-vignette {
+  background: radial-gradient(circle at center, transparent 52%, rgb(0 0 0 / 14%) 100%);
+}
+
+@media (max-width: 840px) {
+  .godview-status-controls kbd,
+  .godview-title small {
+    display: none;
+  }
+
+  .godview-status-controls button {
+    padding-inline: 5px;
+    font-size: 8px;
+  }
+
+  .godview-app {
+    width: 98vw;
+    height: 96vh;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-bubble {
+    animation: none !important;
+  }
+}

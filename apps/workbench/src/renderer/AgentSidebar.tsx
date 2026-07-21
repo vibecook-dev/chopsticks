@@ -95,6 +95,24 @@ export function AgentSidebar({ workspace }: AgentSidebarProps) {
 
   useEffect(() => {
     let alive = true;
+    const unsubscribeSession = window.chopsticks.onAgentSession((info) => rememberAgent(info));
+    const unsubscribeRemoved = window.chopsticks.onAgentRemoved((runtimeSessionId) => {
+      setAgents((current) => {
+        const next = new Map(current);
+        next.delete(runtimeSessionId);
+        return next;
+      });
+      setStates((current) => {
+        const next = new Map(current);
+        next.delete(runtimeSessionId);
+        return next;
+      });
+      setWorkspaces((current) => {
+        const next = new Map(current);
+        next.delete(runtimeSessionId);
+        return next;
+      });
+    });
     const unsubscribeState = window.chopsticks.onAgentState((message) => {
       setStates((current) => new Map(current).set(message.runtimeSessionId, message));
     });
@@ -129,10 +147,12 @@ export function AgentSidebar({ workspace }: AgentSidebarProps) {
     });
     return () => {
       alive = false;
+      unsubscribeSession();
+      unsubscribeRemoved();
       unsubscribeState();
       unsubscribeFinal();
     };
-  }, []);
+  }, [rememberAgent]);
 
   const activeId = workspace.activeSession?.id;
   const activeAgent = activeId ? agents.get(activeId) : undefined;

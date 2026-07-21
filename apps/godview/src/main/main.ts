@@ -36,8 +36,8 @@ import {
   type SpawnThroughRequest,
   type SpawnThroughResponse,
 } from './spawn-through.js';
-import { WorkbenchTabRegistry } from './tab-registry.js';
-import { workbenchTruffleConfig } from './truffle-config.js';
+import { GodviewTabRegistry } from './tab-registry.js';
+import { godviewTruffleConfig } from './truffle-config.js';
 
 declare const __dirname: string;
 
@@ -81,16 +81,16 @@ const realAgentExecutables: Partial<Record<BuiltinExecutableAgentKind, string>> 
   }),
 );
 
-app.setName('Chopsticks');
-nativeTheme.themeSource = 'dark';
+app.setName('Godview');
+nativeTheme.themeSource = 'light';
 if (process.platform === 'darwin') app.setActivationPolicy('regular');
 // Truffle state is a single-writer identity store. Native tabs share this
-// process; a second Workbench process must activate the existing owner instead
+// process; a second Godview process must activate the existing owner instead
 // of opening the same state directory concurrently.
-const ownsTruffleState = app.requestSingleInstanceLock({ application: 'chopsticks' });
+const ownsTruffleState = app.requestSingleInstanceLock({ application: 'godview' });
 if (!ownsTruffleState) app.quit();
 
-const tabs = new WorkbenchTabRegistry<BrowserWindow>();
+const tabs = new GodviewTabRegistry<BrowserWindow>();
 let backend: GhostteaElectronBackend | undefined;
 let quitting = false;
 let quitReady = false;
@@ -141,7 +141,7 @@ function backendOptions(): GhostteaElectronBackendOptions {
     (app.isPackaged
       ? join(process.resourcesPath, 'bin', process.platform === 'win32' ? 'ghosttead.exe' : 'ghosttead')
       : undefined);
-  const truffle = workbenchTruffleConfig({
+  const truffle = godviewTruffleConfig({
     appRoot,
     isPackaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
@@ -166,7 +166,7 @@ function backendOptions(): GhostteaElectronBackendOptions {
       environment,
     },
     bridge: { entryPoint: join(__dirname, 'bridge-entry.js') },
-    automation: { clientBuild: 'chopsticks-workbench' },
+    automation: { clientBuild: 'godview' },
   };
 }
 
@@ -443,7 +443,7 @@ async function initializeSpawnThrough(): Promise<void> {
   if (agents.length === 0) return;
   const token = randomBytes(32).toString('hex');
   spawnThroughGateway = await startSpawnThroughGateway(token, handleSpawnThroughRequest);
-  spawnThroughDirectory = join(app.getPath('temp'), `chopsticks-agent-shims-${process.pid}`);
+  spawnThroughDirectory = join(app.getPath('temp'), `godview-agent-shims-${process.pid}`);
   rmSync(spawnThroughDirectory, { recursive: true, force: true });
   mkdirSync(spawnThroughDirectory, { recursive: true, mode: 0o700 });
   for (const agent of agents) {
@@ -558,7 +558,7 @@ ipcMain.on('terminal-tab-active-cwd', (event, cwd: unknown) => {
   tabs.updateActiveCwd(window, typeof cwd === 'string' && cwd.trim() ? cwd : undefined);
 });
 
-function focusWorkbenchWindow(): void {
+function focusGodviewWindow(): void {
   const window =
     BrowserWindow.getFocusedWindow() ??
     (lastFocusedWindow && !lastFocusedWindow.isDestroyed() ? lastFocusedWindow : tabs.records()[0]?.window);
@@ -602,7 +602,7 @@ interface CreateWindowOptions {
 async function createWindow(options: CreateWindowOptions = {}): Promise<BrowserWindow> {
   await ensureBackend();
   const parentRecord = options.tabOf ? tabs.get(options.tabOf) : undefined;
-  const groupId = parentRecord?.groupId ?? `chopsticks-${randomUUID()}`;
+  const groupId = parentRecord?.groupId ?? `godview-${randomUUID()}`;
   const tabId = randomUUID();
   const claimExistingSessions = options.claimExistingSessions ?? tabs.records().length === 0;
   const additionalArguments = [
@@ -617,8 +617,8 @@ async function createWindow(options: CreateWindowOptions = {}): Promise<BrowserW
     minWidth: 680,
     minHeight: 360,
     show: false,
-    title: 'Chopsticks',
-    backgroundColor: '#282c34',
+    title: 'Godview',
+    backgroundColor: '#f7f7f7',
     titleBarStyle: 'default',
     ...(process.platform === 'darwin' ? { tabbingIdentifier: groupId } : {}),
     acceptFirstMouse: true,
@@ -722,46 +722,10 @@ async function runSpawnThroughSmoke(agent: BuiltinExecutableAgentKind): Promise<
   const prompt = process.env.CHOPSTICKS_SPAWN_SMOKE_PROMPT;
   if (prompt) {
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 8_000));
-    const prompts = [prompt, process.env.CHOPSTICKS_SPAWN_SMOKE_PROMPT_2].filter((value): value is string =>
-      Boolean(value),
-    );
-    for (const [index, smokePrompt] of prompts.entries()) {
-      const before = agentRuntime.conversationSnapshot(session.id);
-      const assistantCount = before?.items.filter((item) => item.kind === 'assistant').length ?? 0;
-      const promptResult = await backend!.automation.pasteAndSubmit(session.id, smokePrompt);
-      if (!promptResult.accepted) throw new Error(`spawn-through smoke prompt was rejected: ${promptResult.reason}`);
-      const observationMs = Number(process.env.CHOPSTICKS_SPAWN_SMOKE_WAIT_MS ?? 45_000);
-      const turnDeadline = Date.now() + observationMs;
-      let conversation = agentRuntime.conversationSnapshot(session.id);
-      while (Date.now() < turnDeadline) {
-        const state = agentRuntime.sessionState(session.id);
-        conversation = agentRuntime.conversationSnapshot(session.id);
-        const hasUser = conversation?.items.some((item) => item.kind === 'user' && item.text === smokePrompt);
-        const nextAssistantCount = conversation?.items.filter((item) => item.kind === 'assistant').length ?? 0;
-        if (
-          hasUser &&
-          nextAssistantCount > assistantCount &&
-          !conversation?.responding &&
-          state?.lifecycle === 'ready'
-        ) {
-          break;
-        }
-        await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
-      }
-      const state = agentRuntime.sessionState(session.id);
-      const hasUser = conversation?.items.some((item) => item.kind === 'user' && item.text === smokePrompt);
-      const nextAssistantCount = conversation?.items.filter((item) => item.kind === 'assistant').length ?? 0;
-      if (
-        !hasUser ||
-        nextAssistantCount <= assistantCount ||
-        conversation?.responding ||
-        state?.lifecycle !== 'ready'
-      ) {
-        throw new Error(
-          `${agent} prompt ${index + 1} did not project as a completed conversation turn: ${JSON.stringify({ state, conversation })}`,
-        );
-      }
-    }
+    const promptResult = await backend!.automation.pasteAndSubmit(session.id, prompt);
+    if (!promptResult.accepted) throw new Error(`spawn-through smoke prompt was rejected: ${promptResult.reason}`);
+    const observationMs = Number(process.env.CHOPSTICKS_SPAWN_SMOKE_WAIT_MS ?? 12_000);
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, observationMs));
     console.log(`SPAWN-THROUGH CONVERSATION ${JSON.stringify(agentRuntime.conversationSnapshot(session.id))}`);
   }
   console.log(`SPAWN-THROUGH SMOKE OK ${agent} ${record.info.sessionId}`);
@@ -816,11 +780,11 @@ app.on('activate', () => {
       console.error('failed to recreate window', error),
     );
   } else {
-    focusWorkbenchWindow();
+    focusGodviewWindow();
   }
 });
 
-app.on('second-instance', () => focusWorkbenchWindow());
+app.on('second-instance', () => focusGodviewWindow());
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

@@ -1,4 +1,4 @@
-import { StrictMode } from 'react';
+import { StrictMode, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   GhostteaProvider,
@@ -25,19 +25,49 @@ const terminalRuntime = createGhostteaTerminalRuntime({
   },
 });
 
-const platform = {
-  defaultShell: window.desktop.defaultShell,
-  readClipboard: window.desktop.readClipboard,
-  showContextMenu: window.desktop.showContextMenu,
-  toggleFullscreen: window.desktop.toggleFullscreen,
-  closeWindow: window.desktop.closeWindow,
-  onMenuAction: window.desktop.onMenuAction,
-};
+function Workbench() {
+  const [active, setActive] = useState(document.visibilityState !== 'hidden');
+  const platform = useMemo(
+    () => ({
+      defaultShell: window.desktop.defaultShell,
+      readClipboard: window.desktop.readClipboard,
+      showContextMenu: window.desktop.showContextMenu,
+      toggleFullscreen: window.desktop.toggleFullscreen,
+      closeWindow: window.desktop.closeWindow,
+      newTab: window.desktop.newTab,
+      selectTab: window.desktop.selectTab,
+      closeTab: window.desktop.closeTab,
+      onMenuAction: window.desktop.onMenuAction,
+    }),
+    [],
+  );
+
+  useEffect(() => {
+    const updateVisibility = (): void => setActive(document.visibilityState !== 'hidden');
+    document.addEventListener('visibilitychange', updateVisibility);
+    return () => document.removeEventListener('visibilitychange', updateVisibility);
+  }, []);
+
+  return (
+    <GhostteaWorkspace
+      platform={platform}
+      storageKey={`chopsticks:ghosttea-workspace:v2:${window.desktop.tabId}`}
+      sidebar={AgentSidebar}
+      claimExistingSessions={window.desktop.claimExistingSessions}
+      enableRemoteSessions={window.desktop.remoteSessionsEnabled}
+      active={active}
+      showTitlebar={false}
+      onSessionsChange={window.desktop.updateTabSessions}
+      onActiveSessionChange={(session) => window.desktop.updateActiveCwd(session?.cwd ?? undefined)}
+      {...(window.desktop.initialCwd ? { initialCwd: window.desktop.initialCwd } : {})}
+    />
+  );
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <GhostteaProvider runtime={terminalRuntime}>
-      <GhostteaWorkspace platform={platform} storageKey="chopsticks:ghosttea-workspace:v1" sidebar={AgentSidebar} />
+      <Workbench />
     </GhostteaProvider>
   </StrictMode>,
 );

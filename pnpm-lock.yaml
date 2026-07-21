@@ -28,6 +28,67 @@ importers:
         specifier: ^3.0.0
         version: 3.2.7(@types/debug@4.1.13)(@types/node@22.20.1)(tsx@4.23.0)
 
+  apps/godview:
+    dependencies:
+      '@parcel/watcher':
+        specifier: ^2.5.0
+        version: 2.5.6
+      '@vibecook/chopsticks-core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@vibecook/chopsticks-record':
+        specifier: workspace:*
+        version: link:../../packages/record
+      '@vibecook/chopsticks-runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
+      '@vibecook/chopsticks-workspaces':
+        specifier: workspace:*
+        version: link:../../packages/workspaces
+      '@vibecook/ghosttea':
+        specifier: link:../../../../electron-ghostty/packages/terminal-client
+        version: link:../../../../electron-ghostty/packages/terminal-client
+      '@vibecook/ghosttea-electron':
+        specifier: link:../../../../electron-ghostty/packages/terminal-electron
+        version: link:../../../../electron-ghostty/packages/terminal-electron
+      '@vibecook/ghosttea-frame':
+        specifier: link:../../../../electron-ghostty/packages/terminal-frame
+        version: link:../../../../electron-ghostty/packages/terminal-frame
+      '@vibecook/ghosttea-protocol':
+        specifier: link:../../../../electron-ghostty/packages/terminal-protocol
+        version: link:../../../../electron-ghostty/packages/terminal-protocol
+      '@vibecook/ghosttea-react':
+        specifier: link:../../../../electron-ghostty/packages/terminal-react
+        version: link:../../../../electron-ghostty/packages/terminal-react
+      react:
+        specifier: ^19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: ^19.2.7
+        version: 19.2.7(react@19.2.7)
+    devDependencies:
+      '@types/node':
+        specifier: ^22.9.0
+        version: 22.20.1
+      '@types/react':
+        specifier: ^19.2.17
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: ^19.2.3
+        version: 19.2.3(@types/react@19.2.17)
+      electron:
+        specifier: ^43.1.0
+        version: 43.1.0
+      esbuild:
+        specifier: ^0.24.0
+        version: 0.24.2
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.0
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+
   apps/workbench:
     dependencies:
       '@parcel/watcher':

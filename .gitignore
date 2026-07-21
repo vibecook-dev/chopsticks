@@ -2,5 +2,6 @@ probe/probe-*.stderr
 probe/http-received.json
 probe/marker.txt
 node_modules/
+.pnpm-store/
 dist/
 .idea/
