@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createInitialSessionState, type AgentEventEnvelope, type AgentSession } from '@vibecook/chopsticks-core';
 import { buildGrokTuiArgs, createPendingControlSession, createPreparedGrokSession } from './backend.js';
+import type { GrokObservedEvent, GrokSessionObserver } from './session-observer.js';
 
 const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -50,6 +51,29 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+function fakeObserver() {
+  const listeners = new Set<(event: GrokObservedEvent) => void>();
+  let stopped = false;
+  const observer: GrokSessionObserver = {
+    onEvent(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    onError: () => () => undefined,
+    poll: async () => undefined,
+    stop: () => {
+      stopped = true;
+    },
+  };
+  return {
+    observer,
+    emit: (event: GrokObservedEvent) => listeners.forEach((listener) => listener(event)),
+    get stopped() {
+      return stopped;
+    },
+  };
+}
+
 describe('createPendingControlSession', () => {
   it('exposes id + terminal immediately and initial state before attach', () => {
     const session = createPendingControlSession('sid', 'rt', () => new Promise<AgentSession>(() => {}));
@@ -72,7 +96,8 @@ describe('createPendingControlSession', () => {
     await tick();
     control.emit(ENVELOPE);
 
-    expect(received).toHaveLength(1);
+    expect(received).toHaveLength(2);
+    expect(received.map(({ event }) => event.type)).toEqual(['session.ready', 'session.ready']);
     expect(session.state().lifecycle).toBe('ready');
   });
 
@@ -89,6 +114,10 @@ describe('createPendingControlSession', () => {
   it('rejects prompt submission when control does not attach', async () => {
     const session = createPendingControlSession('sid', 'rt', () => Promise.reject(new Error('nope')));
     await expect(session.submitPrompt({ text: 'hi' })).resolves.toMatchObject({ status: 'rejected' });
+    expect(session.state()).toMatchObject({
+      lifecycle: 'failed',
+      diagnostics: [expect.objectContaining({ code: 'grok-control-attach-failed', message: 'nope' })],
+    });
   });
 
   it('disposes a control client that arrives after the TUI session closed', async () => {
@@ -108,6 +137,32 @@ describe('createPendingControlSession', () => {
     await tick();
     await session.dispose();
     expect(control.disposed).toBe(true);
+  });
+
+  it('is ready synchronously for a materialized control and uses the Grok log for lifecycle', async () => {
+    const control = fakeControl();
+    const observed = fakeObserver();
+    const session = createPendingControlSession('sid', 'rt', () => control.session, observed.observer);
+    const envelopes: AgentEventEnvelope[] = [];
+    session.onEvent((event) => envelopes.push(event));
+
+    expect(session.state().lifecycle).toBe('ready');
+    expect(session.observationLevel()).toBe('native-log');
+    observed.emit({
+      event: { type: 'turn.started', turnId: 'prompt-1', prompt: 'hello' },
+      promptId: 'prompt-1',
+      nativeEvent: {},
+    });
+    observed.emit({
+      event: { type: 'turn.completed', turnId: 'prompt-1', lastAssistantMessage: 'hi' },
+      promptId: 'prompt-1',
+      nativeEvent: {},
+    });
+
+    expect(envelopes.map(({ event }) => event.type)).toEqual(['turn.started', 'turn.completed']);
+    expect(session.state()).toMatchObject({ lifecycle: 'ready', activeTurn: undefined, lastAssistantMessage: 'hi' });
+    await session.dispose();
+    expect(observed.stopped).toBe(true);
   });
 });
 
@@ -164,5 +219,19 @@ describe('Grok TUI preparation', () => {
     await tick();
     await prepared.dispose();
     expect(control.disposed).toBe(true);
+  });
+
+  it('cleans up a materialized control session when preparation is never adopted', async () => {
+    const disposeUnadopted = vi.fn();
+    const prepared = createPreparedGrokSession(
+      'grok-session',
+      { command: '/opt/grok', args: ['--resume', 'grok-session'], cwd: '/work/repo' },
+      () => new Promise<AgentSession>(() => undefined),
+      disposeUnadopted,
+    );
+
+    await prepared.dispose();
+    await prepared.dispose();
+    expect(disposeUnadopted).toHaveBeenCalledOnce();
   });
 });

@@ -10,6 +10,7 @@ import {
   type AgentEventEnvelope,
   type AgentHost,
   type AgentSession,
+  type ObservationLevel,
 } from '@vibecook/chopsticks-core';
 import { createActionRecorder } from '@vibecook/chopsticks-record';
 import { createAgentRuntime } from './runtime.js';
@@ -43,6 +44,7 @@ async function makeRepo(): Promise<string> {
 function fakeProvider(
   kind: string,
   handles: Map<string, { emit: (event: AgentEventEnvelope) => void }>,
+  observation: ObservationLevel = 'structured',
 ): AgentProvider {
   let counter = 0;
   return {
@@ -58,7 +60,7 @@ function fakeProvider(
         sessionId: `${kind}-native-${n}`,
         runtimeSessionId,
         state: createInitialSessionState,
-        observationLevel: () => 'structured',
+        observationLevel: () => observation,
         onEvent(listener) {
           listeners.add(listener);
           return () => listeners.delete(listener);
@@ -136,6 +138,50 @@ function preparableProvider(
 }
 
 describe('createAgentRuntime', () => {
+  it('projects native-log assistant messages instead of filtering them as structured duplicates', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'chopsticks-runtime-native-log-'));
+    const handles = new Map<string, { emit: (event: AgentEventEnvelope) => void }>();
+    const runtime = createAgentRuntime({
+      host,
+      defaultCwd: root,
+      providers: [fakeProvider('grok-like', handles, 'native-log')],
+    });
+    const created = await runtime.createSession({ agent: 'grok-like' });
+    if ('error' in created) throw new Error('unexpected create failure');
+    const emit = handles.get(created.runtimeSessionId)!.emit;
+    const envelope = (sequence: number, event: AgentEventEnvelope['event']): AgentEventEnvelope => ({
+      sequence,
+      sessionId: created.sessionId,
+      promptId: 'prompt-1',
+      turnId: 'prompt-1',
+      timestamp: new Date().toISOString(),
+      monotonicTime: sequence,
+      source: 'native-transcript',
+      confidence: 'authoritative',
+      event,
+    });
+
+    emit(envelope(1, { type: 'turn.started', turnId: 'prompt-1', prompt: 'hello' }));
+    emit(
+      envelope(2, {
+        type: 'assistant.message',
+        messageId: 'grok-assistant:prompt-1',
+        text: 'hi',
+        final: false,
+      }),
+    );
+    emit(envelope(3, { type: 'turn.completed', turnId: 'prompt-1' }));
+
+    expect(runtime.conversationSnapshot(created.runtimeSessionId)).toMatchObject({
+      responding: false,
+      items: [
+        { kind: 'user', text: 'hello' },
+        { kind: 'assistant', markdown: 'hi', streaming: false },
+      ],
+    });
+    await runtime.dispose();
+  });
+
   it('drives different providers through one create/observe/control/exit surface', async () => {
     const root = await mkdtemp(join(tmpdir(), 'chopsticks-runtime-'));
     const one = await mkdtemp(join(tmpdir(), 'chopsticks-runtime-one-'));

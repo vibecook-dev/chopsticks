@@ -5,3 +5,4 @@
  */
 
 export * from './backend.js';
+export * from './session-observer.js';

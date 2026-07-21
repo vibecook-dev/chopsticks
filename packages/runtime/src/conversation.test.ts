@@ -66,4 +66,50 @@ describe('AgentConversationProjector', () => {
       'completed',
     ]);
   });
+
+  it('keeps terminal-authored turns as separate user and assistant rows', () => {
+    const stamper = createEnvelopeStamper();
+    const projector = new AgentConversationProjector();
+    const consume = (promptId: string, event: AgentEvent): void => {
+      projector.consume(
+        stamper.next({
+          sessionId: 'grok-session',
+          promptId,
+          turnId: promptId,
+          timestamp: '2026-07-21T00:00:00.000Z',
+          monotonicTime: 0,
+          source: 'native-transcript',
+          confidence: 'authoritative',
+          event,
+        }),
+      );
+    };
+
+    consume('prompt-1', { type: 'turn.started', turnId: 'prompt-1', prompt: 'first question' });
+    consume('prompt-1', {
+      type: 'assistant.message',
+      messageId: 'grok-assistant:prompt-1',
+      text: 'first answer',
+      final: false,
+    });
+    consume('prompt-1', { type: 'turn.completed', turnId: 'prompt-1' });
+    consume('prompt-2', { type: 'turn.started', turnId: 'prompt-2', prompt: 'second question' });
+    consume('prompt-2', {
+      type: 'assistant.message',
+      messageId: 'grok-assistant:prompt-2',
+      text: 'second answer',
+      final: false,
+    });
+    consume('prompt-2', { type: 'turn.completed', turnId: 'prompt-2' });
+
+    expect(projector.snapshot()).toMatchObject({
+      responding: false,
+      items: [
+        { kind: 'user', turnId: 'prompt-1', text: 'first question' },
+        { kind: 'assistant', turnId: 'prompt-1', markdown: 'first answer', streaming: false },
+        { kind: 'user', turnId: 'prompt-2', text: 'second question' },
+        { kind: 'assistant', turnId: 'prompt-2', markdown: 'second answer', streaming: false },
+      ],
+    });
+  });
 });

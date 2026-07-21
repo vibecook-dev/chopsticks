@@ -9,14 +9,16 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
 import { existsSync, mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { createAcpSession, createStdioAcpConnector } from '@vibecook/chopsticks-adapter-acp';
 import type { CreateAcpSessionOptions } from '@vibecook/chopsticks-adapter-acp';
 import {
   createInitialSessionState,
+  createEnvelopeStamper,
+  reduceSessionState,
   type AgentEventEnvelope,
   type AgentHost,
   type AgentSession,
@@ -26,6 +28,12 @@ import {
   type SessionRuntimeState,
   type TerminalSpec,
 } from '@vibecook/chopsticks-core';
+import {
+  createGrokSessionObserver,
+  grokUpdatesPath,
+  type GrokObservedEvent,
+  type GrokSessionObserver,
+} from './session-observer.js';
 
 export interface CreateGrokBackendOptions {
   /** Grok executable (default `grok`). */
@@ -69,7 +77,9 @@ export interface PreparedGrokSession {
 export function createPreparedGrokSession(
   sessionId: string,
   launch: TerminalSpec,
-  attach: () => Promise<AgentSession>,
+  attach: () => AgentSession | Promise<AgentSession>,
+  disposeUnadopted?: () => void | Promise<void>,
+  observe?: () => GrokSessionObserver,
 ): PreparedGrokSession {
   let adoptedRuntimeSessionId: string | undefined;
   let adoptedSession: AgentSession | undefined;
@@ -85,13 +95,14 @@ export function createPreparedGrokSession(
       }
       if (adoptedSession) return adoptedSession;
       adoptedRuntimeSessionId = runtimeSessionId;
-      adoptedSession = createPendingControlSession(sessionId, runtimeSessionId, attach);
+      adoptedSession = createPendingControlSession(sessionId, runtimeSessionId, attach, observe?.());
       return adoptedSession;
     },
     async dispose(): Promise<void> {
       if (disposed) return;
       disposed = true;
-      await adoptedSession?.dispose().catch(() => undefined);
+      if (adoptedSession) await adoptedSession.dispose().catch(() => undefined);
+      else await Promise.resolve(disposeUnadopted?.()).catch(() => undefined);
     },
   };
 }
@@ -111,31 +122,22 @@ export function buildGrokTuiArgs(
   return args;
 }
 
-/** Attach ACP control to an existing Grok leader session, retrying while the TUI registers it. */
-async function attachControl(
+/** Open ACP control through the shared leader, optionally loading an existing session. */
+async function openControl(
   executable: string,
   cwd: string,
   socketPath: string,
-  sessionId: string,
+  sessionId: string | undefined,
   opts: Pick<CreateGrokSessionOptions, 'clientCapabilities' | 'onApproval'>,
 ): Promise<AgentSession> {
   const args = ['agent', '--leader', '--leader-socket', socketPath, 'stdio'];
-  let lastErr: unknown;
-  for (let i = 0; i < 15; i++) {
-    try {
-      return await createAcpSession({
-        cwd,
-        connector: createStdioAcpConnector({ executable, args, cwd }),
-        resume: sessionId,
-        clientCapabilities: opts.clientCapabilities,
-        onApproval: opts.onApproval,
-      });
-    } catch (err) {
-      lastErr = err;
-      await new Promise((resolve) => setTimeout(resolve, 400));
-    }
-  }
-  throw lastErr instanceof Error ? lastErr : new Error('grok ACP control attach failed');
+  return createAcpSession({
+    cwd,
+    connector: createStdioAcpConnector({ executable, args, cwd }),
+    ...(sessionId ? { resume: sessionId } : {}),
+    clientCapabilities: opts.clientCapabilities,
+    onApproval: opts.onApproval,
+  });
 }
 
 /**
@@ -146,36 +148,144 @@ async function attachControl(
 export function createPendingControlSession(
   sessionId: string,
   runtimeSessionId: string,
-  attach: () => Promise<AgentSession>,
+  attach: () => AgentSession | Promise<AgentSession>,
+  observer?: GrokSessionObserver,
 ): AgentSession {
   const listeners = new Set<(event: AgentEventEnvelope) => void>();
   let control: AgentSession | undefined;
   let disposed = false;
-  const observation: ObservationLevel = 'structured';
+  // TUI conversation and lifecycle are authoritative in Grok's persisted
+  // structured log. ACP remains a control/approval side channel.
+  const observation: ObservationLevel = observer ? 'native-log' : 'structured';
+  const stamper = createEnvelopeStamper();
+  let pendingState = createInitialSessionState();
+  let unsubscribeControl: (() => void) | undefined;
+  let unsubscribeObserver: (() => void) | undefined;
+  let unsubscribeObserverError: (() => void) | undefined;
 
-  const controlReady = attach().then((acp) => {
+  function publish(envelope: AgentEventEnvelope): void {
+    pendingState = reduceSessionState(pendingState, envelope);
+    for (const listener of listeners) {
+      try {
+        listener(envelope);
+      } catch {
+        /* listener faults stay out of the pipeline */
+      }
+    }
+  }
+
+  function applyObserved(observed: GrokObservedEvent): void {
+    publish(
+      stamper.next({
+        sessionId,
+        nativeSessionId: sessionId,
+        promptId: observed.promptId,
+        turnId: observed.promptId,
+        timestamp: observed.timestamp ?? new Date().toISOString(),
+        monotonicTime: performance.now(),
+        source: observed.source ?? 'native-transcript',
+        confidence: observed.confidence ?? 'authoritative',
+        event: observed.event,
+        nativeEvent: observed.nativeEvent,
+      }),
+    );
+  }
+
+  function failControl(error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    const envelope = stamper.next({
+      sessionId,
+      nativeSessionId: sessionId,
+      timestamp: new Date().toISOString(),
+      monotonicTime: performance.now(),
+      source: 'runtime',
+      confidence: 'authoritative',
+      event: { type: 'process.exited', reason: 'crash' },
+      nativeEvent: { code: 'grok-control-attach-failed', message },
+    });
+    const reduced = reduceSessionState(pendingState, envelope);
+    const failed = {
+      ...reduced,
+      diagnostics: [
+        ...reduced.diagnostics,
+        { sequence: envelope.sequence, code: 'grok-control-attach-failed', message },
+      ],
+    };
+    pendingState = failed;
+    for (const listener of listeners) {
+      try {
+        listener(envelope);
+      } catch {
+        /* listener faults stay out of the pipeline */
+      }
+    }
+  }
+
+  function bindControl(acp: AgentSession): AgentSession | undefined {
     if (disposed) {
       void acp.dispose().catch(() => undefined);
       return undefined;
     }
     control = acp;
-    acp.onEvent((envelope) => {
-      for (const listener of listeners) {
-        try {
-          listener(envelope);
-        } catch {
-          /* listener faults stay out of the pipeline */
-        }
-      }
+    applyObserved({
+      event: { type: 'session.ready' },
+      source: 'runtime',
+      confidence: 'authoritative',
+      nativeEvent: { code: 'grok-control-attached' },
+    });
+    unsubscribeControl = acp.onEvent((envelope) => {
+      // The native log owns TUI conversation and lifecycle. ACP remains the
+      // live authority for host-side permission requests.
+      if (observer && !['permission.requested', 'permission.resolved'].includes(envelope.event.type)) return;
+      applyObserved({
+        event: envelope.event,
+        promptId: pendingState.activeTurn?.id,
+        timestamp: envelope.timestamp,
+        source: envelope.source,
+        confidence: envelope.confidence,
+        nativeEvent: envelope.nativeEvent,
+      });
     });
     return acp;
-  });
-  controlReady.catch(() => undefined);
+  }
+
+  if (observer) {
+    unsubscribeObserver = observer.onEvent(applyObserved);
+    unsubscribeObserverError = observer.onError((error) => {
+      applyObserved({
+        event: { type: 'adapter.native-event', adapter: 'grok', nativeType: 'updates-log-error' },
+        source: 'runtime',
+        confidence: 'derived',
+        nativeEvent: { message: error.message },
+      });
+    });
+    // Start after listeners are wired. The async read gives the runtime time to
+    // subscribe while still catching records written before terminal adoption.
+    void observer.poll();
+  }
+
+  let controlReady: Promise<AgentSession | undefined>;
+  try {
+    const attached = attach();
+    if (typeof (attached as Promise<AgentSession>).then === 'function') {
+      controlReady = Promise.resolve(attached)
+        .then(bindControl)
+        .catch((error: unknown) => {
+          failControl(error);
+          return undefined;
+        });
+    } else {
+      controlReady = Promise.resolve(bindControl(attached as AgentSession));
+    }
+  } catch (error) {
+    failControl(error);
+    controlReady = Promise.resolve(undefined);
+  }
 
   return {
     sessionId,
     runtimeSessionId,
-    state: (): SessionRuntimeState => control?.state() ?? createInitialSessionState(),
+    state: (): SessionRuntimeState => pendingState,
     observationLevel: () => observation,
     onEvent(listener) {
       listeners.add(listener);
@@ -189,6 +299,10 @@ export function createPendingControlSession(
     async dispose() {
       if (disposed) return;
       disposed = true;
+      unsubscribeControl?.();
+      unsubscribeObserver?.();
+      unsubscribeObserverError?.();
+      observer?.stop();
       if (control) await control.dispose().catch(() => undefined);
     },
   };
@@ -225,14 +339,24 @@ export function createGrokBackend(options: CreateGrokBackendOptions): GrokBacken
   async function prepareSession(opts: CreateGrokSessionOptions): Promise<PreparedGrokSession> {
     const { cwd, resume } = opts;
     const socketPath = await ensureLeader();
-    const sessionId = resume ?? randomUUID();
+    // Materialize the leader-owned session before returning the launch recipe.
+    // A fresh TUI does not persist its --session-id until the first prompt, so
+    // racing session/load against process startup can leave control unattached
+    // forever. ACP session/new gives us the authoritative id up front; the TUI
+    // then joins that already-real session through --resume.
+    const control = await openControl(executable, cwd, socketPath, resume, opts);
+    const sessionId = control.sessionId;
     const launch: TerminalSpec = {
       command: executable,
-      args: buildGrokTuiArgs(socketPath, sessionId, opts),
+      args: buildGrokTuiArgs(socketPath, sessionId, { ...opts, resume: sessionId }),
       cwd,
     };
-    return createPreparedGrokSession(sessionId, launch, () =>
-      attachControl(executable, cwd, socketPath, sessionId, opts),
+    return createPreparedGrokSession(
+      sessionId,
+      launch,
+      () => control,
+      () => control.dispose(),
+      () => createGrokSessionObserver(grokUpdatesPath(cwd, sessionId)),
     );
   }
 
