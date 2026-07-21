@@ -26,10 +26,12 @@
     "@vibecook/ghosttea-frame": "file:../../../../electron-ghostty/packages/terminal-frame",
     "@vibecook/ghosttea-protocol": "file:../../../../electron-ghostty/packages/terminal-protocol",
     "@vibecook/ghosttea-react": "file:../../../../electron-ghostty/packages/terminal-react",
+    "matter-js": "0.19.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
+    "@types/matter-js": "^0.20.2",
     "@types/node": "^22.9.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",

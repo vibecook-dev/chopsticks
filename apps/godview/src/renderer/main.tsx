@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
 } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { SessionSummary } from '@vibecook/ghosttea-protocol';
@@ -22,7 +23,14 @@ import {
   type GhostteaWorkspacePaneDecoration,
 } from '@vibecook/ghosttea-react/workspace';
 import { AgentSwarm, useLiveAgentViews } from './AgentSwarm.js';
+import { TweakPanel } from './TweakPanel.js';
 import type { AgentVisualStatus, LiveAgentView } from './agent-status.js';
+import {
+  DEFAULT_SWARM_PARAMETERS,
+  normalizeSwarmParameters,
+  type SwarmParameterKey,
+  type SwarmParameters,
+} from './swarm-parameters.js';
 import '@vibecook/ghosttea-react/styles.css';
 import '@vibecook/ghosttea-react/workspace.css';
 import './styles.css';
@@ -30,12 +38,22 @@ import './styles.css';
 type GodviewTheme = 'light' | 'dark';
 
 const THEME_STORAGE_KEY = 'godview:color-theme:v1';
+const PARAMETERS_STORAGE_KEY = 'godview:swarm-parameters:v1';
 
 function initialTheme(): GodviewTheme {
   try {
     return localStorage.getItem(THEME_STORAGE_KEY) === 'dark' ? 'dark' : 'light';
   } catch {
     return 'light';
+  }
+}
+
+function initialParameters(): SwarmParameters {
+  try {
+    const saved = localStorage.getItem(PARAMETERS_STORAGE_KEY);
+    return normalizeSwarmParameters(saved ? JSON.parse(saved) : undefined);
+  } catch {
+    return { ...DEFAULT_SWARM_PARAMETERS };
   }
 }
 
@@ -67,8 +85,9 @@ function WorkspaceReporter({ workspace }: { workspace: GhostteaWorkspaceContext 
 function Godview() {
   const [active, setActive] = useState(document.visibilityState !== 'hidden');
   const [theme, setTheme] = useState<GodviewTheme>(bootTheme);
+  const [parameters, setParameters] = useState<SwarmParameters>(initialParameters);
+  const [tweakPanelOpen, setTweakPanelOpen] = useState(false);
   const [workspace, setWorkspace] = useState<GhostteaWorkspaceContext>();
-  const [pendingFocus, setPendingFocus] = useState<string>();
   const [paneColors, setPaneColors] = useState<ReadonlyMap<string, string>>(() => new Map());
   const paneColorRegistry = useRef(new Map<string, string>());
   const nextPaneHue = useRef(Math.random() * 360);
@@ -109,38 +128,43 @@ function Godview() {
   useEffect(() => window.desktop.onThemeChanged(setTheme), []);
 
   useEffect(() => {
+    try {
+      localStorage.setItem(PARAMETERS_STORAGE_KEY, JSON.stringify(parameters));
+    } catch {
+      // Keep live controls usable when persistence is unavailable.
+    }
+  }, [parameters]);
+
+  useEffect(() => {
+    if (!tweakPanelOpen) return;
+    const closeOnEscape = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setTweakPanelOpen(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [tweakPanelOpen]);
+
+  useEffect(() => {
     const next = new Map<string, string>();
-    for (const session of workspace?.sessions ?? []) {
-      let color = paneColorRegistry.current.get(session.id);
+    for (const pane of workspace?.panes ?? []) {
+      let color = paneColorRegistry.current.get(pane.id);
       if (!color) {
         color = `hsl(${Math.round(nextPaneHue.current)} 72% 48%)`;
         nextPaneHue.current = (nextPaneHue.current + 137.508) % 360;
-        paneColorRegistry.current.set(session.id, color);
+        paneColorRegistry.current.set(pane.id, color);
       }
-      next.set(session.id, color);
+      next.set(pane.id, color);
     }
     setPaneColors((current) => {
       if (current.size === next.size && [...next].every(([id, color]) => current.get(id) === color)) return current;
       return next;
     });
-  }, [workspace?.sessions]);
-
-  useEffect(() => {
-    if (!workspace || !pendingFocus || !workspace.sessions.some((session) => session.id === pendingFocus)) return;
-    workspace.activateSession(pendingFocus);
-    setPendingFocus(undefined);
-  }, [pendingFocus, workspace]);
+  }, [workspace?.panes]);
 
   const selectAgent = useCallback(
     (agent: LiveAgentView): void => {
       if (!workspace) return;
-      const sessionId = agent.info.session.id;
-      if (workspace.sessions.some((session) => session.id === sessionId)) {
-        workspace.activateSession(sessionId);
-        return;
-      }
-      workspace.addSession(agent.info.session);
-      setPendingFocus(sessionId);
+      workspace.placeSession(agent.info.session);
     },
     [workspace],
   );
@@ -175,25 +199,41 @@ function Godview() {
     () => new Map(agents.map((agent) => [agent.info.session.id, agent] as const)),
     [agents],
   );
+  const agentPaneColors = useMemo(() => {
+    const linked = new Map<string, string>();
+    for (const pane of workspace?.panes ?? []) {
+      const color = paneColors.get(pane.id);
+      if (color) linked.set(pane.session.id, color);
+    }
+    return linked;
+  }, [paneColors, workspace?.panes]);
   const decoratePane = useCallback(
-    (session: SessionSummary): GhostteaWorkspacePaneDecoration => {
+    (session: SessionSummary, paneId: string): GhostteaWorkspacePaneDecoration => {
       const agent = agentsBySession.get(session.id);
       const executable = session.executable.split(/[\\/]/).pop();
       const title = session.title?.trim();
-      const label = agent
-        ? `${agent.project} · ${agent.status}`
-        : (title || executable || 'terminal');
-      const color = paneColors.get(session.id);
+      const label = agent ? `${agent.project} · ${agent.status}` : title || executable || 'terminal';
+      const color = paneColors.get(paneId);
       return { label, ...(color ? { color } : {}) };
     },
     [agentsBySession, paneColors],
   );
-  const counts = agents.reduce(
-    (current, agent) => ({ ...current, [agent.status]: current[agent.status] + 1 }),
-    { idle: 0, working: 0, waiting: 0 },
-  );
+  const counts = agents.reduce((current, agent) => ({ ...current, [agent.status]: current[agent.status] + 1 }), {
+    idle: 0,
+    working: 0,
+    waiting: 0,
+  });
+  const screenStyle = {
+    '--scanline-density': `${parameters.scanlineDensity}px`,
+    '--scanline-opacity': parameters.scanlineOpacity,
+    '--vignette-opacity': parameters.vignetteOpacity,
+  } as CSSProperties;
+  const updateParameter = useCallback((key: SwarmParameterKey, value: number): void => {
+    setParameters((current) => normalizeSwarmParameters({ ...current, [key]: value }));
+  }, []);
+
   return (
-    <div className={`godview-screen theme-${theme} platform-${window.desktop.platform}`}>
+    <div className={`godview-screen theme-${theme} platform-${window.desktop.platform}`} style={screenStyle}>
       <div className="godview-scanlines" aria-hidden="true" />
       <div className="godview-vignette" aria-hidden="true" />
       <main className="godview-app">
@@ -210,15 +250,27 @@ function Godview() {
           <div className="godview-header-actions">
             <nav className="godview-status-controls" aria-label="Agent status shortcuts">
               <button type="button" onClick={() => selectNextStatus('waiting')}>
-                WAIT {counts.waiting}<kbd>⌘1</kbd>
+                WAIT {counts.waiting}
+                <kbd>⌘1</kbd>
               </button>
               <button type="button" onClick={() => selectNextStatus('working')}>
-                WORK {counts.working}<kbd>⌘2</kbd>
+                WORK {counts.working}
+                <kbd>⌘2</kbd>
               </button>
               <button type="button" onClick={() => selectNextStatus('idle')}>
-                IDLE {counts.idle}<kbd>⌘3</kbd>
+                IDLE {counts.idle}
+                <kbd>⌘3</kbd>
               </button>
             </nav>
+            <button
+              className={`godview-tweak-toggle${tweakPanelOpen ? ' is-open' : ''}`}
+              type="button"
+              aria-controls="godview-tweak-panel"
+              aria-expanded={tweakPanelOpen}
+              onClick={() => setTweakPanelOpen((current) => !current)}
+            >
+              TUNE
+            </button>
             <button
               className="godview-theme-switch"
               type="button"
@@ -237,9 +289,23 @@ function Godview() {
           </div>
         </header>
 
+        <TweakPanel
+          open={tweakPanelOpen}
+          theme={theme}
+          parameters={parameters}
+          onClose={() => setTweakPanelOpen(false)}
+          onThemeChange={setTheme}
+          onParameterChange={updateParameter}
+          onReset={() => {
+            setTheme('light');
+            setParameters({ ...DEFAULT_SWARM_PARAMETERS });
+          }}
+        />
+
         <AgentSwarm
           agents={agents}
-          paneColors={paneColors}
+          paneColors={agentPaneColors}
+          parameters={parameters}
           activeSessionId={workspace?.activeSession?.id}
           onSelect={selectAgent}
         />

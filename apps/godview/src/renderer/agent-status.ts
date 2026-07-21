@@ -99,7 +99,7 @@ export function bubbleRadius(status: AgentVisualStatus): number {
     case 'idle':
       return 40;
     case 'working':
-      return 52;
+      return 50;
     case 'waiting':
       return 70;
   }

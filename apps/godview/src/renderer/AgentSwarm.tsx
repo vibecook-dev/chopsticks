@@ -6,8 +6,10 @@ import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
+import Matter from 'matter-js';
 import type { AgentSessionInfo, AgentStateMessage } from '../protocol.js';
-import { bubbleRadius, liveAgentView, type LiveAgentView } from './agent-status.js';
+import { liveAgentView, type LiveAgentView } from './agent-status.js';
+import { radiusForStatus, type SwarmParameters } from './swarm-parameters.js';
 
 interface AgentRecord {
   info: AgentSessionInfo;
@@ -77,23 +79,24 @@ export function useLiveAgentViews(): readonly LiveAgentView[] {
 }
 
 interface PhysicsBody {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  radius: number;
+  body: Matter.Body;
+  currentRadius: number;
   targetRadius: number;
   pointerId?: number;
   pointerStartX: number;
   pointerStartY: number;
+  dragConstraint?: Matter.Constraint;
   dragged: boolean;
 }
 
-function numberSeed(value: string): number {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) hash = Math.imul(31, hash) + value.charCodeAt(index);
-  return Math.abs(hash);
+interface PhysicsWorld {
+  engine: Matter.Engine;
+  walls: [Matter.Body, Matter.Body, Matter.Body, Matter.Body];
 }
+
+const PHYSICAL_GAP = 4;
+const DRAG_STIFFNESS = 0.2;
+const WALL_THICKNESS = 5000;
 
 function providerGlyph(agent: AgentSessionInfo['agent']): string {
   switch (agent) {
@@ -111,147 +114,155 @@ function providerGlyph(agent: AgentSessionInfo['agent']): string {
 interface AgentSwarmProps {
   agents: readonly LiveAgentView[];
   paneColors: ReadonlyMap<string, string>;
+  parameters: SwarmParameters;
   activeSessionId?: string;
   onSelect: (agent: LiveAgentView) => void;
 }
 
-export function AgentSwarm({ agents, paneColors, activeSessionId, onSelect }: AgentSwarmProps) {
+export function AgentSwarm({ agents, paneColors, parameters, activeSessionId, onSelect }: AgentSwarmProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const elementRefs = useRef(new Map<string, HTMLButtonElement>());
   const bodiesRef = useRef(new Map<string, PhysicsBody>());
+  const worldRef = useRef<PhysicsWorld | undefined>(undefined);
+  const parametersRef = useRef(parameters);
+
+  useEffect(() => {
+    parametersRef.current = parameters;
+    const world = worldRef.current;
+    if (!world) return;
+    for (const wrapper of bodiesRef.current.values()) {
+      wrapper.body.restitution = parameters.restitution;
+      wrapper.body.frictionAir = parameters.frictionAir;
+    }
+    for (const wall of world.walls) wall.restitution = parameters.restitution;
+  }, [parameters]);
 
   useEffect(() => {
     const container = containerRef.current;
-    const width = Math.max(container?.clientWidth ?? 0, 320);
-    const height = Math.max(container?.clientHeight ?? 0, 180);
+    if (!container) return;
+    let width = container.clientWidth;
+    let height = container.clientHeight;
+    const engine = Matter.Engine.create();
+    engine.gravity.x = 0;
+    engine.gravity.y = 0;
+    const wallOptions = { isStatic: true, restitution: parametersRef.current.restitution };
+    const walls: [Matter.Body, Matter.Body, Matter.Body, Matter.Body] = [
+      Matter.Bodies.rectangle(width / 2, height + WALL_THICKNESS / 2, 10000, WALL_THICKNESS, wallOptions),
+      Matter.Bodies.rectangle(width / 2, -WALL_THICKNESS / 2, 10000, WALL_THICKNESS, wallOptions),
+      Matter.Bodies.rectangle(-WALL_THICKNESS / 2, height / 2, WALL_THICKNESS, 10000, wallOptions),
+      Matter.Bodies.rectangle(width + WALL_THICKNESS / 2, height / 2, WALL_THICKNESS, 10000, wallOptions),
+    ];
+    Matter.Composite.add(engine.world, walls);
+    worldRef.current = { engine, walls };
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        width = entry.contentRect.width;
+        height = entry.contentRect.height;
+        Matter.Body.setPosition(walls[0], { x: width / 2, y: height + WALL_THICKNESS / 2 });
+        Matter.Body.setPosition(walls[1], { x: width / 2, y: -WALL_THICKNESS / 2 });
+        Matter.Body.setPosition(walls[2], { x: -WALL_THICKNESS / 2, y: height / 2 });
+        Matter.Body.setPosition(walls[3], { x: width + WALL_THICKNESS / 2, y: height / 2 });
+      }
+    });
+    resizeObserver.observe(container);
+
+    let frame = 0;
+    let previousTime = performance.now();
+    const render = (time: number): void => {
+      const delta = Math.min(1000 / 30, Math.max(1000 / 120, time - previousTime));
+      previousTime = time;
+      const currentParameters = parametersRef.current;
+      for (const wrapper of bodiesRef.current.values()) {
+        const { body } = wrapper;
+        if (!wrapper.dragConstraint) {
+          Matter.Body.applyForce(body, body.position, {
+            x: (width / 2 - body.position.x) * currentParameters.gravityPull,
+            y: (height / 2 - body.position.y) * currentParameters.gravityPull,
+          });
+        }
+        if (Math.abs(wrapper.targetRadius - wrapper.currentRadius) > 0.5) {
+          const scale = (wrapper.targetRadius + PHYSICAL_GAP) / (wrapper.currentRadius + PHYSICAL_GAP);
+          Matter.Body.scale(body, scale, scale);
+          wrapper.currentRadius = wrapper.targetRadius;
+        }
+      }
+
+      Matter.Engine.update(engine, delta);
+
+      for (const [id, wrapper] of bodiesRef.current) {
+        const element = elementRefs.current.get(id);
+        if (!element) continue;
+        const radius = wrapper.currentRadius;
+        element.style.width = `${radius * 2}px`;
+        element.style.height = `${radius * 2}px`;
+        element.style.transform = `translate3d(${wrapper.body.position.x - radius}px, ${wrapper.body.position.y - radius}px, 0)`;
+      }
+      frame = requestAnimationFrame(render);
+    };
+    frame = requestAnimationFrame(render);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      resizeObserver.disconnect();
+      bodiesRef.current.clear();
+      Matter.Engine.clear(engine);
+      Matter.Composite.clear(engine.world, false, true);
+      worldRef.current = undefined;
+    };
+  }, []);
+
+  useEffect(() => {
+    const world = worldRef.current;
+    const container = containerRef.current;
+    if (!world || !container) return;
+    const width = Math.max(container.clientWidth, 320);
+    const height = Math.max(container.clientHeight, 180);
     const ids = new Set(agents.map((agent) => agent.id));
-    for (const id of bodiesRef.current.keys()) {
-      if (!ids.has(id)) bodiesRef.current.delete(id);
+    for (const [id, wrapper] of bodiesRef.current) {
+      if (ids.has(id)) continue;
+      if (wrapper.dragConstraint) Matter.Composite.remove(world.engine.world, wrapper.dragConstraint);
+      Matter.Composite.remove(world.engine.world, wrapper.body);
+      bodiesRef.current.delete(id);
     }
     for (const agent of agents) {
-      const targetRadius = bubbleRadius(agent.status);
+      const targetRadius = radiusForStatus(parameters, agent.status);
       const existing = bodiesRef.current.get(agent.id);
       if (existing) {
         existing.targetRadius = targetRadius;
         continue;
       }
-      const seed = numberSeed(agent.id);
-      const angle = ((seed % 360) * Math.PI) / 180;
-      const spread = Math.min(width, height) * (0.12 + ((seed % 29) / 100));
+      const body = Matter.Bodies.circle(
+        width / 2 + (Math.random() - 0.5) * width * 0.5,
+        height / 2 + (Math.random() - 0.5) * height * 0.5,
+        targetRadius + PHYSICAL_GAP,
+        {
+          restitution: parameters.restitution,
+          frictionAir: parameters.frictionAir,
+          friction: 0.1,
+        },
+      );
       bodiesRef.current.set(agent.id, {
-        x: width / 2 + Math.cos(angle) * spread,
-        y: height / 2 + Math.sin(angle) * spread,
-        vx: ((seed % 17) - 8) * 0.08,
-        vy: (((seed >> 4) % 17) - 8) * 0.08,
-        radius: targetRadius,
+        body,
+        currentRadius: targetRadius,
         targetRadius,
         pointerStartX: 0,
         pointerStartY: 0,
         dragged: false,
       });
+      Matter.Composite.add(world.engine.world, body);
     }
-  }, [agents]);
-
-  useEffect(() => {
-    let frame = 0;
-    let previousTime = performance.now();
-    const render = (time: number): void => {
-      const container = containerRef.current;
-      if (!container) {
-        frame = window.requestAnimationFrame(render);
-        return;
-      }
-      const width = container.clientWidth;
-      const height = container.clientHeight;
-      const step = Math.min(2, Math.max(0.2, (time - previousTime) / 16.67));
-      previousTime = time;
-      const bodies = [...bodiesRef.current.entries()];
-
-      for (const [, body] of bodies) {
-        body.radius += (body.targetRadius - body.radius) * Math.min(1, 0.14 * step);
-        if (body.pointerId === undefined) {
-          body.vx += (width / 2 - body.x) * 0.00016 * step;
-          body.vy += (height / 2 - body.y) * 0.00016 * step;
-          const damping = 0.975 ** step;
-          body.vx *= damping;
-          body.vy *= damping;
-          body.x += body.vx * step;
-          body.y += body.vy * step;
-        }
-      }
-
-      for (let leftIndex = 0; leftIndex < bodies.length; leftIndex += 1) {
-        const left = bodies[leftIndex]![1];
-        for (let rightIndex = leftIndex + 1; rightIndex < bodies.length; rightIndex += 1) {
-          const right = bodies[rightIndex]![1];
-          const dx = right.x - left.x;
-          const dy = right.y - left.y;
-          const distance = Math.max(0.001, Math.hypot(dx, dy));
-          const minimum = left.radius + right.radius + 8;
-          if (distance >= minimum) continue;
-          const nx = dx / distance;
-          const ny = dy / distance;
-          const correction = (minimum - distance) / 2;
-          if (left.pointerId === undefined) {
-            left.x -= nx * correction;
-            left.y -= ny * correction;
-          }
-          if (right.pointerId === undefined) {
-            right.x += nx * correction;
-            right.y += ny * correction;
-          }
-          const relativeVelocity = (right.vx - left.vx) * nx + (right.vy - left.vy) * ny;
-          if (relativeVelocity < 0) {
-            const impulse = relativeVelocity * 0.45;
-            left.vx += nx * impulse;
-            left.vy += ny * impulse;
-            right.vx -= nx * impulse;
-            right.vy -= ny * impulse;
-          }
-        }
-      }
-
-      for (const [id, body] of bodies) {
-        const radius = body.radius;
-        if (body.pointerId === undefined) {
-          if (body.x < radius) {
-            body.x = radius;
-            body.vx = Math.abs(body.vx) * 0.2;
-          } else if (body.x > width - radius) {
-            body.x = width - radius;
-            body.vx = -Math.abs(body.vx) * 0.2;
-          }
-          if (body.y < radius) {
-            body.y = radius;
-            body.vy = Math.abs(body.vy) * 0.2;
-          } else if (body.y > height - radius) {
-            body.y = height - radius;
-            body.vy = -Math.abs(body.vy) * 0.2;
-          }
-        }
-        const element = elementRefs.current.get(id);
-        if (!element) continue;
-        element.style.width = `${radius * 2}px`;
-        element.style.height = `${radius * 2}px`;
-        element.style.transform = `translate3d(${body.x - radius}px, ${body.y - radius}px, 0)`;
-      }
-      frame = requestAnimationFrame(render);
-    };
-    frame = requestAnimationFrame(render);
-    return () => cancelAnimationFrame(frame);
-  }, []);
+  }, [agents, parameters.radiusIdle, parameters.radiusWaiting, parameters.radiusWorking]);
 
   const moveBody = (event: ReactPointerEvent<HTMLButtonElement>, id: string): void => {
-    const body = bodiesRef.current.get(id);
+    const wrapper = bodiesRef.current.get(id);
     const bounds = containerRef.current?.getBoundingClientRect();
-    if (!body || !bounds || body.pointerId !== event.pointerId) return;
+    if (!wrapper || !bounds || wrapper.pointerId !== event.pointerId || !wrapper.dragConstraint) return;
     const x = event.clientX - bounds.left;
     const y = event.clientY - bounds.top;
-    if (Math.hypot(x - body.pointerStartX, y - body.pointerStartY) > 4) body.dragged = true;
-    body.x = x;
-    body.y = y;
-    body.vx = 0;
-    body.vy = 0;
+    if (Math.hypot(x - wrapper.pointerStartX, y - wrapper.pointerStartY) >= 5) wrapper.dragged = true;
+    wrapper.dragConstraint.pointA.x = x;
+    wrapper.dragConstraint.pointA.y = y;
   };
 
   return (
@@ -282,38 +293,62 @@ export function AgentSwarm({ agents, paneColors, activeSessionId, onSelect }: Ag
             aria-label={`${agent.project}, ${agent.provider}, ${agent.status}: ${agent.detail}`}
             title={`${agent.project} · ${agent.provider} · ${agent.detail}`}
             onPointerDown={(event) => {
-              const body = bodiesRef.current.get(agent.id);
+              const wrapper = bodiesRef.current.get(agent.id);
+              const world = worldRef.current;
               const bounds = containerRef.current?.getBoundingClientRect();
-              if (!body || !bounds) return;
+              if (!wrapper || !world || !bounds) return;
+              const x = event.clientX - bounds.left;
+              const y = event.clientY - bounds.top;
+              if (wrapper.dragConstraint) Matter.Composite.remove(world.engine.world, wrapper.dragConstraint);
+              wrapper.dragConstraint = Matter.Constraint.create({
+                pointA: { x, y },
+                bodyB: wrapper.body,
+                pointB: { x: x - wrapper.body.position.x, y: y - wrapper.body.position.y },
+                stiffness: DRAG_STIFFNESS,
+                render: { visible: false },
+              });
+              Matter.Composite.add(world.engine.world, wrapper.dragConstraint);
               event.currentTarget.setPointerCapture(event.pointerId);
-              body.pointerId = event.pointerId;
-              body.pointerStartX = event.clientX - bounds.left;
-              body.pointerStartY = event.clientY - bounds.top;
-              body.dragged = false;
+              wrapper.pointerId = event.pointerId;
+              wrapper.pointerStartX = x;
+              wrapper.pointerStartY = y;
+              wrapper.dragged = false;
+              event.preventDefault();
             }}
             onPointerMove={(event) => moveBody(event, agent.id)}
             onPointerUp={(event) => {
-              const body = bodiesRef.current.get(agent.id);
-              if (!body) return;
+              const wrapper = bodiesRef.current.get(agent.id);
+              const world = worldRef.current;
+              if (!wrapper) return;
               moveBody(event, agent.id);
+              if (world && wrapper.dragConstraint) Matter.Composite.remove(world.engine.world, wrapper.dragConstraint);
+              delete wrapper.dragConstraint;
               if (event.currentTarget.hasPointerCapture(event.pointerId)) {
                 event.currentTarget.releasePointerCapture(event.pointerId);
               }
-              body.pointerId = undefined;
-              body.vx += (Math.random() - 0.5) * 0.6;
-              body.vy += (Math.random() - 0.5) * 0.6;
+              wrapper.pointerId = undefined;
             }}
             onPointerCancel={() => {
-              const body = bodiesRef.current.get(agent.id);
-              if (body) body.pointerId = undefined;
+              const wrapper = bodiesRef.current.get(agent.id);
+              const world = worldRef.current;
+              if (!wrapper) return;
+              if (world && wrapper.dragConstraint) Matter.Composite.remove(world.engine.world, wrapper.dragConstraint);
+              delete wrapper.dragConstraint;
+              wrapper.pointerId = undefined;
             }}
             onClick={() => {
-              const body = bodiesRef.current.get(agent.id);
-              if (body?.dragged) {
-                body.dragged = false;
+              const wrapper = bodiesRef.current.get(agent.id);
+              if (wrapper?.dragged) {
+                wrapper.dragged = false;
                 return;
               }
               onSelect(agent);
+              if (wrapper) {
+                Matter.Body.applyForce(wrapper.body, wrapper.body.position, {
+                  x: (Math.random() - 0.5) * 0.003,
+                  y: (Math.random() - 0.5) * 0.003,
+                });
+              }
             }}
           >
             <span className="agent-bubble-glyph" aria-hidden="true">
