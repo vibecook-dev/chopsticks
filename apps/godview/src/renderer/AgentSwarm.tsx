@@ -97,6 +97,77 @@ interface PhysicsWorld {
 const PHYSICAL_GAP = 4;
 const DRAG_STIFFNESS = 0.2;
 const WALL_THICKNESS = 5000;
+const SPAWN_DURATION_MS = 720;
+const SPAWN_CLEARANCE = 12;
+const SPAWN_CANDIDATES = 40;
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+
+function animateSpawn(element: HTMLButtonElement): void {
+  if (
+    typeof element.animate !== 'function' ||
+    (typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+  ) {
+    return;
+  }
+
+  const animation = element.animate(
+    [
+      { transform: 'scale(0)', opacity: 0, offset: 0, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' },
+      { transform: 'scale(1.2)', opacity: 1, offset: 0.52, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+      { transform: 'scale(0.96)', opacity: 1, offset: 0.72, easing: 'ease-out' },
+      { transform: 'scale(1.035)', opacity: 1, offset: 0.88, easing: 'ease-in-out' },
+      { transform: 'scale(1)', opacity: 1, offset: 1 },
+    ],
+    { duration: SPAWN_DURATION_MS, fill: 'both' },
+  );
+
+  void animation.finished.then(
+    () => animation.cancel(),
+    () => undefined,
+  );
+}
+
+function findSpawnPosition(
+  width: number,
+  height: number,
+  radius: number,
+  existingBodies: Iterable<PhysicsBody>,
+): Matter.Vector {
+  const bodies = [...existingBodies];
+  const center = { x: width / 2, y: height / 2 };
+  if (bodies.length === 0) return center;
+
+  const collisionRadius = radius + PHYSICAL_GAP;
+  const horizontalReach = Math.max(0, Math.min(width * 0.28, width / 2 - collisionRadius - SPAWN_CLEARANCE));
+  const verticalReach = Math.max(0, Math.min(height * 0.28, height / 2 - collisionRadius - SPAWN_CLEARANCE));
+  const phase = Math.random() * Math.PI * 2;
+  let bestPosition = center;
+  let bestClearance = Number.NEGATIVE_INFINITY;
+
+  for (let index = 0; index < SPAWN_CANDIDATES; index += 1) {
+    const progress = index === 0 ? 0 : Math.sqrt(index / (SPAWN_CANDIDATES - 1));
+    const angle = phase + index * GOLDEN_ANGLE;
+    const candidate = {
+      x: center.x + Math.cos(angle) * horizontalReach * progress,
+      y: center.y + Math.sin(angle) * verticalReach * progress,
+    };
+    let clearance = Number.POSITIVE_INFINITY;
+    for (const wrapper of bodies) {
+      const distance = Math.hypot(candidate.x - wrapper.body.position.x, candidate.y - wrapper.body.position.y);
+      clearance = Math.min(
+        clearance,
+        distance - (collisionRadius + wrapper.currentRadius + PHYSICAL_GAP + SPAWN_CLEARANCE),
+      );
+    }
+    if (clearance > bestClearance) {
+      bestPosition = candidate;
+      bestClearance = clearance;
+    }
+    if (clearance >= 0) return candidate;
+  }
+
+  return bestPosition;
+}
 
 function providerGlyph(agent: AgentSessionInfo['agent']): string {
   switch (agent) {
@@ -121,8 +192,10 @@ interface AgentSwarmProps {
 
 export function AgentSwarm({ agents, paneColors, parameters, activeSessionId, onSelect }: AgentSwarmProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const elementRefs = useRef(new Map<string, HTMLButtonElement>());
+  const elementRefs = useRef(new Map<string, HTMLDivElement>());
+  const bubbleRefs = useRef(new Map<string, HTMLButtonElement>());
   const bodiesRef = useRef(new Map<string, PhysicsBody>());
+  const spawnedIdsRef = useRef(new Set<string>());
   const worldRef = useRef<PhysicsWorld | undefined>(undefined);
   const parametersRef = useRef(parameters);
 
@@ -192,11 +265,17 @@ export function AgentSwarm({ agents, paneColors, parameters, activeSessionId, on
 
       for (const [id, wrapper] of bodiesRef.current) {
         const element = elementRefs.current.get(id);
-        if (!element) continue;
+        const bubble = bubbleRefs.current.get(id);
+        if (!element || !bubble) continue;
         const radius = wrapper.currentRadius;
         element.style.width = `${radius * 2}px`;
         element.style.height = `${radius * 2}px`;
         element.style.transform = `translate3d(${wrapper.body.position.x - radius}px, ${wrapper.body.position.y - radius}px, 0)`;
+        if (!spawnedIdsRef.current.has(id)) {
+          spawnedIdsRef.current.add(id);
+          animateSpawn(bubble);
+          element.style.visibility = '';
+        }
       }
       frame = requestAnimationFrame(render);
     };
@@ -224,6 +303,7 @@ export function AgentSwarm({ agents, paneColors, parameters, activeSessionId, on
       if (wrapper.dragConstraint) Matter.Composite.remove(world.engine.world, wrapper.dragConstraint);
       Matter.Composite.remove(world.engine.world, wrapper.body);
       bodiesRef.current.delete(id);
+      spawnedIdsRef.current.delete(id);
     }
     for (const agent of agents) {
       const targetRadius = radiusForStatus(parameters, agent.status);
@@ -232,16 +312,12 @@ export function AgentSwarm({ agents, paneColors, parameters, activeSessionId, on
         existing.targetRadius = targetRadius;
         continue;
       }
-      const body = Matter.Bodies.circle(
-        width / 2 + (Math.random() - 0.5) * width * 0.5,
-        height / 2 + (Math.random() - 0.5) * height * 0.5,
-        targetRadius + PHYSICAL_GAP,
-        {
-          restitution: parameters.restitution,
-          frictionAir: parameters.frictionAir,
-          friction: 0.1,
-        },
-      );
+      const spawnPosition = findSpawnPosition(width, height, targetRadius, bodiesRef.current.values());
+      const body = Matter.Bodies.circle(spawnPosition.x, spawnPosition.y, targetRadius + PHYSICAL_GAP, {
+        restitution: parameters.restitution,
+        frictionAir: parameters.frictionAir,
+        friction: 0.1,
+      });
       bodiesRef.current.set(agent.id, {
         body,
         currentRadius: targetRadius,
@@ -280,87 +356,101 @@ export function AgentSwarm({ agents, paneColors, parameters, activeSessionId, on
         const style = { '--agent-color': linkedColor ?? agent.color } as CSSProperties;
         const active = activeSessionId === sessionId;
         return (
-          <button
+          <div
             key={agent.id}
+            className={`agent-bubble-positioner is-${agent.status}`}
             ref={(element) => {
-              if (element) elementRefs.current.set(agent.id, element);
-              else elementRefs.current.delete(agent.id);
-            }}
-            type="button"
-            className={`agent-bubble is-${agent.status}${linkedColor ? ' is-linked' : ''}${active ? ' is-active' : ''}`}
-            style={style}
-            aria-current={active ? 'true' : undefined}
-            aria-label={`${agent.project}, ${agent.provider}, ${agent.status}: ${agent.detail}`}
-            title={`${agent.project} · ${agent.provider} · ${agent.detail}`}
-            onPointerDown={(event) => {
-              const wrapper = bodiesRef.current.get(agent.id);
-              const world = worldRef.current;
-              const bounds = containerRef.current?.getBoundingClientRect();
-              if (!wrapper || !world || !bounds) return;
-              const x = event.clientX - bounds.left;
-              const y = event.clientY - bounds.top;
-              if (wrapper.dragConstraint) Matter.Composite.remove(world.engine.world, wrapper.dragConstraint);
-              wrapper.dragConstraint = Matter.Constraint.create({
-                pointA: { x, y },
-                bodyB: wrapper.body,
-                pointB: { x: x - wrapper.body.position.x, y: y - wrapper.body.position.y },
-                stiffness: DRAG_STIFFNESS,
-                render: { visible: false },
-              });
-              Matter.Composite.add(world.engine.world, wrapper.dragConstraint);
-              event.currentTarget.setPointerCapture(event.pointerId);
-              wrapper.pointerId = event.pointerId;
-              wrapper.pointerStartX = x;
-              wrapper.pointerStartY = y;
-              wrapper.dragged = false;
-              event.preventDefault();
-            }}
-            onPointerMove={(event) => moveBody(event, agent.id)}
-            onPointerUp={(event) => {
-              const wrapper = bodiesRef.current.get(agent.id);
-              const world = worldRef.current;
-              if (!wrapper) return;
-              moveBody(event, agent.id);
-              if (world && wrapper.dragConstraint) Matter.Composite.remove(world.engine.world, wrapper.dragConstraint);
-              delete wrapper.dragConstraint;
-              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                event.currentTarget.releasePointerCapture(event.pointerId);
-              }
-              wrapper.pointerId = undefined;
-            }}
-            onPointerCancel={() => {
-              const wrapper = bodiesRef.current.get(agent.id);
-              const world = worldRef.current;
-              if (!wrapper) return;
-              if (world && wrapper.dragConstraint) Matter.Composite.remove(world.engine.world, wrapper.dragConstraint);
-              delete wrapper.dragConstraint;
-              wrapper.pointerId = undefined;
-            }}
-            onClick={() => {
-              const wrapper = bodiesRef.current.get(agent.id);
-              if (wrapper?.dragged) {
-                wrapper.dragged = false;
-                return;
-              }
-              onSelect(agent);
-              if (wrapper) {
-                Matter.Body.applyForce(wrapper.body, wrapper.body.position, {
-                  x: (Math.random() - 0.5) * 0.003,
-                  y: (Math.random() - 0.5) * 0.003,
-                });
+              if (element) {
+                elementRefs.current.set(agent.id, element);
+                if (!spawnedIdsRef.current.has(agent.id)) element.style.visibility = 'hidden';
+              } else {
+                elementRefs.current.delete(agent.id);
               }
             }}
           >
-            <span className="agent-bubble-glyph" aria-hidden="true">
-              {providerGlyph(agent.info.agent)}
-            </span>
-            <span className="agent-bubble-copy">
-              {agent.branch ? <span className="agent-bubble-branch">{agent.branch}</span> : null}
-              <strong>{agent.project}</strong>
-              <span className="agent-bubble-provider">{agent.provider}</span>
-            </span>
-            <span className="agent-bubble-status">{agent.status}</span>
-          </button>
+            <button
+              ref={(element) => {
+                if (element) bubbleRefs.current.set(agent.id, element);
+                else bubbleRefs.current.delete(agent.id);
+              }}
+              type="button"
+              className={`agent-bubble is-${agent.status}${linkedColor ? ' is-linked' : ''}${active ? ' is-active' : ''}`}
+              style={style}
+              aria-current={active ? 'true' : undefined}
+              aria-label={`${agent.project}, ${agent.provider}, ${agent.status}: ${agent.detail}`}
+              title={`${agent.project} · ${agent.provider} · ${agent.detail}`}
+              onPointerDown={(event) => {
+                const wrapper = bodiesRef.current.get(agent.id);
+                const world = worldRef.current;
+                const bounds = containerRef.current?.getBoundingClientRect();
+                if (!wrapper || !world || !bounds) return;
+                const x = event.clientX - bounds.left;
+                const y = event.clientY - bounds.top;
+                if (wrapper.dragConstraint) Matter.Composite.remove(world.engine.world, wrapper.dragConstraint);
+                wrapper.dragConstraint = Matter.Constraint.create({
+                  pointA: { x, y },
+                  bodyB: wrapper.body,
+                  pointB: { x: x - wrapper.body.position.x, y: y - wrapper.body.position.y },
+                  stiffness: DRAG_STIFFNESS,
+                  render: { visible: false },
+                });
+                Matter.Composite.add(world.engine.world, wrapper.dragConstraint);
+                event.currentTarget.setPointerCapture(event.pointerId);
+                wrapper.pointerId = event.pointerId;
+                wrapper.pointerStartX = x;
+                wrapper.pointerStartY = y;
+                wrapper.dragged = false;
+                event.preventDefault();
+              }}
+              onPointerMove={(event) => moveBody(event, agent.id)}
+              onPointerUp={(event) => {
+                const wrapper = bodiesRef.current.get(agent.id);
+                const world = worldRef.current;
+                if (!wrapper) return;
+                moveBody(event, agent.id);
+                if (world && wrapper.dragConstraint)
+                  Matter.Composite.remove(world.engine.world, wrapper.dragConstraint);
+                delete wrapper.dragConstraint;
+                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                  event.currentTarget.releasePointerCapture(event.pointerId);
+                }
+                wrapper.pointerId = undefined;
+              }}
+              onPointerCancel={() => {
+                const wrapper = bodiesRef.current.get(agent.id);
+                const world = worldRef.current;
+                if (!wrapper) return;
+                if (world && wrapper.dragConstraint)
+                  Matter.Composite.remove(world.engine.world, wrapper.dragConstraint);
+                delete wrapper.dragConstraint;
+                wrapper.pointerId = undefined;
+              }}
+              onClick={() => {
+                const wrapper = bodiesRef.current.get(agent.id);
+                if (wrapper?.dragged) {
+                  wrapper.dragged = false;
+                  return;
+                }
+                onSelect(agent);
+                if (wrapper) {
+                  Matter.Body.applyForce(wrapper.body, wrapper.body.position, {
+                    x: (Math.random() - 0.5) * 0.003,
+                    y: (Math.random() - 0.5) * 0.003,
+                  });
+                }
+              }}
+            >
+              <span className="agent-bubble-glyph" aria-hidden="true">
+                {providerGlyph(agent.info.agent)}
+              </span>
+              <span className="agent-bubble-copy">
+                {agent.branch ? <span className="agent-bubble-branch">{agent.branch}</span> : null}
+                <strong>{agent.project}</strong>
+                <span className="agent-bubble-provider">{agent.provider}</span>
+              </span>
+              <span className="agent-bubble-status">{agent.status}</span>
+            </button>
+          </div>
         );
       })}
     </section>
