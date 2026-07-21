@@ -21,6 +21,8 @@ declare global {
       closeTab: () => void;
       updateTabSessions: (sessionIds: readonly string[]) => void;
       updateActiveCwd: (cwd?: string) => void;
+      setTheme: (theme: 'light' | 'dark') => void;
+      onThemeChanged: (listener: (theme: 'light' | 'dark') => void) => () => void;
       onMenuAction: (listener: (action: TerminalMenuAction) => void) => () => void;
     };
   }

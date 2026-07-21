@@ -110,11 +110,12 @@ function providerGlyph(agent: AgentSessionInfo['agent']): string {
 
 interface AgentSwarmProps {
   agents: readonly LiveAgentView[];
+  paneColors: ReadonlyMap<string, string>;
   activeSessionId?: string;
   onSelect: (agent: LiveAgentView) => void;
 }
 
-export function AgentSwarm({ agents, activeSessionId, onSelect }: AgentSwarmProps) {
+export function AgentSwarm({ agents, paneColors, activeSessionId, onSelect }: AgentSwarmProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const elementRefs = useRef(new Map<string, HTMLButtonElement>());
   const bodiesRef = useRef(new Map<string, PhysicsBody>());
@@ -263,8 +264,10 @@ export function AgentSwarm({ agents, activeSessionId, onSelect }: AgentSwarmProp
         </div>
       ) : null}
       {agents.map((agent) => {
-        const style = { '--agent-color': agent.color } as CSSProperties;
-        const active = activeSessionId === agent.id;
+        const sessionId = agent.info.session.id;
+        const linkedColor = paneColors.get(sessionId);
+        const style = { '--agent-color': linkedColor ?? agent.color } as CSSProperties;
+        const active = activeSessionId === sessionId;
         return (
           <button
             key={agent.id}
@@ -273,8 +276,9 @@ export function AgentSwarm({ agents, activeSessionId, onSelect }: AgentSwarmProp
               else elementRefs.current.delete(agent.id);
             }}
             type="button"
-            className={`agent-bubble is-${agent.status}${active ? ' is-linked' : ''}`}
+            className={`agent-bubble is-${agent.status}${linkedColor ? ' is-linked' : ''}${active ? ' is-active' : ''}`}
             style={style}
+            aria-current={active ? 'true' : undefined}
             aria-label={`${agent.project}, ${agent.provider}, ${agent.status}: ${agent.detail}`}
             title={`${agent.project} · ${agent.provider} · ${agent.detail}`}
             onPointerDown={(event) => {

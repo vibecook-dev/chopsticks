@@ -558,6 +558,18 @@ ipcMain.on('terminal-tab-active-cwd', (event, cwd: unknown) => {
   tabs.updateActiveCwd(window, typeof cwd === 'string' && cwd.trim() ? cwd : undefined);
 });
 
+ipcMain.on('godview:set-theme', (event, value: unknown) => {
+  const source = BrowserWindow.fromWebContents(event.sender);
+  if (!source || !tabs.get(source) || (value !== 'light' && value !== 'dark')) return;
+  nativeTheme.themeSource = value;
+  const backgroundColor = value === 'dark' ? '#0a0a0a' : '#f7f7f7';
+  for (const record of tabs.records()) {
+    if (record.window.isDestroyed()) continue;
+    record.window.setBackgroundColor(backgroundColor);
+    record.window.webContents.send('godview:theme-changed', value);
+  }
+});
+
 function focusGodviewWindow(): void {
   const window =
     BrowserWindow.getFocusedWindow() ??
@@ -618,7 +630,7 @@ async function createWindow(options: CreateWindowOptions = {}): Promise<BrowserW
     minHeight: 360,
     show: false,
     title: 'Godview',
-    backgroundColor: '#f7f7f7',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0a0a0a' : '#f7f7f7',
     titleBarStyle: 'default',
     ...(process.platform === 'darwin' ? { tabbingIdentifier: groupId } : {}),
     acceptFirstMouse: true,

@@ -80,6 +80,12 @@ contextBridge.exposeInMainWorld('desktop', {
   closeTab: () => ipcRenderer.send('terminal-close-tab'),
   updateTabSessions: (sessionIds: readonly string[]) => ipcRenderer.send('terminal-tab-sessions', sessionIds),
   updateActiveCwd: (cwd?: string) => ipcRenderer.send('terminal-tab-active-cwd', cwd),
+  setTheme: (theme: 'light' | 'dark') => ipcRenderer.send('godview:set-theme', theme),
+  onThemeChanged: (listener: (theme: 'light' | 'dark') => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, theme: 'light' | 'dark'): void => listener(theme);
+    ipcRenderer.on('godview:theme-changed', handler);
+    return () => ipcRenderer.removeListener('godview:theme-changed', handler);
+  },
   onMenuAction: (listener: (action: string) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, action: string): void => listener(action);
     ipcRenderer.on('terminal-menu-action', handler);
