@@ -1,8 +1,14 @@
-import { appendFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createGrokSessionObserver, GrokUpdateNormalizer, type GrokObservedEvent } from './session-observer.js';
+import {
+  createGrokSessionObserver,
+  grokUpdatesPath,
+  GrokUpdateNormalizer,
+  latestGrokSessionId,
+  type GrokObservedEvent,
+} from './session-observer.js';
 
 const temporaryDirectories: string[] = [];
 
@@ -110,6 +116,22 @@ describe('GrokUpdateNormalizer', () => {
 });
 
 describe('createGrokSessionObserver', () => {
+  it('resolves bare --resume to the most recently updated cwd-scoped session', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'chopsticks-grok-home-'));
+    temporaryDirectories.push(home);
+    const older = grokUpdatesPath('/work/repo', 'older-session', home);
+    const newer = grokUpdatesPath('/work/repo', 'newer-session', home);
+    await mkdir(dirname(older), { recursive: true });
+    await mkdir(dirname(newer), { recursive: true });
+    await writeFile(older, '{}\n');
+    await writeFile(newer, '{}\n');
+    await utimes(older, new Date(1_000), new Date(1_000));
+    await utimes(newer, new Date(2_000), new Date(2_000));
+
+    await expect(latestGrokSessionId('/work/repo', home)).resolves.toBe('newer-session');
+    await expect(latestGrokSessionId('/other/repo', home)).resolves.toBeUndefined();
+  });
+
   it('tails appended JSONL once and waits for a complete line', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'chopsticks-grok-observer-'));
     temporaryDirectories.push(directory);
@@ -135,5 +157,77 @@ describe('createGrokSessionObserver', () => {
     expect(received).toHaveLength(firstCount);
     expect(received.filter(({ event }) => event.type === 'turn.started')).toHaveLength(2);
     expect(received.filter(({ event }) => event.type === 'turn.completed')).toHaveLength(2);
+  });
+
+  it('reads exact context usage from signals.json, retries partial rewrites, and deduplicates', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'chopsticks-grok-signals-'));
+    temporaryDirectories.push(directory);
+    const updatesPath = join(directory, 'updates.jsonl');
+    const signalsPath = join(directory, 'signals.json');
+    await writeFile(updatesPath, '');
+    await writeFile(signalsPath, '{"contextTokensUsed":');
+
+    const observer = createGrokSessionObserver(updatesPath, { pollIntervalMs: 60_000, signalsPath });
+    const received: GrokObservedEvent[] = [];
+    const errors: Error[] = [];
+    observer.onEvent((event) => received.push(event));
+    observer.onError((error) => errors.push(error));
+
+    await observer.poll();
+    expect(received).toEqual([]);
+    expect(errors).toEqual([]);
+
+    await writeFile(
+      signalsPath,
+      JSON.stringify({
+        contextWindowUsage: 3,
+        contextTokensUsed: 18_415,
+        contextWindowTokens: 500_000,
+        primaryModelId: 'grok-4.5',
+        compactionCount: 0,
+      }),
+    );
+    await observer.poll();
+    await observer.poll();
+    observer.stop();
+
+    expect(received).toEqual([
+      {
+        event: {
+          type: 'context-window.updated',
+          usedTokens: 18_415,
+          capacityTokens: 500_000,
+          modelId: 'grok-4.5',
+        },
+        source: 'native-log',
+        confidence: 'authoritative',
+        nativeEvent: expect.objectContaining({ contextWindowUsage: 3, compactionCount: 0 }),
+      },
+    ]);
+  });
+
+  it('invalidates a compacted context when the replacement measurement is temporarily absent', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'chopsticks-grok-compaction-'));
+    temporaryDirectories.push(directory);
+    const updatesPath = join(directory, 'updates.jsonl');
+    const signalsPath = join(directory, 'signals.json');
+    await writeFile(updatesPath, '');
+    await writeFile(
+      signalsPath,
+      JSON.stringify({ contextTokensUsed: 100, contextWindowTokens: 1_000, compactionCount: 0 }),
+    );
+
+    const observer = createGrokSessionObserver(updatesPath, { pollIntervalMs: 60_000, signalsPath });
+    const received: GrokObservedEvent[] = [];
+    observer.onEvent((event) => received.push(event));
+    await observer.poll();
+    await writeFile(signalsPath, JSON.stringify({ compactionCount: 1 }));
+    await observer.poll();
+    observer.stop();
+
+    expect(received.map(({ event }) => event)).toEqual([
+      { type: 'context-window.updated', usedTokens: 100, capacityTokens: 1_000, modelId: undefined },
+      { type: 'context-window.invalidated', reason: 'compacted' },
+    ]);
   });
 });

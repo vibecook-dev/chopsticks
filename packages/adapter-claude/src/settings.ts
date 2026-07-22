@@ -15,6 +15,7 @@
  */
 
 import { verifiedHookEvents, type HookEventSpec } from './registry.js';
+import type { ClaudeStatusLineConfig } from './statusline.js';
 
 export interface HttpHookHandler {
   type: 'http';
@@ -38,6 +39,7 @@ export interface HookMatcher {
 
 export interface ClaudeHookSettings {
   hooks: Record<string, HookMatcher[]>;
+  statusLine?: ClaudeStatusLineConfig;
 }
 
 export interface GenerateHookSettingsOptions {
@@ -47,6 +49,8 @@ export interface GenerateHookSettingsOptions {
   tokenEnvVar: string;
   /** Events to wire; defaults to the registry's verified set. */
   events?: readonly HookEventSpec[];
+  /** Internal multiplexer command plus presentation fields copied from the user's line. */
+  statusLine?: ClaudeStatusLineConfig;
 }
 
 /**
@@ -77,5 +81,5 @@ export function generateHookSettings(options: GenerateHookSettingsOptions): Clau
   for (const spec of events) {
     hooks[spec.event] = [{ hooks: [handlerFor(spec, options)] }];
   }
-  return { hooks };
+  return { hooks, statusLine: options.statusLine };
 }

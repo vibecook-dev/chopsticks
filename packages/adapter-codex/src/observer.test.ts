@@ -8,7 +8,7 @@ import type { Transport } from './app-server-client.js';
  * succeeds — the shape of the real 0.144.4 behaviour (a thread has no rollout
  * until its first turn produces output).
  */
-function controllable(resumeFailuresBeforeSuccess: number) {
+function controllable(resumeFailuresBeforeSuccess: number, historyResult: unknown = {}) {
   let onMsg: ((m: unknown) => void) | undefined;
   let onCls: ((i: { code: number | null; signal: string | null }) => void) | undefined;
   let resumeFails = resumeFailuresBeforeSuccess;
@@ -31,6 +31,8 @@ function controllable(resumeFailuresBeforeSuccess: number) {
           } else {
             onMsg?.({ jsonrpc: '2.0', id: msg.id, result: {} });
           }
+        } else if (msg.method === 'thread/read') {
+          onMsg?.({ jsonrpc: '2.0', id: msg.id, result: historyResult });
         } else if (msg.method === 'thread/start') {
           onMsg?.({
             jsonrpc: '2.0',
@@ -175,6 +177,55 @@ describe('createCodexObserver controller-owned bootstrap', () => {
     expect(obs.state().lifecycle).toBe('ready');
     expect(t.calls().some((c) => c.method === 'thread/start')).toBe(false);
     expect(t.calls().some((c) => c.method === 'thread/resume')).toBe(true);
+    await obs.dispose();
+  });
+
+  it('replays completed resume history to the first subscriber', async () => {
+    const t = controllable(0, {
+      thread: {
+        id: 'th-history',
+        path: '/tmp/rollout-th-history.jsonl',
+        turns: [
+          {
+            id: 'turn-history',
+            status: 'completed',
+            error: null,
+            items: [
+              {
+                type: 'userMessage',
+                id: 'user-history',
+                clientId: null,
+                content: [{ type: 'text', text: 'What did we decide?', text_elements: [] }],
+              },
+              { type: 'agentMessage', id: 'assistant-history', text: 'Use the native resume path.' },
+            ],
+          },
+        ],
+      },
+    });
+    const obs = await createCodexObserver({ transport: t.transport, threadId: 'th-history' });
+    const events: unknown[] = [];
+    obs.onEvent((envelope) => events.push(envelope.event));
+
+    expect(events).toEqual([
+      { type: 'session.started', nativeSessionId: 'th-history' },
+      { type: 'turn.started', turnId: 'turn-history', prompt: 'What did we decide?' },
+      {
+        type: 'assistant.message',
+        messageId: 'assistant-history',
+        turnId: 'turn-history',
+        text: 'Use the native resume path.',
+        final: true,
+        displayOnly: false,
+      },
+      { type: 'turn.completed', turnId: 'turn-history' },
+    ]);
+    expect(obs.state().lastAssistantMessage).toBe('Use the native resume path.');
+    expect(t.calls().find((call) => call.method === 'thread/resume')?.params).toEqual({ threadId: 'th-history' });
+    expect(t.calls().find((call) => call.method === 'thread/read')?.params).toEqual({
+      threadId: 'th-history',
+      includeTurns: true,
+    });
     await obs.dispose();
   });
 

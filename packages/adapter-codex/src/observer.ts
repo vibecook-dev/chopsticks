@@ -15,9 +15,9 @@
  *    the rollout without a model turn, so the panel can go `ready` immediately
  *    and the TUI joins via `codex resume <id> --remote`.
  *
- * Observe-from-attach: the resume returns history, but we start the reduced
- * state from `session.started` and reduce live events forward; replaying history
- * turns is a future enrichment, not needed for live observation.
+ * Observe-from-attach replays the completed turns returned by `thread/resume`
+ * before reducing live notifications. A resumed native TUI must therefore
+ * project the conversation it resumed, not appear as an empty new session.
  */
 
 import { performance } from 'node:perf_hooks';
@@ -33,6 +33,7 @@ import {
 import { AppServerClient, type Transport } from './app-server-client.js';
 import type { CodexApprovalDecision, CodexApprovalRequest } from './driver.js';
 import { CodexNotificationNormalizer } from './normalizer.js';
+import { readLastCodexContextWindow } from './rollout-context.js';
 
 const CLIENT_INFO = { name: 'chopsticks-observer', version: '0.1.3' } as const; // x-release-please-version
 
@@ -81,6 +82,8 @@ export interface CodexObserver {
   onEvent(listener: (envelope: AgentEventEnvelope) => void): () => void;
   /** Fires once a thread is picked up and its live stream is open. */
   onThread(listener: (info: CodexThreadInfo) => void): () => void;
+  /** Bind a thread discovered by a native TUI resume request. */
+  attachThread(threadId: string): Promise<void>;
   dispose(): Promise<void>;
 }
 
@@ -103,6 +106,7 @@ export async function createCodexObserver(opts: CreateCodexObserverOptions): Pro
   const observation: ObservationLevel = 'structured';
   const listeners = new Set<(e: AgentEventEnvelope) => void>();
   const threadListeners = new Set<(info: CodexThreadInfo) => void>();
+  const pendingEvents: AgentEventEnvelope[] = [];
 
   function apply(event: AgentEvent, source: AgentEventEnvelope['source'], nativeEvent?: unknown): void {
     const envelope = stamper.next({
@@ -117,12 +121,47 @@ export async function createCodexObserver(opts: CreateCodexObserverOptions): Pro
       nativeEvent,
     });
     state = reduceSessionState(state, envelope);
+    if (listeners.size === 0) pendingEvents.push(envelope);
     for (const l of listeners) {
       try {
         l(envelope);
       } catch {
         /* listener faults stay out of the pipeline */
       }
+    }
+  }
+
+  function consumeNotification(method: string, params: Record<string, unknown>, replayed = false): void {
+    const tid = str(params.threadId) ?? str(rec(params.thread)?.id);
+    if (tid && tid !== sessionId) return;
+    const norm = normalizer.normalize({ method, params });
+    if (norm.turnId) currentTurnId = norm.turnId;
+    for (const event of norm.events) {
+      const source = event.type.startsWith('context-window.') ? 'native-protocol' : 'native-hook';
+      apply(event, source, replayed ? { method, params, replayed: true } : { method, params });
+    }
+  }
+
+  function replayCompletedTurns(resumed: Record<string, unknown> | undefined): void {
+    const thread = rec(resumed?.thread);
+    const legacyTurns = Array.isArray(thread?.turns) ? thread.turns : [];
+    const page = rec(resumed?.initialTurnsPage);
+    const paginatedTurns = Array.isArray(page?.data) ? page.data : [];
+    const turns = paginatedTurns.length > 0 ? paginatedTurns : legacyTurns;
+    for (const value of turns) {
+      const turn = rec(value);
+      const turnId = str(turn?.id);
+      const status = str(turn?.status);
+      if (!turn || !turnId || status === 'inProgress') continue;
+      consumeNotification('turn/started', { threadId: sessionId, turn }, true);
+      for (const value of Array.isArray(turn.items) ? turn.items : []) {
+        const item = rec(value);
+        if (!item) continue;
+        const params = { threadId: sessionId, turnId, item };
+        consumeNotification('item/started', params, true);
+        consumeNotification('item/completed', params, true);
+      }
+      consumeNotification('turn/completed', { threadId: sessionId, turn }, true);
     }
   }
 
@@ -145,8 +184,18 @@ export async function createCodexObserver(opts: CreateCodexObserverOptions): Pro
     let delay = 200;
     while (!attached && !disposed) {
       try {
-        await client.request('thread/resume', { threadId }); // history + opens the live stream
+        const resumed = rec(await client.request('thread/resume', { threadId })); // opens the live stream
+        threadPath = str(rec(resumed?.thread)?.path) ?? threadPath;
         attached = true;
+        let history = resumed;
+        try {
+          history = rec(await client.request('thread/read', { threadId, includeTurns: true })) ?? resumed;
+          threadPath = str(rec(history?.thread)?.path) ?? threadPath;
+        } catch {
+          // History enrichment must never prevent live resume attachment.
+        }
+        apply({ type: 'session.started', nativeSessionId: threadId }, 'native-hook');
+        replayCompletedTurns(history);
       } catch {
         await new Promise((r) => setTimeout(r, delay));
         delay = Math.min(Math.floor(delay * 1.5), 2000);
@@ -156,7 +205,12 @@ export async function createCodexObserver(opts: CreateCodexObserverOptions): Pro
       attaching = false; // disposed before the thread ever materialized
       return;
     }
-    apply({ type: 'session.started', nativeSessionId: threadId }, 'native-hook');
+    if (threadPath && !state.contextWindow) {
+      const contextWindow = await readLastCodexContextWindow(threadPath);
+      if (contextWindow && !state.contextWindow) {
+        apply(contextWindow, 'native-log', { path: threadPath, bootstrap: 'rollout-token-count' });
+      }
+    }
     for (const l of threadListeners) l({ threadId, path: threadPath });
   }
 
@@ -172,11 +226,7 @@ export async function createCodexObserver(opts: CreateCodexObserverOptions): Pro
       return; // ignore everything until we've attached to a thread
     }
     // Only our thread's notifications drive state (avoid cross-thread bleed).
-    const tid = str(params?.threadId) ?? str(rec(params?.thread)?.id);
-    if (tid && tid !== sessionId) return;
-    const norm = normalizer.normalize({ method, params });
-    if (norm.turnId) currentTurnId = norm.turnId;
-    for (const event of norm.events) apply(event, 'native-hook', { method, params });
+    consumeNotification(method, params ?? {});
   });
 
   client.onServerRequest(async (method, params, id) => {
@@ -246,12 +296,20 @@ export async function createCodexObserver(opts: CreateCodexObserverOptions): Pro
     threadPath: () => threadPath,
     onEvent(listener) {
       listeners.add(listener);
+      for (const envelope of pendingEvents.splice(0)) {
+        try {
+          listener(envelope);
+        } catch {
+          // Listener faults stay out of buffered-history delivery too.
+        }
+      }
       return () => listeners.delete(listener);
     },
     onThread(listener) {
       threadListeners.add(listener);
       return () => threadListeners.delete(listener);
     },
+    attachThread: (threadId) => attach(threadId, undefined),
     async dispose() {
       disposed = true; // stop the attach retry loop if it is still running
       client.close();

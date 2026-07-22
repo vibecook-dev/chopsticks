@@ -99,4 +99,24 @@ describe('generateHookSettings', () => {
       }
     }
   });
+
+  it('adds the internal status-line command while preserving presentation fields', () => {
+    const settings = generateHookSettings({
+      ...OPTS,
+      statusLine: {
+        type: 'command',
+        command: 'node "/tmp/forwarder.mjs"',
+        padding: 2,
+        refreshInterval: 5,
+        hideVimModeIndicator: true,
+      },
+    });
+    expect(settings.statusLine).toEqual({
+      type: 'command',
+      command: 'node "/tmp/forwarder.mjs"',
+      padding: 2,
+      refreshInterval: 5,
+      hideVimModeIndicator: true,
+    });
+  });
 });

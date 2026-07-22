@@ -1,6 +1,6 @@
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { AgentEvent, AgentEventConfidence, AgentEventSource } from '@vibecook/chopsticks-core';
 import { AcpNotificationNormalizer } from '@vibecook/chopsticks-adapter-acp';
 
@@ -27,6 +27,15 @@ interface GrokUpdateRecord {
     update?: GrokUpdate;
     _meta?: GrokUpdateMeta;
   };
+}
+
+interface GrokSignals {
+  contextTokensUsed?: number;
+  contextWindowTokens?: number;
+  contextWindowUsage?: number;
+  primaryModelId?: string;
+  compactionCount?: number;
+  [key: string]: unknown;
 }
 
 export interface GrokObservedEvent {
@@ -67,6 +76,31 @@ function textContent(update: GrokUpdate): string {
  */
 export function grokUpdatesPath(cwd: string, sessionId: string, grokHome = process.env.GROK_HOME): string {
   return join(grokHome ?? join(homedir(), '.grok'), 'sessions', encodeURIComponent(cwd), sessionId, 'updates.jsonl');
+}
+
+/** Resolve Grok's cwd-scoped "most recent" resume selection before launch. */
+export async function latestGrokSessionId(cwd: string, grokHome = process.env.GROK_HOME): Promise<string | undefined> {
+  const root = join(grokHome ?? join(homedir(), '.grok'), 'sessions', encodeURIComponent(cwd));
+  let entries: string[];
+  try {
+    entries = await readdir(root);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw error;
+  }
+  const candidates = await Promise.all(
+    entries.map(async (sessionId) => {
+      try {
+        const info = await stat(join(root, sessionId, 'updates.jsonl'));
+        return { sessionId, updatedAt: info.mtimeMs };
+      } catch {
+        return undefined;
+      }
+    }),
+  );
+  return candidates
+    .filter((candidate): candidate is { sessionId: string; updatedAt: number } => candidate !== undefined)
+    .sort((a, b) => b.updatedAt - a.updatedAt)[0]?.sessionId;
 }
 
 /** Stateful translation of persisted Grok updates into stable turn/message events. */
@@ -211,7 +245,13 @@ export class GrokUpdateNormalizer {
     const notification = params as unknown as Parameters<AcpNotificationNormalizer['normalize']>[0];
     return this.acp
       .normalize(notification)
-      .events.map((event) => observed(event, this.promptId(update, params._meta) ?? this.activePromptId));
+      .events.map((event) =>
+        observed(
+          event,
+          this.promptId(update, params._meta) ?? this.activePromptId,
+          event.type.startsWith('context-window.') ? 'native-log' : 'native-transcript',
+        ),
+      );
   }
 
   private promptId(update: GrokUpdate, meta: GrokUpdateMeta | undefined): string | undefined {
@@ -252,12 +292,14 @@ export class GrokUpdateNormalizer {
 /** Incrementally tails complete JSONL records; partial final writes are retried. */
 export function createGrokSessionObserver(
   updatesPath: string,
-  options: { pollIntervalMs?: number } = {},
+  options: { pollIntervalMs?: number; signalsPath?: string } = {},
 ): GrokSessionObserver {
   const normalizer = new GrokUpdateNormalizer();
   const eventListeners = new Set<(event: GrokObservedEvent) => void>();
   const errorListeners = new Set<(error: Error) => void>();
   let offset = 0;
+  let lastSignalsMeasurement: string | undefined;
+  let lastCompactionCount: number | undefined;
   let stopped = false;
   let polling: Promise<void> | undefined;
 
@@ -272,40 +314,102 @@ export function createGrokSessionObserver(
     }
   };
 
+  const emit = (event: GrokObservedEvent): void => {
+    for (const listener of eventListeners) {
+      try {
+        listener(event);
+      } catch {
+        // One consumer cannot break observation for the others.
+      }
+    }
+  };
+
+  const pollUpdates = async (): Promise<void> => {
+    try {
+      const data = await readFile(updatesPath);
+      if (data.length < offset) offset = 0;
+      const unread = data.subarray(offset);
+      const lastNewline = unread.lastIndexOf(0x0a);
+      if (lastNewline < 0) return;
+      const complete = unread.subarray(0, lastNewline + 1).toString('utf8');
+      offset += lastNewline + 1;
+      for (const line of complete.split('\n')) {
+        if (!line.trim()) continue;
+        try {
+          for (const event of normalizer.normalize(JSON.parse(line))) emit(event);
+        } catch (error) {
+          report(new Error(`invalid Grok update record: ${error instanceof Error ? error.message : String(error)}`));
+        }
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') report(error);
+    }
+  };
+
+  const pollSignals = async (): Promise<void> => {
+    const signalsPath = options.signalsPath ?? join(dirname(updatesPath), 'signals.json');
+    try {
+      const raw = await readFile(signalsPath, 'utf8');
+      let signals: GrokSignals;
+      try {
+        signals = JSON.parse(raw) as GrokSignals;
+      } catch {
+        // Grok replaces this file in place. A partial rewrite is transient and
+        // must be retried on the next poll rather than surfaced as corruption.
+        return;
+      }
+
+      const compactionCount = signals.compactionCount;
+      const compacted =
+        typeof compactionCount === 'number' &&
+        typeof lastCompactionCount === 'number' &&
+        compactionCount > lastCompactionCount;
+      if (typeof compactionCount === 'number') lastCompactionCount = compactionCount;
+
+      const usedTokens = signals.contextTokensUsed;
+      const capacityTokens = signals.contextWindowTokens;
+      if (
+        typeof usedTokens !== 'number' ||
+        !Number.isFinite(usedTokens) ||
+        usedTokens < 0 ||
+        typeof capacityTokens !== 'number' ||
+        !Number.isFinite(capacityTokens) ||
+        capacityTokens <= 0
+      ) {
+        if (compacted) {
+          emit({
+            event: { type: 'context-window.invalidated', reason: 'compacted' },
+            source: 'native-log',
+            confidence: 'authoritative',
+            nativeEvent: signals,
+          });
+        }
+        return;
+      }
+
+      const modelId = typeof signals.primaryModelId === 'string' ? signals.primaryModelId : undefined;
+      const fingerprint = `${usedTokens}:${capacityTokens}:${modelId ?? ''}`;
+      if (fingerprint === lastSignalsMeasurement) return;
+      lastSignalsMeasurement = fingerprint;
+      emit({
+        event: { type: 'context-window.updated', usedTokens, capacityTokens, modelId },
+        source: 'native-log',
+        confidence: 'authoritative',
+        nativeEvent: signals,
+      });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') report(error);
+    }
+  };
+
   const poll = async (): Promise<void> => {
     if (stopped) return;
     if (polling) return polling;
-    polling = (async () => {
-      try {
-        const data = await readFile(updatesPath);
-        if (data.length < offset) offset = 0;
-        const unread = data.subarray(offset);
-        const lastNewline = unread.lastIndexOf(0x0a);
-        if (lastNewline < 0) return;
-        const complete = unread.subarray(0, lastNewline + 1).toString('utf8');
-        offset += lastNewline + 1;
-        for (const line of complete.split('\n')) {
-          if (!line.trim()) continue;
-          try {
-            for (const event of normalizer.normalize(JSON.parse(line))) {
-              for (const listener of eventListeners) {
-                try {
-                  listener(event);
-                } catch {
-                  // One consumer cannot break observation for the others.
-                }
-              }
-            }
-          } catch (error) {
-            report(new Error(`invalid Grok update record: ${error instanceof Error ? error.message : String(error)}`));
-          }
-        }
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') report(error);
-      }
-    })().finally(() => {
-      polling = undefined;
-    });
+    polling = Promise.all([pollUpdates(), pollSignals()])
+      .then(() => undefined)
+      .finally(() => {
+        polling = undefined;
+      });
     return polling;
   };
 

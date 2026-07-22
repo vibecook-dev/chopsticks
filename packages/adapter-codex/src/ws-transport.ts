@@ -15,7 +15,7 @@
 import net from 'node:net';
 import crypto from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Transport } from './app-server-client.js';
@@ -204,6 +204,90 @@ export function wsOverUnixTransport(socketPath: string, opts: WsUnixTransportOpt
       } catch {
         /* already gone */
       }
+    },
+  };
+}
+
+export interface UnixWebSocketTapProxy {
+  socketPath: string;
+  ready(): Promise<void>;
+  dispose(): void;
+}
+
+/**
+ * Transparent UDS proxy for a native Codex TUI connection. Bytes remain
+ * untouched; client WebSocket text frames are decoded only to discover which
+ * thread a native resume picker selected.
+ */
+export function createUnixWebSocketTapProxy(
+  upstreamPath: string,
+  onClientMessage: (message: unknown) => void,
+): UnixWebSocketTapProxy {
+  const realTmp = realpathSync(tmpdir());
+  const socketPath = join(realTmp, `cx-tap-${process.pid}-${sockCounter++}.sock`);
+  let disposed = false;
+  let resolveReady!: () => void;
+  let rejectReady!: (error: Error) => void;
+  let readySettled = false;
+  const readyPromise = new Promise<void>((resolve, reject) => {
+    resolveReady = resolve;
+    rejectReady = reject;
+  });
+  const server = net.createServer((downstream) => {
+    const upstream = net.connect(upstreamPath);
+    const decoder = new FrameDecoder();
+    let upgraded = false;
+    let requestHeaders = Buffer.alloc(0);
+
+    upstream.on('data', (chunk) => downstream.write(chunk));
+    downstream.on('data', (chunk) => {
+      upstream.write(chunk);
+      let framed = chunk;
+      if (!upgraded) {
+        requestHeaders = Buffer.concat([requestHeaders, chunk]);
+        const end = requestHeaders.indexOf('\r\n\r\n');
+        if (end < 0) return;
+        upgraded = true;
+        framed = requestHeaders.subarray(end + 4);
+        requestHeaders = Buffer.alloc(0);
+      }
+      for (const frame of decoder.feed(framed)) {
+        if (frame.opcode !== OP_TEXT && frame.opcode !== OP_BINARY) continue;
+        try {
+          onClientMessage(JSON.parse(frame.payload.toString('utf8')));
+        } catch {
+          // Non-JSON frames remain transparently forwarded.
+        }
+      }
+    });
+    const close = (): void => {
+      downstream.destroy();
+      upstream.destroy();
+    };
+    downstream.on('close', () => upstream.destroy());
+    downstream.on('error', close);
+    upstream.on('close', () => downstream.destroy());
+    upstream.on('error', close);
+  });
+  server.on('error', (error) => {
+    if (!readySettled) {
+      readySettled = true;
+      rejectReady(error);
+    }
+  });
+  server.listen(socketPath, () => {
+    readySettled = true;
+    resolveReady();
+  });
+
+  return {
+    socketPath,
+    ready: () => readyPromise,
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      server.close();
+      rmSync(socketPath, { force: true });
     },
   };
 }

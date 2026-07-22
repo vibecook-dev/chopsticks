@@ -23,7 +23,15 @@ export type ObservationLevel = 'structured' | 'native-hooks' | 'native-log' | 'w
 
 /** DESIGN §14.1 — where a normalized event came from. */
 export type AgentEventSource =
-  'native-hook' | 'native-transcript' | 'workspace' | 'process' | 'terminal-inference' | 'runtime';
+  | 'native-hook'
+  | 'native-transcript'
+  | 'native-protocol'
+  | 'native-statusline'
+  | 'native-log'
+  | 'workspace'
+  | 'process'
+  | 'terminal-inference'
+  | 'runtime';
 
 export type AgentEventConfidence = 'authoritative' | 'derived' | 'inferred';
 
@@ -238,6 +246,20 @@ export interface NativeNotificationEvent {
   notificationType?: string;
 }
 
+/** Current provider-reported context pressure, normalized to ACP's used/size model. */
+export interface ContextWindowUpdatedEvent {
+  type: 'context-window.updated';
+  usedTokens: number;
+  capacityTokens: number;
+  modelId?: string;
+}
+
+/** The previous measurement is no longer trustworthy; this never means 0% used. */
+export interface ContextWindowInvalidatedEvent {
+  type: 'context-window.invalidated';
+  reason: 'compacted' | 'history-changed' | 'model-changed' | 'provider-reset';
+}
+
 /** DESIGN ADR-008 — unrecognized native events survive normalization. */
 export interface UnknownNativeEvent {
   type: 'adapter.native-event';
@@ -271,6 +293,8 @@ export type AgentEvent =
   | ProcessStartedEvent
   | ProcessExitedEvent
   | NativeNotificationEvent
+  | ContextWindowUpdatedEvent
+  | ContextWindowInvalidatedEvent
   | UnknownNativeEvent;
 
 // ---------------------------------------------------------------------------

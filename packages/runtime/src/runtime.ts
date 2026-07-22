@@ -271,6 +271,8 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     if (extras.processId !== undefined) info.processId = extras.processId;
     const conversation = new AgentConversationProjector();
     const unsubscribe = session.onEvent((envelope) => {
+      const nativeSessionId = envelope.nativeSessionId || envelope.sessionId;
+      if (nativeSessionId && info.sessionId !== nativeSessionId) info.sessionId = nativeSessionId;
       if (!isCanonicalApplicationEvent(session, envelope)) return;
       conversation.consume(envelope);
       for (const listener of listeners) {

@@ -25,6 +25,7 @@ import {
 import { AgentSwarm, useLiveAgentViews, type AgentBubbleView, type UnassignedAgentView } from './AgentSwarm.js';
 import { TweakPanel } from './TweakPanel.js';
 import { agentColor, nextAgentForStatus, type AgentVisualStatus } from './agent-status.js';
+import { buildPaneAttachments } from './pane-attachments.js';
 import {
   DEFAULT_SWARM_PARAMETERS,
   normalizeSwarmParameters,
@@ -227,16 +228,10 @@ function Godview() {
   const agentBubbles = useMemo<readonly AgentBubbleView[]>(() => {
     return [...agents, ...unassignedAgents.filter((agent) => !agentsBySession.has(agent.session.id))];
   }, [agents, agentsBySession, unassignedAgents]);
-  const agentPaneColors = useMemo(() => {
-    const linked = new Map<string, string>();
-    for (const pane of workspace?.panes ?? []) {
-      const color = paneColors.get(pane.id);
-      if (color && (!linked.has(pane.session.id) || pane.id === workspace?.activePaneId)) {
-        linked.set(pane.session.id, color);
-      }
-    }
-    return linked;
-  }, [paneColors, workspace?.activePaneId, workspace?.panes]);
+  const paneAttachments = useMemo(
+    () => buildPaneAttachments(workspace?.panes ?? [], paneColors, workspace?.activePaneId),
+    [paneColors, workspace?.activePaneId, workspace?.panes],
+  );
   const decoratePane = useCallback(
     (session: SessionSummary, paneId: string): GhostteaWorkspacePaneDecoration => {
       const agent = agentsBySession.get(session.id);
@@ -334,7 +329,7 @@ function Godview() {
 
         <AgentSwarm
           agents={agentBubbles}
-          paneColors={agentPaneColors}
+          paneAttachments={paneAttachments}
           parameters={parameters}
           activeSessionId={workspace?.activeSession?.id}
           onSelect={selectBubble}

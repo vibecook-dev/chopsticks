@@ -31,6 +31,7 @@ import {
 import {
   createGrokSessionObserver,
   grokUpdatesPath,
+  latestGrokSessionId,
   type GrokObservedEvent,
   type GrokSessionObserver,
 } from './session-observer.js';
@@ -54,6 +55,8 @@ export interface GrokBackend {
 export interface CreateGrokSessionOptions {
   cwd: string;
   resume?: string;
+  /** Resolve and resume Grok's most recently updated session for this cwd. */
+  resumeLatest?: boolean;
   /** Model id passed to the native Grok TUI. */
   model?: string;
   /** Grok permission mode. Kept open because the CLI's modes evolve. */
@@ -162,6 +165,7 @@ export function createPendingControlSession(
   let unsubscribeControl: (() => void) | undefined;
   let unsubscribeObserver: (() => void) | undefined;
   let unsubscribeObserverError: (() => void) | undefined;
+  let protocolContextAvailable = false;
 
   function publish(envelope: AgentEventEnvelope): void {
     pendingState = reduceSessionState(pendingState, envelope);
@@ -175,6 +179,13 @@ export function createPendingControlSession(
   }
 
   function applyObserved(observed: GrokObservedEvent): void {
+    if (
+      protocolContextAvailable &&
+      observed.source === 'native-log' &&
+      observed.event.type.startsWith('context-window.')
+    ) {
+      return;
+    }
     publish(
       stamper.next({
         sessionId,
@@ -235,8 +246,15 @@ export function createPendingControlSession(
     });
     unsubscribeControl = acp.onEvent((envelope) => {
       // The native log owns TUI conversation and lifecycle. ACP remains the
-      // live authority for host-side permission requests.
-      if (observer && !['permission.requested', 'permission.resolved'].includes(envelope.event.type)) return;
+      // live authority for host-side permissions and standard context usage.
+      const allowedWithObserver = [
+        'permission.requested',
+        'permission.resolved',
+        'context-window.updated',
+        'context-window.invalidated',
+      ];
+      if (observer && !allowedWithObserver.includes(envelope.event.type)) return;
+      if (envelope.event.type.startsWith('context-window.')) protocolContextAvailable = true;
       applyObserved({
         event: envelope.event,
         promptId: pendingState.activeTurn?.id,
@@ -337,13 +355,15 @@ export function createGrokBackend(options: CreateGrokBackendOptions): GrokBacken
   }
 
   async function prepareSession(opts: CreateGrokSessionOptions): Promise<PreparedGrokSession> {
-    const { cwd, resume } = opts;
+    const { cwd } = opts;
     const socketPath = await ensureLeader();
     // Materialize the leader-owned session before returning the launch recipe.
     // A fresh TUI does not persist its --session-id until the first prompt, so
     // racing session/load against process startup can leave control unattached
     // forever. ACP session/new gives us the authoritative id up front; the TUI
     // then joins that already-real session through --resume.
+    const resume = opts.resume ?? (opts.resumeLatest ? await latestGrokSessionId(cwd) : undefined);
+    if (opts.resumeLatest && !resume) throw new Error(`no Grok session is available to resume in ${cwd}`);
     const control = await openControl(executable, cwd, socketPath, resume, opts);
     const sessionId = control.sessionId;
     const launch: TerminalSpec = {

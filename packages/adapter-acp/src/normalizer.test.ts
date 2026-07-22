@@ -121,6 +121,12 @@ describe('AcpNotificationNormalizer', () => {
     expect(r.events).toEqual([]);
   });
 
+  it('maps usage_update to the provider-neutral context window event', () => {
+    const n = new AcpNotificationNormalizer();
+    const r = n.normalize(note({ sessionUpdate: 'usage_update', used: 53_000, size: 200_000 }));
+    expect(r.events).toEqual([{ type: 'context-window.updated', usedTokens: 53_000, capacityTokens: 200_000 }]);
+  });
+
   it('retains unmodeled kinds (available_commands_update) as native-events (ADR-008)', () => {
     const n = new AcpNotificationNormalizer();
     const r = n.normalize(note({ sessionUpdate: 'available_commands_update', availableCommands: [] }));

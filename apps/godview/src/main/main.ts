@@ -211,6 +211,12 @@ const agentRuntime: AgentRuntime = createBuiltinAgentRuntime({
   onError: (error) => process.stderr.write(`[main] agent runtime: ${error.message}\n`),
 });
 agentRuntime.onEvent((runtimeSessionId) => {
+  const runtimeInfo = agentRuntime.sessionInfo(runtimeSessionId);
+  const record = agentRecords.get(runtimeSessionId);
+  if (runtimeInfo && record && record.info.sessionId !== runtimeInfo.sessionId) {
+    record.info = { ...record.info, sessionId: runtimeInfo.sessionId };
+    broadcast('chopsticks:agent-session', record.info);
+  }
   dirtyAgentStates.add(runtimeSessionId);
   scheduleAgentStateFlush();
 });
@@ -224,6 +230,7 @@ function serializeState(state: SessionRuntimeState): SerializedSessionState {
     permissions: [...state.permissions.values()],
     subagents: [...state.subagents.values()],
     tasks: [...state.tasks.values()],
+    contextWindow: state.contextWindow,
     lastAssistantMessage: state.lastAssistantMessage,
     exit: state.exit,
     counters: state.counters,
@@ -702,8 +709,15 @@ async function runSpawnThroughSmoke(agent: BuiltinExecutableAgentKind): Promise<
     rows: 30,
     persistence: 'terminate-with-app',
   });
-  const submitted = await backend!.automation.pasteAndSubmit(session.id, agent);
+  const launchCommand = process.env.CHOPSTICKS_SPAWN_SMOKE_COMMAND ?? agent;
+  const submitted = await backend!.automation.pasteAndSubmit(session.id, launchCommand);
   if (!submitted.accepted) throw new Error(`spawn-through smoke input was rejected: ${submitted.reason}`);
+  const pickerDelayMs = Number(process.env.CHOPSTICKS_SPAWN_SMOKE_PICKER_ACCEPT_MS ?? 0);
+  if (pickerDelayMs > 0) {
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, pickerDelayMs));
+    const accepted = await backend!.automation.pasteAndSubmit(session.id, '');
+    if (!accepted.accepted) throw new Error(`spawn-through smoke picker input was rejected: ${accepted.reason}`);
+  }
   const deadline = Date.now() + 30_000;
   let lifecycle: string | undefined;
   while (Date.now() < deadline) {
@@ -721,13 +735,57 @@ async function runSpawnThroughSmoke(agent: BuiltinExecutableAgentKind): Promise<
   if (lifecycle === 'failed' || lifecycle === 'exited') {
     throw new Error(`${agent} entered terminal lifecycle ${lifecycle}`);
   }
+  if (process.env.CHOPSTICKS_SPAWN_SMOKE_REQUIRE_HISTORY === '1') {
+    const conversation = agentRuntime.conversationSnapshot(session.id);
+    const hasUser = conversation?.items.some((item) => item.kind === 'user');
+    const hasAssistant = conversation?.items.some((item) => item.kind === 'assistant');
+    if (!hasUser || !hasAssistant) {
+      throw new Error(`${agent} resumed but did not project its existing conversation history`);
+    }
+  }
   const prompt = process.env.CHOPSTICKS_SPAWN_SMOKE_PROMPT;
   if (prompt) {
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 8_000));
-    const promptResult = await backend!.automation.pasteAndSubmit(session.id, prompt);
-    if (!promptResult.accepted) throw new Error(`spawn-through smoke prompt was rejected: ${promptResult.reason}`);
-    const observationMs = Number(process.env.CHOPSTICKS_SPAWN_SMOKE_WAIT_MS ?? 12_000);
-    await new Promise((resolveDelay) => setTimeout(resolveDelay, observationMs));
+    const prompts = [prompt, process.env.CHOPSTICKS_SPAWN_SMOKE_PROMPT_2].filter((value): value is string =>
+      Boolean(value),
+    );
+    for (const [index, smokePrompt] of prompts.entries()) {
+      const before = agentRuntime.conversationSnapshot(session.id);
+      const assistantCount = before?.items.filter((item) => item.kind === 'assistant').length ?? 0;
+      const promptResult = await backend!.automation.pasteAndSubmit(session.id, smokePrompt);
+      if (!promptResult.accepted) throw new Error(`spawn-through smoke prompt was rejected: ${promptResult.reason}`);
+      const observationMs = Number(process.env.CHOPSTICKS_SPAWN_SMOKE_WAIT_MS ?? 45_000);
+      const turnDeadline = Date.now() + observationMs;
+      let conversation = agentRuntime.conversationSnapshot(session.id);
+      while (Date.now() < turnDeadline) {
+        const state = agentRuntime.sessionState(session.id);
+        conversation = agentRuntime.conversationSnapshot(session.id);
+        const hasUser = conversation?.items.some((item) => item.kind === 'user' && item.text === smokePrompt);
+        const nextAssistantCount = conversation?.items.filter((item) => item.kind === 'assistant').length ?? 0;
+        if (
+          hasUser &&
+          nextAssistantCount > assistantCount &&
+          !conversation?.responding &&
+          state?.lifecycle === 'ready'
+        ) {
+          break;
+        }
+        await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+      }
+      const state = agentRuntime.sessionState(session.id);
+      const hasUser = conversation?.items.some((item) => item.kind === 'user' && item.text === smokePrompt);
+      const nextAssistantCount = conversation?.items.filter((item) => item.kind === 'assistant').length ?? 0;
+      if (
+        !hasUser ||
+        nextAssistantCount <= assistantCount ||
+        conversation?.responding ||
+        state?.lifecycle !== 'ready'
+      ) {
+        throw new Error(
+          `${agent} prompt ${index + 1} did not project as a completed conversation turn: ${JSON.stringify({ state, conversation })}`,
+        );
+      }
+    }
     console.log(`SPAWN-THROUGH CONVERSATION ${JSON.stringify(agentRuntime.conversationSnapshot(session.id))}`);
   }
   console.log(`SPAWN-THROUGH SMOKE OK ${agent} ${record.info.sessionId}`);

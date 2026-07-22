@@ -45,6 +45,21 @@ describe('createHookBridge', () => {
     expect(Date.parse(events[0].receivedAt)).toBeGreaterThan(0);
   });
 
+  it('routes authenticated status-line payloads separately from hooks', async () => {
+    const { bridge: b } = await startBridge();
+    const hooks: NativeHookEnvelope[] = [];
+    const statuses: NativeHookEnvelope[] = [];
+    b.onEvent((event) => hooks.push(event));
+    b.onStatusLine((event) => statuses.push(event));
+    const payload = { session_id: OWNED_SESSION, context_window: { context_window_size: 200_000 } };
+
+    const res = await post(b.statusLineEndpoint(), b.token, JSON.stringify(payload));
+    expect(res.status).toBe(200);
+    expect(hooks).toEqual([]);
+    expect(statuses).toHaveLength(1);
+    expect(statuses[0].body).toEqual(payload);
+  });
+
   it('rejects a missing or wrong bearer token with 401 and emits nothing', async () => {
     const { bridge: b, events, errors } = await startBridge();
     const payload = JSON.stringify(fakeClaudeHookPayload('Stop', { session_id: OWNED_SESSION }));

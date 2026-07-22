@@ -152,6 +152,7 @@ describe('createAgentRuntime', () => {
     const envelope = (sequence: number, event: AgentEventEnvelope['event']): AgentEventEnvelope => ({
       sequence,
       sessionId: created.sessionId,
+      nativeSessionId: 'selected-native-session',
       promptId: 'prompt-1',
       turnId: 'prompt-1',
       timestamp: new Date().toISOString(),
@@ -179,6 +180,7 @@ describe('createAgentRuntime', () => {
         { kind: 'assistant', markdown: 'hi', streaming: false },
       ],
     });
+    expect(runtime.sessionInfo(created.runtimeSessionId)?.sessionId).toBe('selected-native-session');
     await runtime.dispose();
   });
 

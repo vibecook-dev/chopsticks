@@ -37,6 +37,7 @@ import { ClaudeHookNormalizer, type ClaudeHookPayload } from './normalizer.js';
 import { prepareClaudeSession, cleanupClaudeSession, type PreparedClaudeSession } from './prepare.js';
 import { createPromptInjector, type PromptInjector } from './prompt.js';
 import { assistantMessageEvent, createTranscriptObserver, type TranscriptObserver } from './transcript-observer.js';
+import { claudeContextWindowEvent } from './statusline.js';
 
 const TOKEN_ENV_VAR = 'CHOPSTICKS_HOOK_TOKEN';
 
@@ -60,6 +61,8 @@ export interface CreateClaudeSessionOptions {
    * transcript and id — HOOK-SURFACE-FINDINGS §6). Omit to start fresh.
    */
   resume?: string;
+  /** Preserve Claude's native resume picker/continue selection after launch. */
+  resumeInvocation?: string[];
   /** Observer fallback cadence; hook envelopes are the primary poll signal. */
   transcriptPollIntervalMs?: number;
 }
@@ -95,13 +98,21 @@ export interface PreparedClaudeTuiSession {
 export async function prepareClaudeTuiSession(
   options: PrepareClaudeTuiSessionOptions,
 ): Promise<PreparedClaudeTuiSession> {
+  if (options.resume && options.resumeInvocation) {
+    throw new Error('Claude preparation accepts resume or resumeInvocation, not both');
+  }
   // Session id first: the bridge must be able to enforce its allow-list from
   // the instant it starts listening, with no window where the closure could
   // dereference a not-yet-prepared session. On resume the id is the session
   // being resumed (it keeps its own id); otherwise mint a fresh one.
   const sessionId = options.resume ?? randomUUID();
+  let selectedSessionId = options.resume;
   const bridge: HookBridge = createHookBridge({
-    allowSession: (id) => id === sessionId,
+    allowSession: (id) => {
+      if (!options.resumeInvocation) return id === sessionId;
+      selectedSessionId ??= id;
+      return id === selectedSessionId;
+    },
   });
   await bridge.start();
 
@@ -110,16 +121,18 @@ export async function prepareClaudeTuiSession(
       cwd: options.cwd,
       sessionId,
       resume: options.resume,
+      resumeInvocation: options.resumeInvocation,
       title: options.title,
       executable: options.executable,
       permissionMode: options.permissionMode,
       model: options.model,
       endpoint: bridge.endpoint(),
+      statusLineEndpoint: bridge.statusLineEndpoint(),
       tokenEnvVar: TOKEN_ENV_VAR,
       token: bridge.token,
     });
 
-    return createPreparedClaudeSession(options, bridge, prepared);
+    return createPreparedClaudeSession(options, bridge, prepared, () => selectedSessionId ?? prepared.sessionId);
   } catch (err) {
     await bridge.dispose();
     throw err;
@@ -130,6 +143,7 @@ function createPreparedClaudeSession(
   options: PrepareClaudeTuiSessionOptions,
   bridge: HookBridge,
   prepared: PreparedClaudeSession,
+  nativeSessionId: () => string = () => prepared.sessionId,
 ): PreparedClaudeTuiSession {
   const normalizer = new ClaudeHookNormalizer();
   const stamper = createEnvelopeStamper();
@@ -162,8 +176,8 @@ function createPreparedClaudeSession(
     },
   ): void {
     const envelope = stamper.next({
-      sessionId: prepared.sessionId,
-      nativeSessionId: prepared.sessionId,
+      sessionId: nativeSessionId(),
+      nativeSessionId: nativeSessionId(),
       promptId: meta.promptId,
       turnId: meta.turnId,
       timestamp: meta.timestamp,
@@ -235,6 +249,26 @@ function createPreparedClaudeSession(
     void observer?.notifyActivity();
   });
 
+  bridge.onStatusLine((statusEnvelope) => {
+    const event = claudeContextWindowEvent(statusEnvelope.body);
+    if (!event) return;
+    const current = state.contextWindow;
+    if (event.type === 'context-window.invalidated') {
+      if (!current) return;
+    } else if (
+      current?.usedTokens === event.usedTokens &&
+      current.capacityTokens === event.capacityTokens &&
+      current.modelId === event.modelId
+    ) {
+      return;
+    }
+    apply(event, {
+      source: 'native-statusline',
+      timestamp: statusEnvelope.receivedAt,
+      native: statusEnvelope.body,
+    });
+  });
+
   async function dispose(): Promise<void> {
     if (disposed) return;
     disposed = true;
@@ -255,7 +289,9 @@ function createPreparedClaudeSession(
       if (adoptedSession) return adoptedSession;
       adoptedRuntimeSessionId = runtimeSessionId;
       adoptedSession = {
-        sessionId: prepared.sessionId,
+        get sessionId() {
+          return nativeSessionId();
+        },
         runtimeSessionId,
         state: () => state,
         observationLevel: () => observation,
@@ -284,6 +320,7 @@ export async function createClaudeSession(options: CreateClaudeSessionOptions): 
     permissionMode: options.permissionMode,
     model: options.model,
     resume: options.resume,
+    resumeInvocation: options.resumeInvocation,
     transcriptPollIntervalMs: options.transcriptPollIntervalMs,
     automate: options.ports.automate,
   });

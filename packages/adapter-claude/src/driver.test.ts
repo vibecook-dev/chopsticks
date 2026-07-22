@@ -64,7 +64,16 @@ async function startSession() {
     expect(res.status).toBe(200);
   };
 
-  return { session, prepared: prepared!, automations, events, hook };
+  const statusLine = async (fields: Record<string, unknown>) => {
+    const res = await fetch(prepared!.env.CHOPSTICKS_STATUSLINE_ENDPOINT, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ session_id: session.sessionId, ...fields }),
+    });
+    expect(res.status).toBe(200);
+  };
+
+  return { session, prepared: prepared!, automations, events, hook, statusLine };
 }
 
 describe('createClaudeSession (full loop, test-as-Claude)', () => {
@@ -226,6 +235,35 @@ describe('createClaudeSession (full loop, test-as-Claude)', () => {
     expect(session.state().lastAssistantMessage).toBe('authoritative answer');
   });
 
+  it('tracks Claude context from status-line JSON and invalidates it after compaction', async () => {
+    const { session, events, statusLine } = await startSession();
+    await statusLine({
+      model: { id: 'claude-fable-5', display_name: 'Fable 5' },
+      context_window: {
+        context_window_size: 200_000,
+        current_usage: {
+          input_tokens: 8_500,
+          output_tokens: 9_999,
+          cache_creation_input_tokens: 5_000,
+          cache_read_input_tokens: 2_000,
+        },
+      },
+    });
+
+    expect(session.state().contextWindow).toMatchObject({
+      usedTokens: 15_500,
+      capacityTokens: 200_000,
+      usedPercent: 7.75,
+      modelId: 'claude-fable-5',
+      source: 'native-statusline',
+    });
+    expect(events.filter(({ event }) => event.type === 'context-window.updated')).toHaveLength(1);
+
+    await statusLine({ context_window: { context_window_size: 200_000, current_usage: null } });
+    expect(session.state().contextWindow).toBeUndefined();
+    expect(events.at(-1)?.event).toEqual({ type: 'context-window.invalidated', reason: 'provider-reset' });
+  });
+
   it('dispose tears down the bridge and removes the generated settings', async () => {
     const { session, prepared, hook } = await startSession();
     await hook('SessionStart', {});
@@ -269,5 +307,36 @@ describe('createClaudeSession (full loop, test-as-Claude)', () => {
     });
     expect(res.status).toBe(200);
     expect(session.observationLevel()).toBe('native-hooks');
+  });
+
+  it('keeps the native resume picker and adopts the session selected after launch', async () => {
+    const selectedId = '64a61b19-f4d8-4f96-ba56-07024b470899';
+    const prepared = await prepareClaudeTuiSession({
+      cwd: '/tmp',
+      resumeInvocation: ['--resume'],
+      automate: async () => ({ accepted: true }),
+    });
+    expect(prepared.launch.args[0]).toBe('--resume');
+    expect(prepared.launch.args).not.toContain('--session-id');
+    const provisionalId = prepared.sessionId;
+    const session = await prepared.adopt('resume-picker-pane');
+    expect(session.sessionId).toBe(provisionalId);
+
+    const settings = JSON.parse(readFileSync(prepared.launch.settingsPath, 'utf8')) as {
+      hooks: Record<string, Array<{ hooks: Array<{ url?: string }> }>>;
+    };
+    const endpoint = settings.hooks.UserPromptSubmit[0].hooks[0].url!;
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${prepared.launch.env.CHOPSTICKS_HOOK_TOKEN}`,
+      },
+      body: JSON.stringify({ session_id: selectedId, cwd: '/tmp', hook_event_name: 'SessionStart' }),
+    });
+    expect(response.status).toBe(200);
+    expect(session.sessionId).toBe(selectedId);
+    expect(session.state().lifecycle).toBe('ready');
+    await session.dispose();
   });
 });

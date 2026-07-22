@@ -22,8 +22,11 @@
  * - Reasoning notifications become presence events plus the protocol-designated
  *   summary stream. Raw thought text is never copied into core events; it remains
  *   available only on the envelope's native payload.
+ * - `thread/tokenUsage/updated` maps current `last.totalTokens` (never the
+ *   cumulative session total) and the effective model window onto the core's
+ *   ACP-style context-window event. Compaction invalidates the prior value.
  * - Pure infra/account/UI notifications (see AMBIENT) are NOT agent semantics
- *   and are dropped. Everything else unmodeled — token usage and sub-stream
+ *   and are dropped. Everything else unmodeled — sub-stream
  *   deltas — is RETAINED as `adapter.native-event` (ADR-008), never silently lost.
  *
  * Stateful by necessity (delta accumulation, the deferred-turn join) — one
@@ -68,6 +71,7 @@ const AMBIENT = new Set<string>([
 ]);
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
+const num = (v: unknown): number | undefined => (typeof v === 'number' ? v : undefined);
 const rec = (v: unknown): Record<string, unknown> | undefined =>
   v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined;
 
@@ -323,13 +327,38 @@ export class CodexNotificationNormalizer {
         break;
       }
 
+      case 'thread/tokenUsage/updated': {
+        const usage = rec(p.tokenUsage);
+        const last = rec(usage?.last);
+        const usedTokens = num(last?.totalTokens);
+        const capacityTokens = num(usage?.modelContextWindow);
+        if (usedTokens !== undefined && capacityTokens !== undefined) {
+          events.push({ type: 'context-window.updated', usedTokens, capacityTokens });
+        } else if (usage && usage.modelContextWindow === null) {
+          events.push({ type: 'context-window.invalidated', reason: 'provider-reset' });
+        } else {
+          // Older/incomplete payloads remain inspectable rather than being
+          // mistaken for a zero-token context.
+          events.push({ type: 'adapter.native-event', adapter: 'codex', nativeType: method });
+        }
+        break;
+      }
+
+      case 'thread/compacted':
+        events.push({ type: 'context-window.invalidated', reason: 'compacted' });
+        break;
+
+      case 'model/rerouted':
+        events.push({ type: 'context-window.invalidated', reason: 'model-changed' });
+        break;
+
       case 'error':
         events.push({ type: 'notification', message: str(p.message), notificationType: 'error' });
         break;
 
       default:
         if (AMBIENT.has(method)) break; // infra / account / UI churn — not agent semantics
-        // Session-relevant but unmodeled (token usage, sub-streams):
+        // Session-relevant but unmodeled (sub-streams and future methods):
         // retain per ADR-008 so nothing is silently dropped.
         events.push({ type: 'adapter.native-event', adapter: 'codex', nativeType: method });
         break;

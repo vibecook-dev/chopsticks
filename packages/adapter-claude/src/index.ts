@@ -12,5 +12,6 @@ export * from './detection.js';
 export * from './settings.js';
 export * from './prepare.js';
 export * from './transcript-observer.js';
+export * from './statusline.js';
 export * from './prompt.js';
 export * from './driver.js';

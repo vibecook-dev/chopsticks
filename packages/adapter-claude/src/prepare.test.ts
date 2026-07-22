@@ -1,9 +1,23 @@
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanupClaudeSession, prepareClaudeSession, type PreparedClaudeSession } from './prepare.js';
 import { generateHookSettings } from './settings.js';
+
+function runStatusLine(command: string, input: string, env: Record<string, string>): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, { shell: true, env: { ...process.env, ...env }, stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => (stdout += String(chunk)));
+    child.stderr.on('data', (chunk) => (stderr += String(chunk)));
+    child.once('error', reject);
+    child.once('close', (code) => (code === 0 ? resolve(stdout) : reject(new Error(stderr || `exit ${code}`))));
+    child.stdin.end(input);
+  });
+}
 
 const BASE = {
   cwd: '/work/repo',
@@ -116,5 +130,61 @@ describe('prepareClaudeSession', () => {
     expect(p.args).not.toContain('--session-id');
     // Settings still attach on resume (the hook bridge follows a resumed session).
     expect(p.args).toContain('--settings');
+  });
+
+  it('preserves a native resume picker invocation without forcing --session-id', async () => {
+    const p = await prepare({ resumeInvocation: ['--resume'] });
+    expect(p.args[0]).toBe('--resume');
+    expect(p.args).not.toContain('--session-id');
+    expect(p.args).toEqual(expect.arrayContaining(['--settings', p.settingsPath]));
+  });
+
+  it('multiplexes context telemetry while preserving the existing status-line output and presentation', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'prepare-statusline-'));
+    const delegatePath = join(dir, 'delegate.mjs');
+    writeFileSync(
+      delegatePath,
+      "let input=''; for await (const chunk of process.stdin) input += chunk; console.log('original:' + JSON.parse(input).session_id);",
+    );
+    const delegate = `node ${JSON.stringify(delegatePath)}`;
+    const p = await prepare({
+      settingsDir: dir,
+      statusLineEndpoint: 'http://127.0.0.1:1/statusline',
+      existingStatusLine: {
+        type: 'command',
+        command: delegate,
+        padding: 2,
+        refreshInterval: 3,
+        hideVimModeIndicator: true,
+      },
+    });
+    const settings = JSON.parse(readFileSync(p.settingsPath, 'utf8')) as {
+      statusLine: {
+        type: string;
+        command: string;
+        padding?: number;
+        refreshInterval?: number;
+        hideVimModeIndicator?: boolean;
+      };
+    };
+
+    expect(p.statusLineForwarderPath).toBeDefined();
+    expect(existsSync(p.statusLineForwarderPath!)).toBe(true);
+    expect(settings.statusLine).toMatchObject({
+      type: 'command',
+      padding: 2,
+      refreshInterval: 3,
+      hideVimModeIndicator: true,
+    });
+    expect(settings.statusLine.command).not.toContain(delegate);
+    expect(p.env).toMatchObject({
+      CHOPSTICKS_STATUSLINE_ENDPOINT: 'http://127.0.0.1:1/statusline',
+      CHOPSTICKS_STATUSLINE_DELEGATE: delegate,
+    });
+    expect(readFileSync(p.statusLineForwarderPath!, 'utf8')).not.toContain(BASE.token);
+
+    await expect(
+      runStatusLine(settings.statusLine.command, JSON.stringify({ session_id: 'session-42' }), p.env),
+    ).resolves.toBe('original:session-42\n');
   });
 });

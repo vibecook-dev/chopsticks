@@ -598,6 +598,34 @@ kbd {
     0 0 18px color-mix(in srgb, var(--agent-color) 46%, transparent);
 }
 
+.agent-bubble-mirror-rings {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.agent-bubble-mirror-rings i {
+  position: absolute;
+  border: 1px solid;
+  border-radius: 50%;
+  opacity: 0.9;
+}
+
+.agent-bubble-context-fill {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 0;
+  max-height: 100%;
+  background: var(--agent-color);
+  opacity: 0.13;
+  pointer-events: none;
+  transition: height 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 .agent-bubble-glyph {
   position: absolute;
   top: 42%;
@@ -697,6 +725,20 @@ kbd {
   letter-spacing: 0.08em;
   opacity: 0.48;
   text-transform: uppercase;
+  pointer-events: none;
+}
+
+.agent-bubble-context {
+  position: absolute;
+  right: 0;
+  bottom: 15px;
+  left: 0;
+  z-index: 2;
+  color: currentColor;
+  font-size: 6px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  opacity: 0.62;
   pointer-events: none;
 }
 

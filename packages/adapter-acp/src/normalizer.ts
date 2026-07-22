@@ -28,7 +28,9 @@
  * - `tool_call_update`     → tool.completed / tool.failed on terminal status;
  *                            intermediate pending/in_progress updates are covered
  *                            by tool.started and dropped.
- * - everything else (plan*, *_update, usage) → adapter.native-event (ADR-008:
+ * - `usage_update`          → context-window.updated using ACP's required
+ *                            current-used and effective-size token values.
+ * - everything else (plan*, *_update) → adapter.native-event (ADR-008:
  *                            session-relevant but unmodeled is retained, never
  *                            silently lost).
  *
@@ -157,10 +159,18 @@ export class AcpNotificationNormalizer {
         break;
       }
 
+      case 'usage_update':
+        events.push({
+          type: 'context-window.updated',
+          usedTokens: update.used,
+          capacityTokens: update.size,
+        });
+        break;
+
       default:
         // plan / plan_update / plan_removed / available_commands_update /
         // current_mode_update / config_option_update / session_info_update /
-        // usage_update / any future kind — retained, semantics not invented.
+        // any future kind — retained, semantics not invented.
         events.push({ type: 'adapter.native-event', adapter: 'acp', nativeType: kind });
         break;
     }

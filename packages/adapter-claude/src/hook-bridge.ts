@@ -24,6 +24,8 @@ export interface NativeHookEnvelope {
   body: Record<string, unknown>;
 }
 
+export type NativeStatusLineEnvelope = NativeHookEnvelope;
+
 export interface HookBridgeOptions {
   /** Explicit session allow-list; events for other sessions get 403. */
   allowSession: (sessionId: string) => boolean;
@@ -37,8 +39,11 @@ export interface HookBridge {
   readonly token: string;
   /** http://127.0.0.1:<port>/hooks — available after start(). */
   endpoint(): string;
+  /** Authenticated status-line telemetry endpoint on the same loopback server. */
+  statusLineEndpoint(): string;
   start(): Promise<void>;
   onEvent(listener: (envelope: NativeHookEnvelope) => void): () => void;
+  onStatusLine(listener: (envelope: NativeStatusLineEnvelope) => void): () => void;
   dispose(): Promise<void>;
 }
 
@@ -56,6 +61,7 @@ export function createHookBridge(options: HookBridgeOptions): HookBridge {
   const token = options.token ?? randomUUID();
   const maxBody = options.maxBodyBytes ?? DEFAULT_MAX_BODY;
   const listeners = new Set<(e: NativeHookEnvelope) => void>();
+  const statusLineListeners = new Set<(e: NativeStatusLineEnvelope) => void>();
   let server: Server | null = null;
   let port = 0;
 
@@ -71,6 +77,13 @@ export function createHookBridge(options: HookBridgeOptions): HookBridge {
   }
 
   function handle(req: IncomingMessage, res: ServerResponse): void {
+    const targetListeners =
+      req.url === '/statusline' ? statusLineListeners : req.url === '/hooks' ? listeners : undefined;
+    if (!targetListeners) {
+      res.writeHead(404, { 'content-type': 'application/json' });
+      res.end('{}');
+      return;
+    }
     if (!tokenMatches(req.headers.authorization, token)) {
       reject(res, 401, 'auth', 'bad or missing bearer token');
       return;
@@ -120,7 +133,7 @@ export function createHookBridge(options: HookBridgeOptions): HookBridge {
         receivedAt: new Date().toISOString(),
         body,
       };
-      for (const listener of listeners) {
+      for (const listener of targetListeners) {
         try {
           listener(envelope);
         } catch {
@@ -133,6 +146,7 @@ export function createHookBridge(options: HookBridgeOptions): HookBridge {
   return {
     token,
     endpoint: () => `http://${HOST}:${port}/hooks`,
+    statusLineEndpoint: () => `http://${HOST}:${port}/statusline`,
 
     start(): Promise<void> {
       if (server) return Promise.resolve();
@@ -153,9 +167,14 @@ export function createHookBridge(options: HookBridgeOptions): HookBridge {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
+    onStatusLine(listener) {
+      statusLineListeners.add(listener);
+      return () => statusLineListeners.delete(listener);
+    },
 
     dispose(): Promise<void> {
       listeners.clear();
+      statusLineListeners.clear();
       const s = server;
       server = null;
       if (!s) return Promise.resolve();

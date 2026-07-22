@@ -144,7 +144,9 @@ export async function createAcpSession(options: CreateAcpSessionOptions): Promis
         // Track the running assistant text so turn.completed can seal
         // lastAssistantMessage (ACP has no per-message `final` marker).
         if (event.type === 'assistant.message') turnAssistantText = event.text;
-        apply(event, 'native-hook', { nativeEvent: params });
+        apply(event, event.type === 'context-window.updated' ? 'native-protocol' : 'native-hook', {
+          nativeEvent: params,
+        });
       }
     },
     async requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {

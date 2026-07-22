@@ -4,6 +4,7 @@ import type {
   AdoptPreparedSessionResult,
   AgentRuntime,
   BuiltinExecutableAgentKind,
+  CreateAgentSessionOptions,
   PreparedAgentSessionInfo,
 } from '@vibecook/chopsticks-runtime';
 
@@ -54,6 +55,49 @@ function positivePid(value: number): boolean {
   return Number.isSafeInteger(value) && value > 0;
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+type ParsedInvocation = Pick<CreateAgentSessionOptions, 'resume' | 'agentOptions'>;
+
+/** Translate only argv forms whose semantics adapters can preserve exactly. */
+export function parseSpawnThroughInvocation(
+  agent: BuiltinExecutableAgentKind,
+  argv: readonly string[],
+): ParsedInvocation | { error: string } {
+  if (argv.length === 0) return {};
+
+  if (agent === 'claude') {
+    if ((argv[0] === '--continue' || argv[0] === '-c') && argv.length === 1) {
+      return { agentOptions: { resumeInvocation: [...argv] } };
+    }
+    if ((argv[0] === '--resume' || argv[0] === '-r') && argv.length <= 2) {
+      const selection = argv[1];
+      return selection && UUID.test(selection)
+        ? { resume: selection }
+        : { agentOptions: { resumeInvocation: [...argv] } };
+    }
+  }
+
+  if (agent === 'codex' && argv[0] === 'resume') {
+    if (argv.some((argument) => argument === '--remote' || argument === '--remote-auth-token-env')) {
+      return { error: 'Codex remote transport arguments are owned by Chopsticks' };
+    }
+    if (argv.length === 2 && UUID.test(argv[1]!)) return { resume: argv[1] };
+    return { agentOptions: { resumeInvocation: [...argv] } };
+  }
+
+  if (agent === 'grok') {
+    if ((argv[0] === '--continue' || argv[0] === '-c') && argv.length === 1) {
+      return { agentOptions: { resumeLatest: true } };
+    }
+    if ((argv[0] === '--resume' || argv[0] === '-r') && argv.length <= 2) {
+      return argv[1] ? { resume: argv[1] } : { agentOptions: { resumeLatest: true } };
+    }
+  }
+
+  return { error: 'custom arguments are not spawn-through compatible' };
+}
+
 export function matchingTerminalSession(
   sessions: readonly SessionSummary[],
   request: Pick<SpawnThroughLaunchRequest, 'pid' | 'parentPid'>,
@@ -74,17 +118,17 @@ export async function prepareSpawnThroughLaunch(
   if (!request.cwd || !Array.isArray(request.argv) || request.argv.some((argument) => typeof argument !== 'string')) {
     return { action: 'fallback', reason: 'invalid launch request' };
   }
-  // Adapter preparation owns the complete vendor argv. Until adapters expose a
-  // merge contract, custom arguments must fall through unchanged rather than
-  // being silently dropped or combined into an invalid recipe.
-  if (request.argv.length > 0) {
-    return { action: 'fallback', reason: 'custom arguments are not spawn-through compatible' };
-  }
+  const invocation = parseSpawnThroughInvocation(request.agent, request.argv);
+  if ('error' in invocation) return { action: 'fallback', reason: invocation.error };
 
   const session = matchingTerminalSession(await dependencies.listSessions(), request);
   if (!session) return { action: 'fallback', reason: 'containing Ghosttea terminal was not found' };
 
-  const prepared = await dependencies.runtime.prepareSession({ agent: request.agent, cwd: request.cwd });
+  const prepared = await dependencies.runtime.prepareSession({
+    agent: request.agent,
+    cwd: request.cwd,
+    ...invocation,
+  });
   if ('error' in prepared) return { action: 'fallback', reason: prepared.error.message };
 
   const adopted = await dependencies.runtime.adoptPrepared(prepared.preparationId, {

@@ -42,6 +42,7 @@ export function createBuiltinProviders(options: BuiltinProviderOptions = {}): Ag
           executable: resolved.claude,
           permissionMode: launch?.permissionMode,
           model: launch?.model,
+          resumeInvocation: launch?.resumeInvocation,
           ports: {
             spawn: (prepared) => host.spawnTerminal(prepared),
             automate: host.automateTerminal,
@@ -57,6 +58,7 @@ export function createBuiltinProviders(options: BuiltinProviderOptions = {}): Ag
           executable: resolved.claude,
           permissionMode: launch?.permissionMode,
           model: launch?.model,
+          resumeInvocation: launch?.resumeInvocation,
           automate: host.automateTerminal,
         });
         const { command, args, cwd: launchCwd, env } = prepared.launch;
@@ -81,6 +83,7 @@ export function createBuiltinProviders(options: BuiltinProviderOptions = {}): Ag
           sandbox: launch?.sandbox,
           approvalPolicy: launch?.approvalPolicy,
           onApproval: launch?.onApproval,
+          resumeInvocation: launch?.resumeInvocation,
         });
       },
       async prepareSession({ cwd, resume, host, agentOptions }) {
@@ -94,6 +97,7 @@ export function createBuiltinProviders(options: BuiltinProviderOptions = {}): Ag
           sandbox: launch?.sandbox,
           approvalPolicy: launch?.approvalPolicy,
           onApproval: launch?.onApproval,
+          resumeInvocation: launch?.resumeInvocation,
         });
       },
     },
@@ -125,6 +129,7 @@ export function createBuiltinProviders(options: BuiltinProviderOptions = {}): Ag
           model: launch?.model,
           permissionMode: launch?.permissionMode,
           sandbox: launch?.sandbox,
+          resumeLatest: launch?.resumeLatest,
           clientCapabilities: launch?.clientCapabilities,
           onApproval: launch?.onApproval,
         });
@@ -138,6 +143,7 @@ export function createBuiltinProviders(options: BuiltinProviderOptions = {}): Ag
           model: launch?.model,
           permissionMode: launch?.permissionMode,
           sandbox: launch?.sandbox,
+          resumeLatest: launch?.resumeLatest,
           clientCapabilities: launch?.clientCapabilities,
           onApproval: launch?.onApproval,
         });

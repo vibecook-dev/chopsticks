@@ -1,5 +1,10 @@
 import type { SessionSummary } from '@vibecook/ghosttea-protocol';
-import type { ObservationLevel, PromptReceipt as CorePromptReceipt, ToolPresentation } from '@vibecook/chopsticks-core';
+import type {
+  ContextWindowRuntimeState,
+  ObservationLevel,
+  PromptReceipt as CorePromptReceipt,
+  ToolPresentation,
+} from '@vibecook/chopsticks-core';
 import type {
   AgentConversationSnapshot,
   AgentSessionInfo as RuntimeAgentSessionInfo,
@@ -53,6 +58,7 @@ export interface SerializedSessionState {
   permissions: { requestId: string; toolCallId?: string; tool?: string }[];
   subagents: { subagentId: string; agentType?: string }[];
   tasks: { taskId: string; description?: string }[];
+  contextWindow?: ContextWindowRuntimeState;
   lastAssistantMessage?: string;
   exit?: { exitCode?: number; signal?: string; reason?: string };
   counters: { toolsCompleted: number; toolsFailed: number; unknownEvents: number };

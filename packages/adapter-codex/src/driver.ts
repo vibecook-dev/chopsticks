@@ -120,7 +120,10 @@ export async function createCodexSession(options: CreateCodexSessionOptions): Pr
     }
     const norm = normalizer.normalize({ method, params });
     if (norm.turnId) currentTurnId = norm.turnId;
-    for (const event of norm.events) apply(event, 'native-hook', { method, params });
+    for (const event of norm.events) {
+      const source = event.type.startsWith('context-window.') ? 'native-protocol' : 'native-hook';
+      apply(event, source, { method, params });
+    }
   });
 
   client.onServerRequest(async (method, params, id) => {

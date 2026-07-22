@@ -29,11 +29,13 @@ export interface ClaudeAgentOptions {
   permissionMode?: string;
   /** Claude model alias or full model id. */
   model?: string;
+  /** Native resume/continue argv retained when the CLI must choose identity interactively. */
+  resumeInvocation?: string[];
 }
 
 export type CodexAgentOptions = Pick<
   CreateCodexTuiSessionOptions,
-  'model' | 'sandbox' | 'approvalPolicy' | 'onApproval'
+  'model' | 'sandbox' | 'approvalPolicy' | 'onApproval' | 'resumeInvocation'
 >;
 
 export type AcpAgentOptions = Omit<CreateAcpSessionOptions, 'cwd' | 'resume' | 'connector'> & {

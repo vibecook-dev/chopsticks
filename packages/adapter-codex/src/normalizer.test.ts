@@ -53,7 +53,15 @@ const CAPTURE: CodexServerNotification[] = [
   },
   {
     method: 'thread/tokenUsage/updated',
-    params: { threadId: THREAD, turnId: TURN, tokenUsage: { total: { totalTokens: 13505 } } },
+    params: {
+      threadId: THREAD,
+      turnId: TURN,
+      tokenUsage: {
+        total: { totalTokens: 5_000_000 },
+        last: { totalTokens: 50_000 },
+        modelContextWindow: 200_000,
+      },
+    },
   },
   { method: 'account/rateLimits/updated', params: {} }, // ambient
   {
@@ -96,12 +104,24 @@ describe('CodexNotificationNormalizer', () => {
     expect(completed[0]).toMatchObject({ turnId: TURN });
   });
 
-  it('retains unmodeled-but-relevant notifications and drops pure infra', () => {
-    // token usage has no home in the union → retained (ADR-008), not dropped.
+  it('maps current token usage, retains incomplete payloads, and drops pure infra', () => {
     const tokens = new CodexNotificationNormalizer().normalize(CAPTURE[9]!);
-    expect(tokens.events).toEqual([
-      { type: 'adapter.native-event', adapter: 'codex', nativeType: 'thread/tokenUsage/updated' },
-    ]);
+    expect(tokens.events).toEqual([{ type: 'context-window.updated', usedTokens: 50_000, capacityTokens: 200_000 }]);
+
+    // The cumulative five-million total is deliberately ignored. An older
+    // payload without current usage/window is retained, never treated as 0%.
+    expect(
+      new CodexNotificationNormalizer().normalize({
+        method: 'thread/tokenUsage/updated',
+        params: { tokenUsage: { total: { totalTokens: 5_000_000 } } },
+      }).events,
+    ).toEqual([{ type: 'adapter.native-event', adapter: 'codex', nativeType: 'thread/tokenUsage/updated' }]);
+    expect(
+      new CodexNotificationNormalizer().normalize({
+        method: 'thread/tokenUsage/updated',
+        params: { tokenUsage: { total: {}, last: { totalTokens: 10 }, modelContextWindow: null } },
+      }).events,
+    ).toEqual([{ type: 'context-window.invalidated', reason: 'provider-reset' }]);
 
     // pure infra/account/UI churn → dropped entirely.
     for (const m of [
@@ -112,6 +132,16 @@ describe('CodexNotificationNormalizer', () => {
     ]) {
       expect(new CodexNotificationNormalizer().normalize({ method: m, params: {} }).events).toEqual([]);
     }
+  });
+
+  it('invalidates context after compaction or model rerouting', () => {
+    const n = new CodexNotificationNormalizer();
+    expect(n.normalize({ method: 'thread/compacted', params: {} }).events).toEqual([
+      { type: 'context-window.invalidated', reason: 'compacted' },
+    ]);
+    expect(n.normalize({ method: 'model/rerouted', params: {} }).events).toEqual([
+      { type: 'context-window.invalidated', reason: 'model-changed' },
+    ]);
   });
 
   it('surfaces the userMessage clientId for injection confirmation', () => {
@@ -198,6 +228,7 @@ describe('CodexNotificationNormalizer', () => {
     expect(state.lifecycle).toBe('ready');
     expect(state.activeTurn).toBeUndefined();
     expect(state.lastAssistantMessage).toBe('pong');
-    expect(state.counters.unknownEvents).toBeGreaterThanOrEqual(1); // the retained tokenUsage
+    expect(state.contextWindow?.usedPercent).toBe(25);
+    expect(state.counters.unknownEvents).toBe(0);
   });
 });

@@ -164,6 +164,38 @@ describe('createPendingControlSession', () => {
     await session.dispose();
     expect(observed.stopped).toBe(true);
   });
+
+  it('prefers standard ACP context usage over the native signals fallback', async () => {
+    const control = fakeControl();
+    const observed = fakeObserver();
+    const session = createPendingControlSession('sid', 'rt', () => control.session, observed.observer);
+
+    observed.emit({
+      event: { type: 'context-window.updated', usedTokens: 10, capacityTokens: 100, modelId: 'fallback' },
+      source: 'native-log',
+      confidence: 'authoritative',
+      nativeEvent: {},
+    });
+    control.emit({
+      ...ENVELOPE,
+      source: 'native-protocol',
+      event: { type: 'context-window.updated', usedTokens: 40, capacityTokens: 100, modelId: 'protocol' },
+    });
+    observed.emit({
+      event: { type: 'context-window.updated', usedTokens: 50, capacityTokens: 100, modelId: 'fallback' },
+      source: 'native-log',
+      confidence: 'authoritative',
+      nativeEvent: {},
+    });
+
+    expect(session.state().contextWindow).toMatchObject({
+      usedTokens: 40,
+      capacityTokens: 100,
+      modelId: 'protocol',
+      source: 'native-protocol',
+    });
+    await session.dispose();
+  });
 });
 
 describe('buildGrokTuiArgs', () => {

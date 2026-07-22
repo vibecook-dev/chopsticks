@@ -19,6 +19,7 @@
  * best-effort `confirmed` (the structured driver has deterministic receipts).
  */
 
+import { randomUUID } from 'node:crypto';
 import type {
   AgentEventEnvelope,
   AgentHost,
@@ -31,7 +32,7 @@ import type {
 } from '@vibecook/chopsticks-core';
 import { createCodexObserver } from './observer.js';
 import type { CodexApprovalDecision, CodexApprovalRequest } from './driver.js';
-import { spawnAppServer } from './ws-transport.js';
+import { createUnixWebSocketTapProxy, spawnAppServer, type UnixWebSocketTapProxy } from './ws-transport.js';
 import { wsOverUnixTransport } from './ws-transport.js';
 
 export interface CreateCodexTuiSessionOptions extends AgentTuiSessionOptions {
@@ -45,6 +46,8 @@ export interface CreateCodexTuiSessionOptions extends AgentTuiSessionOptions {
   approvalPolicy?: 'never' | 'on-request' | 'untrusted';
   /** Decide structured approval requests from the controller-owned app-server connection. Default: deny. */
   onApproval?: (req: CodexApprovalRequest) => CodexApprovalDecision | Promise<CodexApprovalDecision>;
+  /** Preserve a native `codex resume ...` selection flow on the private app-server. */
+  resumeInvocation?: string[];
 }
 
 /** A Codex native-TUI session — {@link AgentSession} plus the rollout path. */
@@ -62,6 +65,9 @@ export interface PreparedCodexTuiSession {
 
 /** Prepare the private app-server, owned thread, and native TUI recipe without spawning the TUI. */
 export async function prepareCodexTuiSession(opts: CreateCodexTuiSessionOptions): Promise<PreparedCodexTuiSession> {
+  if (opts.resume && opts.resumeInvocation) {
+    throw new Error('Codex preparation accepts resume or resumeInvocation, not both');
+  }
   const executable = opts.executable ?? 'codex';
   const host: AgentHost = opts.host;
 
@@ -76,28 +82,32 @@ export async function prepareCodexTuiSession(opts: CreateCodexTuiSessionOptions)
   // Observer first: own or resume the thread so sessionId + ready state exist
   // before the TUI process is even spawned.
   let observer: Awaited<ReturnType<typeof createCodexObserver>>;
+  let resumeTap: UnixWebSocketTapProxy | undefined;
   try {
     observer = await createCodexObserver({
       transport: wsOverUnixTransport(server.socketPath),
       selectThread: opts.selectThread,
       onApproval: opts.onApproval,
-      ...(opts.resume
-        ? { threadId: opts.resume }
-        : {
-            start: {
-              cwd: opts.cwd,
-              model: opts.model,
-              sandbox: opts.sandbox,
-              approvalPolicy: opts.approvalPolicy,
-            },
-          }),
+      ...(opts.resumeInvocation
+        ? {}
+        : opts.resume
+          ? { threadId: opts.resume }
+          : {
+              start: {
+                cwd: opts.cwd,
+                model: opts.model,
+                sandbox: opts.sandbox,
+                approvalPolicy: opts.approvalPolicy,
+              },
+            }),
     });
   } catch (err) {
     server.dispose();
     throw err;
   }
 
-  const threadId = observer.sessionId;
+  const provisionalSessionId = `codex-pending-${randomUUID()}`;
+  const threadId = observer.sessionId ?? (opts.resumeInvocation ? provisionalSessionId : undefined);
   if (!threadId) {
     await observer.dispose().catch(() => undefined);
     server.dispose();
@@ -106,8 +116,26 @@ export async function prepareCodexTuiSession(opts: CreateCodexTuiSessionOptions)
 
   // Always join the owned/resumed thread — never bare `--remote` (that creates
   // a second, unmaterialized thread on first keystroke).
-  const remoteAddr = `unix://${server.socketPath}`;
-  const args = ['resume', threadId, '--remote', remoteAddr];
+  if (opts.resumeInvocation) {
+    resumeTap = createUnixWebSocketTapProxy(server.socketPath, (message) => {
+      const request = message as { method?: unknown; params?: { threadId?: unknown } };
+      if (request.method === 'thread/resume' && typeof request.params?.threadId === 'string') {
+        void observer.attachThread(request.params.threadId);
+      }
+    });
+    try {
+      await resumeTap.ready();
+    } catch (error) {
+      resumeTap.dispose();
+      await observer.dispose().catch(() => undefined);
+      server.dispose();
+      throw error;
+    }
+  }
+  const remoteAddr = `unix://${resumeTap?.socketPath ?? server.socketPath}`;
+  const args = opts.resumeInvocation
+    ? [...opts.resumeInvocation, '--remote', remoteAddr]
+    : ['resume', threadId, '--remote', remoteAddr];
 
   const launch: TerminalSpec = { command: executable, args, cwd: opts.cwd };
   let adoptedRuntimeSessionId: string | undefined;
@@ -117,11 +145,12 @@ export async function prepareCodexTuiSession(opts: CreateCodexTuiSessionOptions)
     if (disposed) return;
     disposed = true;
     await observer.dispose().catch(() => undefined);
+    resumeTap?.dispose();
     server.dispose();
   }
 
   return {
-    sessionId: observer.sessionId ?? threadId,
+    sessionId: threadId,
     launch,
     async adopt(runtimeSessionId): Promise<CodexTuiSession> {
       if (disposed) throw new Error('prepared Codex session is disposed');

@@ -14,7 +14,14 @@
  * PTY and lease facts, not agent events.
  */
 
-import type { AgentEvent, AgentEventEnvelope, ProcessExitReason, ToolPresentation } from './events.js';
+import type {
+  AgentEvent,
+  AgentEventConfidence,
+  AgentEventEnvelope,
+  AgentEventSource,
+  ProcessExitReason,
+  ToolPresentation,
+} from './events.js';
 
 export type SessionLifecycle =
   'preparing' | 'starting' | 'ready' | 'running' | 'interrupting' | 'terminating' | 'exited' | 'failed';
@@ -54,6 +61,18 @@ export interface ReducerDiagnostic {
   message: string;
 }
 
+/** Latest trustworthy context-window measurement for this agent session. */
+export interface ContextWindowRuntimeState {
+  usedTokens: number;
+  capacityTokens: number;
+  /** Exact, unrounded percentage in the inclusive range 0..100. */
+  usedPercent: number;
+  modelId?: string;
+  updatedAt: string;
+  source: AgentEventSource;
+  confidence: AgentEventConfidence;
+}
+
 export interface SessionRuntimeState {
   lifecycle: SessionLifecycle;
   activeTurn?: { id?: string; startedAt: string };
@@ -65,6 +84,8 @@ export interface SessionRuntimeState {
   permissions: Map<string, PermissionRuntimeState>;
   subagents: Map<string, SubagentRuntimeState>;
   tasks: Map<string, TaskRuntimeState>;
+  /** Absent until measured, and while invalidated after compaction/history changes. */
+  contextWindow?: ContextWindowRuntimeState;
   lastAssistantMessage?: string;
   exit?: { exitCode?: number; signal?: string; reason?: ProcessExitReason | string };
   counters: {
@@ -166,6 +187,40 @@ export function reduceSessionState(state: SessionRuntimeState, envelope: AgentEv
       if (event.final !== false) next = { ...next, lastAssistantMessage: event.text };
       break;
     }
+
+    case 'context-window.updated': {
+      if (
+        !Number.isFinite(event.usedTokens) ||
+        event.usedTokens < 0 ||
+        !Number.isFinite(event.capacityTokens) ||
+        event.capacityTokens <= 0
+      ) {
+        next = withDiagnostic(
+          next,
+          seq,
+          'context-window-invalid',
+          `invalid context window ${event.usedTokens}/${event.capacityTokens}`,
+        );
+        break;
+      }
+      next = {
+        ...next,
+        contextWindow: {
+          usedTokens: event.usedTokens,
+          capacityTokens: event.capacityTokens,
+          usedPercent: Math.min(100, Math.max(0, (event.usedTokens / event.capacityTokens) * 100)),
+          modelId: event.modelId,
+          updatedAt: envelope.timestamp,
+          source: envelope.source,
+          confidence: envelope.confidence,
+        },
+      };
+      break;
+    }
+
+    case 'context-window.invalidated':
+      next = { ...next, contextWindow: undefined };
+      break;
 
     case 'reasoning.started':
       next = {

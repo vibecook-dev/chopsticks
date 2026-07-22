@@ -11,6 +11,7 @@ import type { SessionSummary } from '@vibecook/ghosttea-protocol';
 import type { AgentSessionInfo, AgentStateMessage } from '../protocol.js';
 import { AgentIcon } from './AgentIcon.js';
 import { liveAgentView, type LiveAgentView } from './agent-status.js';
+import type { PaneAttachment } from './pane-attachments.js';
 import { radiusForStatus, type SwarmParameters } from './swarm-parameters.js';
 
 interface AgentRecord {
@@ -200,7 +201,7 @@ function clampSpawnPosition(width: number, height: number, radius: number, posit
 
 interface AgentSwarmProps {
   agents: readonly AgentBubbleView[];
-  paneColors: ReadonlyMap<string, string>;
+  paneAttachments: ReadonlyMap<string, PaneAttachment>;
   parameters: SwarmParameters;
   activeSessionId?: string;
   onSelect: (agent: AgentBubbleView) => void;
@@ -214,7 +215,14 @@ interface PendingLongPress {
   position: { x: number; y: number };
 }
 
-export function AgentSwarm({ agents, paneColors, parameters, activeSessionId, onSelect, onCreateAt }: AgentSwarmProps) {
+export function AgentSwarm({
+  agents,
+  paneAttachments,
+  parameters,
+  activeSessionId,
+  onSelect,
+  onCreateAt,
+}: AgentSwarmProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const elementRefs = useRef(new Map<string, HTMLDivElement>());
   const bubbleRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -445,9 +453,14 @@ export function AgentSwarm({ agents, paneColors, parameters, activeSessionId, on
       {agents.map((agent) => {
         const liveAgent = isLiveAgent(agent);
         const sessionId = liveAgent ? agent.info.session.id : agent.session.id;
-        const linkedColor = paneColors.get(sessionId);
+        const attachment = paneAttachments.get(sessionId);
+        const linkedColor = attachment?.primary;
         const style = { '--agent-color': linkedColor ?? agent.color } as CSSProperties;
         const active = activeSessionId === sessionId;
+        const contextWindow = liveAgent ? agent.state?.state.contextWindow : undefined;
+        const contextPercent = contextWindow ? Math.floor(contextWindow.usedPercent) : undefined;
+        const contextLabel =
+          contextPercent === undefined ? 'CTX:--%' : `CTX:${contextPercent.toString().padStart(2, '0')}%`;
         return (
           <div
             key={agent.id}
@@ -472,7 +485,7 @@ export function AgentSwarm({ agents, paneColors, parameters, activeSessionId, on
               aria-current={active ? 'true' : undefined}
               aria-label={
                 liveAgent
-                  ? `${agent.project}, ${agent.provider}, ${agent.status}: ${agent.detail}`
+                  ? `${agent.project}, ${agent.provider}, ${agent.status}: ${agent.detail}, ${contextLabel}`
                   : `${agent.project}, unassigned terminal`
               }
               title={liveAgent ? `${agent.project} · ${agent.provider} · ${agent.detail}` : agent.detail}
@@ -537,6 +550,20 @@ export function AgentSwarm({ agents, paneColors, parameters, activeSessionId, on
                 }
               }}
             >
+              {liveAgent && contextWindow ? (
+                <span
+                  className="agent-bubble-context-fill"
+                  style={{ height: `${contextWindow.usedPercent}%` }}
+                  aria-hidden="true"
+                />
+              ) : null}
+              {attachment?.mirrors.length ? (
+                <span className="agent-bubble-mirror-rings" aria-hidden="true">
+                  {attachment.mirrors.map((color, index) => (
+                    <i key={`${color}-${index}`} style={{ inset: `${4 + index * 3}px`, borderColor: color }} />
+                  ))}
+                </span>
+              ) : null}
               {liveAgent ? (
                 <span className="agent-bubble-glyph" aria-hidden="true">
                   <AgentIcon agent={agent.info.agent} />
@@ -547,7 +574,12 @@ export function AgentSwarm({ agents, paneColors, parameters, activeSessionId, on
                 <strong>{agent.project}</strong>
                 {liveAgent ? <span className="agent-bubble-provider">{agent.provider}</span> : null}
               </span>
-              {liveAgent ? <span className="agent-bubble-status">{agent.status}</span> : null}
+              {liveAgent ? (
+                <>
+                  <span className="agent-bubble-context">{contextLabel}</span>
+                  <span className="agent-bubble-status">{agent.status}</span>
+                </>
+              ) : null}
             </button>
           </div>
         );

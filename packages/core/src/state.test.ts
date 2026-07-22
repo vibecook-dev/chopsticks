@@ -41,6 +41,12 @@ const arbitraryEvent: fc.Arbitrary<AgentEvent> = fc.oneof(
   id.map((taskId): AgentEvent => ({ type: 'task.created', taskId })),
   id.map((taskId): AgentEvent => ({ type: 'task.completed', taskId })),
   fc.constant<AgentEvent>({ type: 'assistant.message', text: 'hello' }),
+  fc.tuple(fc.nat(), fc.integer({ min: 1, max: 1_000_000 })).map(([usedTokens, capacityTokens]): AgentEvent => ({
+    type: 'context-window.updated',
+    usedTokens,
+    capacityTokens,
+  })),
+  fc.constant<AgentEvent>({ type: 'context-window.invalidated', reason: 'compacted' }),
   fc.constant<AgentEvent>({ type: 'session.exited', reason: 'other' }),
   fc.constant<AgentEvent>({ type: 'process.exited', reason: 'completed', exitCode: 0 }),
   fc.constant<AgentEvent>({ type: 'adapter.native-event', adapter: 'claude-code', nativeType: 'Mystery' }),
@@ -90,6 +96,44 @@ describe('reduceSessionState properties (DESIGN §26.5)', () => {
 });
 
 describe('reduceSessionState transitions', () => {
+  it('tracks exact context pressure, provenance, and invalidation', () => {
+    const [updated, invalidated] = stampAll([
+      {
+        type: 'context-window.updated',
+        usedTokens: 18_415,
+        capacityTokens: 500_000,
+        modelId: 'grok-4.5',
+      },
+      { type: 'context-window.invalidated', reason: 'compacted' },
+    ]);
+    updated.source = 'native-log';
+
+    const measured = reduceSessionState(createInitialSessionState(), updated);
+    expect(measured.contextWindow).toMatchObject({
+      usedTokens: 18_415,
+      capacityTokens: 500_000,
+      modelId: 'grok-4.5',
+      updatedAt: '2026-07-12T00:00:00.000Z',
+      source: 'native-log',
+      confidence: 'authoritative',
+    });
+    expect(measured.contextWindow?.usedPercent).toBeCloseTo(3.683);
+    expect(reduceSessionState(measured, invalidated).contextWindow).toBeUndefined();
+  });
+
+  it('clamps over-capacity display values and rejects invalid measurements', () => {
+    const [over, invalid] = stampAll([
+      { type: 'context-window.updated', usedTokens: 250, capacityTokens: 200 },
+      { type: 'context-window.updated', usedTokens: 10, capacityTokens: 0 },
+    ]);
+    const measured = reduceSessionState(createInitialSessionState(), over);
+    expect(measured.contextWindow?.usedPercent).toBe(100);
+
+    const rejected = reduceSessionState(measured, invalid);
+    expect(rejected.contextWindow).toBe(measured.contextWindow);
+    expect(rejected.diagnostics.at(-1)?.code).toBe('context-window-invalid');
+  });
+
   it('completed tools leave the active-tool map', () => {
     const state = replay(
       stampAll([

@@ -16,6 +16,11 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { generateHookSettings } from './settings.js';
+import {
+  CLAUDE_STATUS_LINE_FORWARDER_SOURCE,
+  resolveClaudeStatusLine,
+  type ClaudeStatusLineConfig,
+} from './statusline.js';
 
 export interface PrepareClaudeSessionOptions {
   cwd: string;
@@ -23,6 +28,8 @@ export interface PrepareClaudeSessionOptions {
   /** Reuse a caller-chosen session UUID; otherwise one is generated. */
   sessionId?: string;
   endpoint: string;
+  /** Optional authenticated endpoint enabling exact context-window telemetry. */
+  statusLineEndpoint?: string;
   tokenEnvVar: string;
   /** The bearer token VALUE — placed in `env`, never written to disk. */
   token: string;
@@ -30,6 +37,8 @@ export interface PrepareClaudeSessionOptions {
   permissionMode?: string;
   /** Model alias or full model id passed to Claude Code's `--model`. */
   model?: string;
+  /** Override auto-resolution of the user/project status line; null means no delegate. */
+  existingStatusLine?: ClaudeStatusLineConfig | null;
   /**
    * Resume an existing session by its id instead of starting fresh. Probed
    * (HOOK-SURFACE-FINDINGS §6): `--resume <id>` continues the SAME session and
@@ -38,6 +47,8 @@ export interface PrepareClaudeSessionOptions {
    * ignored in favor of this id.
    */
   resume?: string;
+  /** Native resume/continue argv when Claude must choose the session after launch. */
+  resumeInvocation?: string[];
   /** Override the settings-file directory (tests); default is an mkdtemp dir. */
   settingsDir?: string;
 }
@@ -50,27 +61,56 @@ export interface PreparedClaudeSession {
   cwd: string;
   env: Record<string, string>;
   settingsPath: string;
+  statusLineForwarderPath?: string;
   filesToCleanup: string[];
 }
 
 export async function prepareClaudeSession(options: PrepareClaudeSessionOptions): Promise<PreparedClaudeSession> {
+  if (options.resume && options.resumeInvocation) {
+    throw new Error('Claude preparation accepts resume or resumeInvocation, not both');
+  }
   // On resume the session keeps its own id + transcript, so that id IS the
   // session id; otherwise reuse a caller-chosen id or mint one.
   const sessionId = options.resume ?? options.sessionId ?? randomUUID();
-  const settings = generateHookSettings({ endpoint: options.endpoint, tokenEnvVar: options.tokenEnvVar });
-
   // Own the temp dir only when we create it; a caller-supplied settingsDir is
   // the caller's to clean, so it stays out of filesToCleanup (§23: no
   // destroying state we didn't create).
   const ownsDir = options.settingsDir === undefined;
   const dir = options.settingsDir ?? (await mkdtemp(join(tmpdir(), 'chopsticks-claude-')));
   const settingsPath = join(dir, `${sessionId}.settings.json`);
+  const statusLineForwarderPath = options.statusLineEndpoint ? join(dir, `${sessionId}.statusline.mjs`) : undefined;
+  const existingStatusLine = options.statusLineEndpoint
+    ? options.existingStatusLine === undefined
+      ? await resolveClaudeStatusLine(options.cwd)
+      : (options.existingStatusLine ?? undefined)
+    : undefined;
+  const statusLine = statusLineForwarderPath
+    ? {
+        type: 'command' as const,
+        command: `node ${JSON.stringify(statusLineForwarderPath)}`,
+        padding: existingStatusLine?.padding,
+        refreshInterval: existingStatusLine?.refreshInterval,
+        hideVimModeIndicator: existingStatusLine?.hideVimModeIndicator,
+      }
+    : undefined;
+  const settings = generateHookSettings({
+    endpoint: options.endpoint,
+    tokenEnvVar: options.tokenEnvVar,
+    statusLine,
+  });
+  if (statusLineForwarderPath) {
+    await writeFile(statusLineForwarderPath, CLAUDE_STATUS_LINE_FORWARDER_SOURCE, 'utf8');
+  }
   await writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
 
   // --resume and --session-id are mutually exclusive: resume continues an
   // existing id, so passing --session-id would fight it. --settings composes
   // with both (the hook bridge attaches to resumed sessions too — probed §6).
-  const args = options.resume ? ['--resume', sessionId] : ['--session-id', sessionId];
+  const args = options.resumeInvocation
+    ? [...options.resumeInvocation]
+    : options.resume
+      ? ['--resume', sessionId]
+      : ['--session-id', sessionId];
   if (options.title !== undefined) args.push('--name', options.title);
   if (options.model !== undefined) args.push('--model', options.model);
   args.push('--settings', settingsPath, '--permission-mode', options.permissionMode ?? 'default');
@@ -80,9 +120,20 @@ export async function prepareClaudeSession(options: PrepareClaudeSessionOptions)
     command: options.executable ?? 'claude',
     args,
     cwd: options.cwd,
-    env: { [options.tokenEnvVar]: options.token },
+    env: {
+      [options.tokenEnvVar]: options.token,
+      ...(options.statusLineEndpoint
+        ? {
+            CHOPSTICKS_STATUSLINE_ENDPOINT: options.statusLineEndpoint,
+            CHOPSTICKS_STATUSLINE_DELEGATE: existingStatusLine?.command ?? '',
+          }
+        : {}),
+    },
     settingsPath,
-    filesToCleanup: ownsDir ? [settingsPath, dir] : [settingsPath],
+    statusLineForwarderPath,
+    filesToCleanup: ownsDir
+      ? [settingsPath, ...(statusLineForwarderPath ? [statusLineForwarderPath] : []), dir]
+      : [settingsPath, ...(statusLineForwarderPath ? [statusLineForwarderPath] : [])],
   };
 }
 
