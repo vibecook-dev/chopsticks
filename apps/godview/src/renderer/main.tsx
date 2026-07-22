@@ -22,9 +22,9 @@ import {
   type GhostteaWorkspaceContext,
   type GhostteaWorkspacePaneDecoration,
 } from '@vibecook/ghosttea-react/workspace';
-import { AgentSwarm, useLiveAgentViews } from './AgentSwarm.js';
+import { AgentSwarm, useLiveAgentViews, type AgentBubbleView, type UnassignedAgentView } from './AgentSwarm.js';
 import { TweakPanel } from './TweakPanel.js';
-import type { AgentVisualStatus, LiveAgentView } from './agent-status.js';
+import { agentColor, nextAgentForStatus, type AgentVisualStatus } from './agent-status.js';
 import {
   DEFAULT_SWARM_PARAMETERS,
   normalizeSwarmParameters,
@@ -55,6 +55,11 @@ function initialParameters(): SwarmParameters {
   } catch {
     return { ...DEFAULT_SWARM_PARAMETERS };
   }
+}
+
+function folderLabel(cwd: string | null | undefined): string {
+  const normalized = cwd?.replace(/[\\/]+$/, '') ?? '';
+  return normalized.split(/[\\/]/).pop() || 'terminal';
 }
 
 const bootTheme = initialTheme();
@@ -89,10 +94,10 @@ function Godview() {
   const [tweakPanelOpen, setTweakPanelOpen] = useState(false);
   const [workspace, setWorkspace] = useState<GhostteaWorkspaceContext>();
   const [paneColors, setPaneColors] = useState<ReadonlyMap<string, string>>(() => new Map());
+  const [unassignedAgents, setUnassignedAgents] = useState<readonly UnassignedAgentView[]>([]);
   const paneColorRegistry = useRef(new Map<string, string>());
   const nextPaneHue = useRef(Math.random() * 360);
   const agents = useLiveAgentViews();
-  const cycleIndexes = useRef<Record<AgentVisualStatus, number>>({ idle: -1, working: -1, waiting: -1 });
   const platform = useMemo(
     () => ({
       platform: window.desktop.platform,
@@ -161,23 +166,43 @@ function Godview() {
     });
   }, [workspace?.panes]);
 
-  const selectAgent = useCallback(
-    (agent: LiveAgentView): void => {
+  const selectBubble = useCallback(
+    (bubble: AgentBubbleView): void => {
       if (!workspace) return;
-      workspace.placeSession(agent.info.session);
+      workspace.mountSession('info' in bubble ? bubble.info.session : bubble.session);
+    },
+    [workspace],
+  );
+
+  const createUnassignedAgent = useCallback(
+    async (spawnPosition: { x: number; y: number }): Promise<void> => {
+      if (!workspace?.activeSession) return;
+      const sourceCwd = workspace.activeSession.cwd;
+      const session = await workspace.createSessionInActivePane();
+      if (!session) return;
+      const cwd = session.cwd ?? sourceCwd;
+      const placeholder: UnassignedAgentView = {
+        id: session.id,
+        session,
+        status: 'idle',
+        project: folderLabel(cwd),
+        provider: '',
+        detail: cwd || 'Unassigned terminal',
+        color: agentColor(session.id),
+        spawnPosition,
+      };
+      setUnassignedAgents((current) => [...current.filter((agent) => agent.id !== session.id), placeholder]);
     },
     [workspace],
   );
 
   const selectNextStatus = useCallback(
     (status: AgentVisualStatus): void => {
-      const matching = agents.filter((agent) => agent.status === status);
-      if (matching.length === 0) return;
-      const nextIndex = (cycleIndexes.current[status] + 1) % matching.length;
-      cycleIndexes.current[status] = nextIndex;
-      selectAgent(matching[nextIndex]!);
+      if (!workspace) return;
+      const next = nextAgentForStatus(agents, status, workspace.activeSession?.id);
+      if (next) workspace.mountSession(next.info.session);
     },
-    [agents, selectAgent],
+    [agents, workspace],
   );
 
   useEffect(() => {
@@ -199,14 +224,19 @@ function Godview() {
     () => new Map(agents.map((agent) => [agent.info.session.id, agent] as const)),
     [agents],
   );
+  const agentBubbles = useMemo<readonly AgentBubbleView[]>(() => {
+    return [...agents, ...unassignedAgents.filter((agent) => !agentsBySession.has(agent.session.id))];
+  }, [agents, agentsBySession, unassignedAgents]);
   const agentPaneColors = useMemo(() => {
     const linked = new Map<string, string>();
     for (const pane of workspace?.panes ?? []) {
       const color = paneColors.get(pane.id);
-      if (color) linked.set(pane.session.id, color);
+      if (color && (!linked.has(pane.session.id) || pane.id === workspace?.activePaneId)) {
+        linked.set(pane.session.id, color);
+      }
     }
     return linked;
-  }, [paneColors, workspace?.panes]);
+  }, [paneColors, workspace?.activePaneId, workspace?.panes]);
   const decoratePane = useCallback(
     (session: SessionSummary, paneId: string): GhostteaWorkspacePaneDecoration => {
       const agent = agentsBySession.get(session.id);
@@ -303,11 +333,12 @@ function Godview() {
         />
 
         <AgentSwarm
-          agents={agents}
+          agents={agentBubbles}
           paneColors={agentPaneColors}
           parameters={parameters}
           activeSessionId={workspace?.activeSession?.id}
-          onSelect={selectAgent}
+          onSelect={selectBubble}
+          onCreateAt={createUnassignedAgent}
         />
 
         <section className="godview-terminal-deck" aria-label="Terminal panes">

@@ -74,15 +74,13 @@ export function agentColor(id: string): string {
   return `hsl(${Math.abs(hash) % 360} 62% 44%)`;
 }
 
-export function liveAgentView(
-  info: AgentSessionInfo,
-  state?: AgentStateMessage,
-): LiveAgentView | undefined {
+export function liveAgentView(info: AgentSessionInfo, state?: AgentStateMessage): LiveAgentView | undefined {
   if (info.session.exited) return undefined;
   const status = classifyAgentStatus(state);
   if (!status) return undefined;
   return {
-    id: info.runtimeSessionId,
+    // Keep the visual body stable when an unassigned terminal becomes an agent.
+    id: info.session.id,
     info,
     state,
     status,
@@ -92,6 +90,17 @@ export function liveAgentView(
     detail: agentDetail(state, status),
     color: agentColor(info.runtimeSessionId),
   };
+}
+
+export function nextAgentForStatus(
+  agents: readonly LiveAgentView[],
+  status: AgentVisualStatus,
+  currentSessionId: string | undefined,
+): LiveAgentView | undefined {
+  const matching = agents.filter((agent) => agent.status === status);
+  if (matching.length === 0) return undefined;
+  const currentIndex = matching.findIndex((agent) => agent.info.session.id === currentSessionId);
+  return matching[(currentIndex + 1) % matching.length];
 }
 
 export function bubbleRadius(status: AgentVisualStatus): number {

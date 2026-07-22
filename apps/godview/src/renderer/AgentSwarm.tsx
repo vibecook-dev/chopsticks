@@ -7,7 +7,9 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import Matter from 'matter-js';
+import type { SessionSummary } from '@vibecook/ghosttea-protocol';
 import type { AgentSessionInfo, AgentStateMessage } from '../protocol.js';
+import { AgentIcon } from './AgentIcon.js';
 import { liveAgentView, type LiveAgentView } from './agent-status.js';
 import { radiusForStatus, type SwarmParameters } from './swarm-parameters.js';
 
@@ -15,6 +17,19 @@ interface AgentRecord {
   info: AgentSessionInfo;
   state?: AgentStateMessage;
 }
+
+export interface UnassignedAgentView {
+  id: string;
+  session: SessionSummary;
+  status: 'idle';
+  project: string;
+  provider: '';
+  detail: string;
+  color: string;
+  spawnPosition: { x: number; y: number };
+}
+
+export type AgentBubbleView = LiveAgentView | UnassignedAgentView;
 
 export function useLiveAgentViews(): readonly LiveAgentView[] {
   const [records, setRecords] = useState(() => new Map<string, AgentRecord>());
@@ -101,6 +116,8 @@ const SPAWN_DURATION_MS = 720;
 const SPAWN_CLEARANCE = 12;
 const SPAWN_CANDIDATES = 40;
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+const LONG_PRESS_DURATION_MS = 520;
+const LONG_PRESS_MOVE_TOLERANCE = 8;
 
 function animateSpawn(element: HTMLButtonElement): void {
   if (
@@ -169,35 +186,59 @@ function findSpawnPosition(
   return bestPosition;
 }
 
-function providerGlyph(agent: AgentSessionInfo['agent']): string {
-  switch (agent) {
-    case 'claude':
-      return 'C';
-    case 'codex':
-      return '⌘';
-    case 'grok':
-      return 'G';
-    case 'acp':
-      return 'A';
-  }
+function isLiveAgent(agent: AgentBubbleView): agent is LiveAgentView {
+  return 'info' in agent;
+}
+
+function clampSpawnPosition(width: number, height: number, radius: number, position: Matter.Vector): Matter.Vector {
+  const margin = radius + PHYSICAL_GAP;
+  return {
+    x: Math.min(Math.max(position.x, margin), Math.max(margin, width - margin)),
+    y: Math.min(Math.max(position.y, margin), Math.max(margin, height - margin)),
+  };
 }
 
 interface AgentSwarmProps {
-  agents: readonly LiveAgentView[];
+  agents: readonly AgentBubbleView[];
   paneColors: ReadonlyMap<string, string>;
   parameters: SwarmParameters;
   activeSessionId?: string;
-  onSelect: (agent: LiveAgentView) => void;
+  onSelect: (agent: AgentBubbleView) => void;
+  onCreateAt: (position: { x: number; y: number }) => void | Promise<void>;
 }
 
-export function AgentSwarm({ agents, paneColors, parameters, activeSessionId, onSelect }: AgentSwarmProps) {
+interface PendingLongPress {
+  pointerId: number;
+  clientX: number;
+  clientY: number;
+  position: { x: number; y: number };
+}
+
+export function AgentSwarm({ agents, paneColors, parameters, activeSessionId, onSelect, onCreateAt }: AgentSwarmProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const elementRefs = useRef(new Map<string, HTMLDivElement>());
   const bubbleRefs = useRef(new Map<string, HTMLButtonElement>());
   const bodiesRef = useRef(new Map<string, PhysicsBody>());
   const spawnedIdsRef = useRef(new Set<string>());
+  const longPressRef = useRef<PendingLongPress | undefined>(undefined);
+  const longPressTimerRef = useRef<number | undefined>(undefined);
   const worldRef = useRef<PhysicsWorld | undefined>(undefined);
   const parametersRef = useRef(parameters);
+  const [longPressPosition, setLongPressPosition] = useState<{ x: number; y: number }>();
+
+  const cancelLongPress = (): void => {
+    if (longPressTimerRef.current !== undefined) window.clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = undefined;
+    longPressRef.current = undefined;
+    setLongPressPosition(undefined);
+  };
+
+  useEffect(
+    () => () => {
+      if (longPressTimerRef.current !== undefined) window.clearTimeout(longPressTimerRef.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     parametersRef.current = parameters;
@@ -312,7 +353,10 @@ export function AgentSwarm({ agents, paneColors, parameters, activeSessionId, on
         existing.targetRadius = targetRadius;
         continue;
       }
-      const spawnPosition = findSpawnPosition(width, height, targetRadius, bodiesRef.current.values());
+      const spawnPosition =
+        'spawnPosition' in agent
+          ? clampSpawnPosition(width, height, targetRadius, agent.spawnPosition)
+          : findSpawnPosition(width, height, targetRadius, bodiesRef.current.values());
       const body = Matter.Bodies.circle(spawnPosition.x, spawnPosition.y, targetRadius + PHYSICAL_GAP, {
         restitution: parameters.restitution,
         frictionAir: parameters.frictionAir,
@@ -342,8 +386,56 @@ export function AgentSwarm({ agents, paneColors, parameters, activeSessionId, on
   };
 
   return (
-    <section ref={containerRef} className="godview-swarm" aria-label="Running agent status field">
+    <section
+      ref={containerRef}
+      className="godview-swarm"
+      aria-label="Running agent status field"
+      onPointerDown={(event) => {
+        if (event.button !== 0 || event.target !== event.currentTarget) return;
+        const bounds = event.currentTarget.getBoundingClientRect();
+        const pending = {
+          pointerId: event.pointerId,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          position: { x: event.clientX - bounds.left, y: event.clientY - bounds.top },
+        };
+        cancelLongPress();
+        longPressRef.current = pending;
+        setLongPressPosition(pending.position);
+        event.currentTarget.setPointerCapture(event.pointerId);
+        longPressTimerRef.current = window.setTimeout(() => {
+          if (longPressRef.current !== pending) return;
+          longPressTimerRef.current = undefined;
+          longPressRef.current = undefined;
+          setLongPressPosition(undefined);
+          void onCreateAt(pending.position);
+        }, LONG_PRESS_DURATION_MS);
+      }}
+      onPointerMove={(event) => {
+        const pending = longPressRef.current;
+        if (!pending || pending.pointerId !== event.pointerId) return;
+        if (Math.hypot(event.clientX - pending.clientX, event.clientY - pending.clientY) > LONG_PRESS_MOVE_TOLERANCE) {
+          cancelLongPress();
+        }
+      }}
+      onPointerUp={(event) => {
+        if (longPressRef.current?.pointerId === event.pointerId) cancelLongPress();
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+      }}
+      onPointerCancel={(event) => {
+        if (longPressRef.current?.pointerId === event.pointerId) cancelLongPress();
+      }}
+    >
       <div className="godview-swarm-grid" aria-hidden="true" />
+      {longPressPosition ? (
+        <span
+          className="godview-long-press-indicator"
+          style={{ left: longPressPosition.x, top: longPressPosition.y }}
+          aria-hidden="true"
+        />
+      ) : null}
       {agents.length === 0 ? (
         <div className="godview-swarm-empty">
           <span>NO ACTIVE AGENTS</span>
@@ -351,7 +443,8 @@ export function AgentSwarm({ agents, paneColors, parameters, activeSessionId, on
         </div>
       ) : null}
       {agents.map((agent) => {
-        const sessionId = agent.info.session.id;
+        const liveAgent = isLiveAgent(agent);
+        const sessionId = liveAgent ? agent.info.session.id : agent.session.id;
         const linkedColor = paneColors.get(sessionId);
         const style = { '--agent-color': linkedColor ?? agent.color } as CSSProperties;
         const active = activeSessionId === sessionId;
@@ -374,11 +467,15 @@ export function AgentSwarm({ agents, paneColors, parameters, activeSessionId, on
                 else bubbleRefs.current.delete(agent.id);
               }}
               type="button"
-              className={`agent-bubble is-${agent.status}${linkedColor ? ' is-linked' : ''}${active ? ' is-active' : ''}`}
+              className={`agent-bubble is-${agent.status}${liveAgent ? '' : ' is-unassigned'}${linkedColor ? ' is-linked' : ''}${active ? ' is-active' : ''}`}
               style={style}
               aria-current={active ? 'true' : undefined}
-              aria-label={`${agent.project}, ${agent.provider}, ${agent.status}: ${agent.detail}`}
-              title={`${agent.project} · ${agent.provider} · ${agent.detail}`}
+              aria-label={
+                liveAgent
+                  ? `${agent.project}, ${agent.provider}, ${agent.status}: ${agent.detail}`
+                  : `${agent.project}, unassigned terminal`
+              }
+              title={liveAgent ? `${agent.project} · ${agent.provider} · ${agent.detail}` : agent.detail}
               onPointerDown={(event) => {
                 const wrapper = bodiesRef.current.get(agent.id);
                 const world = worldRef.current;
@@ -440,15 +537,17 @@ export function AgentSwarm({ agents, paneColors, parameters, activeSessionId, on
                 }
               }}
             >
-              <span className="agent-bubble-glyph" aria-hidden="true">
-                {providerGlyph(agent.info.agent)}
-              </span>
+              {liveAgent ? (
+                <span className="agent-bubble-glyph" aria-hidden="true">
+                  <AgentIcon agent={agent.info.agent} />
+                </span>
+              ) : null}
               <span className="agent-bubble-copy">
-                {agent.branch ? <span className="agent-bubble-branch">{agent.branch}</span> : null}
+                {liveAgent && agent.branch ? <span className="agent-bubble-branch">{agent.branch}</span> : null}
                 <strong>{agent.project}</strong>
-                <span className="agent-bubble-provider">{agent.provider}</span>
+                {liveAgent ? <span className="agent-bubble-provider">{agent.provider}</span> : null}
               </span>
-              <span className="agent-bubble-status">{agent.status}</span>
+              {liveAgent ? <span className="agent-bubble-status">{agent.status}</span> : null}
             </button>
           </div>
         );

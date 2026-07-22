@@ -596,15 +596,6 @@ function focusRelativeTab(window: BrowserWindow, offset: -1 | 1): void {
   focusTab(group[(index + offset + group.length) % group.length]?.window);
 }
 
-function terminateClosedTabSessions(sessionIds: ReadonlySet<string>): void {
-  if (quitting || !backend || sessionIds.size === 0) return;
-  for (const sessionId of sessionIds) {
-    void backend.automation
-      .terminate(sessionId, 'user')
-      .catch((error) => console.warn(`[main] failed to terminate closed-tab session ${sessionId}`, error));
-  }
-}
-
 interface CreateWindowOptions {
   tabOf?: BrowserWindow;
   initialCwd?: string;
@@ -667,9 +658,8 @@ async function createWindow(options: CreateWindowOptions = {}): Promise<BrowserW
     );
   });
   window.once('closed', () => {
-    const closed = tabs.delete(window);
+    tabs.delete(window);
     if (lastFocusedWindow === window) lastFocusedWindow = undefined;
-    if (closed) terminateClosedTabSessions(closed.sessionIds);
   });
   window.webContents.on('console-message', (details) => {
     if (details.level === 'error') {
