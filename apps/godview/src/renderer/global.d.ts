@@ -12,7 +12,8 @@ declare global {
       initialCwd?: string;
       defaultShell: string;
       writeClipboard: (text: string) => void;
-      readClipboard: () => string;
+      readClipboard: () => Promise<string>;
+      setTerminalCanCopy: (canCopy: boolean) => void;
       showContextMenu: (canCopy: boolean) => void;
       toggleFullscreen: () => void;
       closeWindow: () => void;
@@ -26,6 +27,7 @@ declare global {
       closeTab: () => void;
       updateTabSessions: (sessionIds: readonly string[]) => void;
       updateActiveCwd: (cwd?: string) => void;
+      resolveProcessCwd: (pid: number) => Promise<string | undefined>;
       setTheme: (theme: 'light' | 'dark') => void;
       onThemeChanged: (listener: (theme: 'light' | 'dark') => void) => () => void;
       onMenuAction: (listener: (action: TerminalMenuAction) => void) => () => void;

@@ -11,7 +11,7 @@ describe('Godview pane session launch source', () => {
     const selected = session('selected', '/before', 80, 24);
     const refreshed = session('selected', '/after', 140, 42);
 
-    expect(paneSessionLaunchSource(selected, [refreshed], undefined, '/fallback')).toEqual({
+    expect(paneSessionLaunchSource(selected, [refreshed], { fallback: '/fallback' })).toEqual({
       session: refreshed,
       cwd: '/after',
     });
@@ -19,17 +19,27 @@ describe('Godview pane session launch source', () => {
 
   it('falls back to app-owned cwd when terminal metadata has no path', () => {
     const selected = session('agent', null);
-    expect(paneSessionLaunchSource(selected, [session('agent', null)], undefined, '/workspace/project')).toMatchObject({
-      cwd: '/workspace/project',
-    });
+    expect(
+      paneSessionLaunchSource(selected, [session('agent', null)], { fallback: '/workspace/project' }),
+    ).toMatchObject({ cwd: '/workspace/project' });
   });
 
-  it('prefers the mounted agent current cwd over stale terminal metadata', () => {
+  it('prefers agent and process cwd over stale terminal metadata', () => {
     const selected = session('agent', '/launch-directory');
     const refreshed = session('agent', '/terminal-reported-directory');
-    expect(paneSessionLaunchSource(selected, [refreshed], '/agent/current-directory', '/workspace')).toMatchObject({
-      cwd: '/agent/current-directory',
-    });
+    expect(
+      paneSessionLaunchSource(selected, [refreshed], {
+        agent: '/agent/current-directory',
+        process: '/shell/current-directory',
+        fallback: '/workspace',
+      }),
+    ).toMatchObject({ cwd: '/agent/current-directory' });
+    expect(
+      paneSessionLaunchSource(selected, [refreshed], {
+        process: '/shell/current-directory',
+        fallback: '/workspace',
+      }),
+    ).toMatchObject({ cwd: '/shell/current-directory' });
   });
 });
 

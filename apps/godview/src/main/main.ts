@@ -1,10 +1,11 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { accessSync, chmodSync, constants, copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { delimiter, isAbsolute, join, resolve } from 'node:path';
-import { app, BrowserWindow, ipcMain, Menu, nativeTheme, shell } from 'electron';
+import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeTheme, shell } from 'electron';
 import {
   allSettledWithin,
   GhostteaElectronBackend,
+  installGhostteaClipboardHost,
   installGhostteaEditShortcuts,
   type GhostteaAutomationClient,
   type GhostteaElectronBackendOptions,
@@ -39,6 +40,7 @@ import {
   type SpawnThroughResponse,
 } from './spawn-through.js';
 import { orderNativeTabs } from './native-tab-order.js';
+import { resolveProcessCwd } from './process-cwd.js';
 import { GodviewTabRegistry } from './tab-registry.js';
 import { godviewTruffleConfig } from './truffle-config.js';
 
@@ -97,6 +99,8 @@ if (process.platform === 'darwin') app.setActivationPolicy('regular');
 // of opening the same state directory concurrently.
 const ownsTruffleState = app.requestSingleInstanceLock({ application: 'godview' });
 if (!ownsTruffleState) app.quit();
+
+const clipboardHost = installGhostteaClipboardHost(ipcMain, clipboard);
 
 const tabs = new GodviewTabRegistry<BrowserWindow>();
 let backend: GhostteaElectronBackend | undefined;
@@ -627,6 +631,12 @@ ipcMain.on('terminal-tab-active-cwd', (event, cwd: unknown) => {
   tabs.updateActiveCwd(window, typeof cwd === 'string' && cwd.trim() ? cwd : undefined);
 });
 
+ipcMain.handle('godview:process-cwd', (event, pid: unknown): Promise<string | undefined> => {
+  const window = BrowserWindow.fromWebContents(event.sender);
+  if (!window || !tabs.get(window) || typeof pid !== 'number') return Promise.resolve(undefined);
+  return resolveProcessCwd(pid);
+});
+
 ipcMain.on('godview:set-theme', (event, value: unknown) => {
   const source = BrowserWindow.fromWebContents(event.sender);
   if (!source || !tabs.get(source) || (value !== 'light' && value !== 'dark')) return;
@@ -741,8 +751,11 @@ async function createWindow(options: CreateWindowOptions = {}): Promise<BrowserW
   // Terminal selections live in the render worker rather than the DOM, so
   // Electron's native edit role cannot copy them. Route the shortcut through
   // the same renderer command path as the terminal context menu.
-  installGhostteaEditShortcuts(window.webContents, (command) =>
-    window.webContents.send('terminal-menu-action', command),
+  installGhostteaEditShortcuts(
+    window.webContents,
+    (command) => window.webContents.send('terminal-menu-action', command),
+    process.platform,
+    (command) => command !== 'copy' || clipboardHost.canCopy(window.webContents),
   );
   window.webContents.on('did-finish-load', () => {
     if (!window.isDestroyed() && backend?.running) backend.attachRenderer(window.webContents);

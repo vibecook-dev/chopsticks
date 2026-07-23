@@ -12,7 +12,8 @@ declare global {
       initialCwd?: string;
       defaultShell: string;
       writeClipboard: (text: string) => void;
-      readClipboard: () => string;
+      readClipboard: () => Promise<string>;
+      setTerminalCanCopy: (canCopy: boolean) => void;
       showContextMenu: (canCopy: boolean) => void;
       toggleFullscreen: () => void;
       closeWindow: () => void;

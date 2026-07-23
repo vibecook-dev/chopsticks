@@ -103,6 +103,7 @@ function Godview() {
       platform: window.desktop.platform,
       defaultShell: window.desktop.defaultShell,
       readClipboard: window.desktop.readClipboard,
+      setCanCopy: window.desktop.setTerminalCanCopy,
       showContextMenu: window.desktop.showContextMenu,
       toggleFullscreen: window.desktop.toggleFullscreen,
       closeWindow: window.desktop.closeWindow,
@@ -248,9 +249,17 @@ function Godview() {
       const agent = agentsBySession.get(selectedSession.id);
       const unassigned = unassignedAgents.find((candidate) => candidate.session.id === selectedSession.id);
       const agentCwd = agent?.state?.state.environment.currentCwd?.value;
+      const refreshedSession =
+        refreshedSessions.find((candidate) => candidate.id === selectedSession.id) ?? selectedSession;
+      const processCwd =
+        !agentCwd && refreshedSession.pid ? await window.desktop.resolveProcessCwd(refreshedSession.pid) : undefined;
       const fallbackCwd =
         agent?.info.workspace.sourcePath || agent?.info.workspace.root || unassigned?.cwd || undefined;
-      const source = paneSessionLaunchSource(selectedSession, refreshedSessions, agentCwd, fallbackCwd);
+      const source = paneSessionLaunchSource(selectedSession, refreshedSessions, {
+        agent: agentCwd,
+        process: processCwd,
+        fallback: fallbackCwd,
+      });
       return terminalRuntime.createSession({
         executable: platform.defaultShell,
         args: [],

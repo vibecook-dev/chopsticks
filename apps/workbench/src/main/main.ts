@@ -1,10 +1,11 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { accessSync, chmodSync, constants, copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { delimiter, isAbsolute, join, resolve } from 'node:path';
-import { app, BrowserWindow, ipcMain, Menu, nativeTheme, shell } from 'electron';
+import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeTheme, shell } from 'electron';
 import {
   allSettledWithin,
   GhostteaElectronBackend,
+  installGhostteaClipboardHost,
   installGhostteaEditShortcuts,
   type GhostteaAutomationClient,
   type GhostteaElectronBackendOptions,
@@ -97,6 +98,8 @@ if (process.platform === 'darwin') app.setActivationPolicy('regular');
 // of opening the same state directory concurrently.
 const ownsTruffleState = app.requestSingleInstanceLock({ application: 'chopsticks' });
 if (!ownsTruffleState) app.quit();
+
+const clipboardHost = installGhostteaClipboardHost(ipcMain, clipboard);
 
 const tabs = new WorkbenchTabRegistry<BrowserWindow>();
 let backend: GhostteaElectronBackend | undefined;
@@ -729,8 +732,11 @@ async function createWindow(options: CreateWindowOptions = {}): Promise<BrowserW
   // Terminal selections live in the render worker rather than the DOM, so
   // Electron's native edit role cannot copy them. Route the shortcut through
   // the same renderer command path as the terminal context menu.
-  installGhostteaEditShortcuts(window.webContents, (command) =>
-    window.webContents.send('terminal-menu-action', command),
+  installGhostteaEditShortcuts(
+    window.webContents,
+    (command) => window.webContents.send('terminal-menu-action', command),
+    process.platform,
+    (command) => command !== 'copy' || clipboardHost.canCopy(window.webContents),
   );
   window.webContents.on('did-finish-load', () => {
     if (!window.isDestroyed() && backend?.running) backend.attachRenderer(window.webContents);

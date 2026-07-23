@@ -34,6 +34,7 @@ function Workbench() {
       platform: window.desktop.platform,
       defaultShell: window.desktop.defaultShell,
       readClipboard: window.desktop.readClipboard,
+      setCanCopy: window.desktop.setTerminalCanCopy,
       showContextMenu: window.desktop.showContextMenu,
       toggleFullscreen: window.desktop.toggleFullscreen,
       closeWindow: window.desktop.closeWindow,

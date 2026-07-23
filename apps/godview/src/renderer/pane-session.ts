@@ -6,16 +6,26 @@ function usableCwd(value: string | null | undefined): string | undefined {
   return normalized || undefined;
 }
 
-/** Resolve a split from agent-owned cwd, fresh terminal metadata, then stable launch fallbacks. */
+export interface PaneSessionCwdSources {
+  agent?: string;
+  process?: string;
+  fallback?: string;
+}
+
+/** Resolve a split from live agent/process cwd before terminal metadata and stable launch fallbacks. */
 export function paneSessionLaunchSource(
   selected: SessionSummary,
   refreshedSessions: readonly SessionSummary[],
-  agentCwd?: string,
-  fallbackCwd?: string,
+  cwd: PaneSessionCwdSources = {},
 ): { session: SessionSummary; cwd?: string } {
   const refreshed = refreshedSessions.find((session) => session.id === selected.id) ?? selected;
-  const cwd = usableCwd(agentCwd) ?? usableCwd(refreshed.cwd) ?? usableCwd(selected.cwd) ?? usableCwd(fallbackCwd);
-  return { session: refreshed, ...(cwd ? { cwd } : {}) };
+  const resolvedCwd =
+    usableCwd(cwd.agent) ??
+    usableCwd(cwd.process) ??
+    usableCwd(refreshed.cwd) ??
+    usableCwd(selected.cwd) ??
+    usableCwd(cwd.fallback);
+  return { session: refreshed, ...(resolvedCwd ? { cwd: resolvedCwd } : {}) };
 }
 
 /** A pane badge is always a folder basename; terminal titles are deliberately ignored. */
