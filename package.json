@@ -17,7 +17,7 @@
   "scripts": {
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm typecheck && pnpm -r test",
+    "test": "pnpm typecheck && node --test scripts/*.test.mjs && pnpm -r test",
     "workbench": "pnpm --filter workbench start",
     "workbench:bundle": "pnpm --filter workbench bundle",
     "workbench:smoke": "pnpm --filter workbench smoke",

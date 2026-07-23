@@ -6,6 +6,7 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { fileURLToPath } from 'node:url';
+import { stageEsmRuntime } from '../../scripts/stage-esm-runtime.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const dist = join(root, 'dist');
@@ -78,8 +79,7 @@ await Promise.all([
 
 await Promise.all([
   cp(join(root, 'src/renderer/index.html'), join(dist, 'index.html')),
-  cp(join(ghostteaRoot, 'packages', 'terminal-electron', 'dist', 'bridge-entry.js'), join(dist, 'bridge-entry.js')),
-  cp(join(ghostteaRoot, 'packages', 'terminal-electron', 'dist', 'types.js'), join(dist, 'types.js')),
+  stageEsmRuntime(join(ghostteaRoot, 'packages', 'terminal-electron', 'dist', 'bridge-entry.js'), dist),
   cp(
     requireFromGodview.resolve('@vibecook/ghosttea-react/terminal-render.worker.js'),
     join(dist, 'terminal-render.worker.js'),
