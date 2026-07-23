@@ -3,6 +3,7 @@ import { createGhostteaClipboardBridge, forwardGhostteaRendererPorts } from '@vi
 import type {
   AgentSessionSnapshot,
   AgentSessionInfo,
+  AgentStateBatch,
   AgentStateMessage,
   ChopsticksBridge,
   CreateAgentSessionOptions,
@@ -15,6 +16,17 @@ import type {
 
 forwardGhostteaRendererPorts(ipcRenderer);
 const clipboardBridge = createGhostteaClipboardBridge(ipcRenderer);
+const agentStateListeners = new Set<(state: AgentStateMessage) => void>();
+
+ipcRenderer.on('chopsticks:agent-states', (_event, batch: AgentStateBatch) => {
+  try {
+    for (const state of batch.states) {
+      for (const listener of agentStateListeners) listener(state);
+    }
+  } finally {
+    ipcRenderer.send('chopsticks:agent-states-ack', batch.sequence);
+  }
+});
 
 function argument(name: string): string | undefined {
   const prefix = `--${name}=`;
@@ -49,10 +61,11 @@ const chopsticks: ChopsticksBridge = {
   submitPrompt: (options: SubmitPromptOptions): Promise<PromptReceipt> =>
     ipcRenderer.invoke('chopsticks:submit-prompt', options),
   onAgentState: (callback: (state: AgentStateMessage) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, state: AgentStateMessage): void => callback(state);
-    ipcRenderer.on('chopsticks:agent-state', listener);
-    return () => ipcRenderer.removeListener('chopsticks:agent-state', listener);
+    agentStateListeners.add(callback);
+    return () => agentStateListeners.delete(callback);
   },
+  agentConversation: (runtimeSessionId: string) =>
+    ipcRenderer.invoke('chopsticks:agent-conversation', runtimeSessionId),
   workspaceDiff: (runtimeSessionId: string): Promise<WorkspaceDiff | null> =>
     ipcRenderer.invoke('chopsticks:workspace-diff', runtimeSessionId),
   onWorkspaceFinal: (callback: (event: WorkspaceFinalEvent) => void): (() => void) => {

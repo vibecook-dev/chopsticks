@@ -72,7 +72,11 @@ export interface AgentStateMessage {
   runtimeSessionId: string;
   state: SerializedSessionState;
   observationLevel: ObservationLevel;
-  conversation: AgentConversationSnapshot;
+}
+
+export interface AgentStateBatch {
+  sequence: number;
+  states: AgentStateMessage[];
 }
 
 export interface AgentSessionSnapshot {
@@ -93,6 +97,7 @@ export interface ChopsticksBridge {
   onAgentRemoved(cb: (runtimeSessionId: string) => void): () => void;
   submitPrompt(opts: SubmitPromptOptions): Promise<PromptReceipt>;
   onAgentState(cb: (state: AgentStateMessage) => void): () => void;
+  agentConversation(runtimeSessionId: string): Promise<AgentConversationSnapshot | undefined>;
   workspaceDiff(runtimeSessionId: string): Promise<WorkspaceDiff | null>;
   onWorkspaceFinal(cb: (event: WorkspaceFinalEvent) => void): () => void;
 }

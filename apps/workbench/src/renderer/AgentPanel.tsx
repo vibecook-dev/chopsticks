@@ -23,6 +23,7 @@ interface AgentPanelProps {
   runtimeSessionId: string;
   agentKind: string;
   message: AgentStateMessage | undefined;
+  conversation: AgentConversationSnapshot | undefined;
   workspace: WorkspacePanelData | undefined;
   exited: boolean;
   canResume: boolean;
@@ -81,6 +82,7 @@ export function AgentPanel({
   runtimeSessionId,
   agentKind,
   message,
+  conversation = EMPTY_CONVERSATION,
   workspace,
   exited,
   canResume,
@@ -98,7 +100,6 @@ export function AgentPanel({
   const threadRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
   const state = message?.state;
-  const conversation = message?.conversation ?? EMPTY_CONVERSATION;
   const activeTool = state?.tools.find((tool) => tool.state === 'running' || tool.state === 'requested');
   const liveLabel = state?.permissions.length
     ? 'Waiting for permission'

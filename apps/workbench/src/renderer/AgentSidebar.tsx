@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { GhostteaWorkspaceContext } from '@vibecook/ghosttea-react/workspace';
+import type { AgentConversationSnapshot } from '@vibecook/chopsticks-runtime';
 import type {
   AgentKind,
   AgentSessionInfo,
@@ -15,10 +16,104 @@ interface AgentSidebarProps {
 
 type SpawnMode = 'default' | 'exclusive' | 'worktree';
 
+const EMPTY_CONVERSATION: AgentConversationSnapshot = { items: [], responding: false };
+const CONVERSATION_REFRESH_MS = 100;
+
+interface ConversationLoader {
+  sessionId?: string;
+  generation: number;
+  desiredRevision: number;
+  loadedRevision: number;
+  running: boolean;
+  lastRequestAt: number;
+}
+
+/**
+ * Pulls only the conversation currently visible in the sidebar. The loader is
+ * single-flight and folds any events received while a request is running into
+ * one follow-up snapshot.
+ */
+function useActiveConversation(
+  sessionId: string | undefined,
+  revision: number | undefined,
+): AgentConversationSnapshot {
+  const [loadedConversation, setLoadedConversation] = useState<{
+    sessionId?: string;
+    snapshot: AgentConversationSnapshot;
+  }>({ snapshot: EMPTY_CONVERSATION });
+  const loaderRef = useRef<ConversationLoader>({
+    generation: 0,
+    desiredRevision: -1,
+    loadedRevision: -2,
+    running: false,
+    lastRequestAt: 0,
+  });
+
+  useEffect(() => {
+    let loader = loaderRef.current;
+    if (loader.sessionId !== sessionId) {
+      loader.generation += 1;
+      loader = {
+        sessionId,
+        generation: loader.generation,
+        desiredRevision: revision ?? 0,
+        loadedRevision: -1,
+        running: false,
+        lastRequestAt: 0,
+      };
+      loaderRef.current = loader;
+      setLoadedConversation({ sessionId, snapshot: EMPTY_CONVERSATION });
+    } else {
+      loader.desiredRevision = Math.max(loader.desiredRevision, revision ?? 0);
+    }
+
+    if (!sessionId || loader.running || loader.loadedRevision >= loader.desiredRevision) return;
+    loader.running = true;
+    const generation = loader.generation;
+
+    void (async () => {
+      while (
+        loaderRef.current === loader &&
+        loader.generation === generation &&
+        loader.loadedRevision < loader.desiredRevision
+      ) {
+        const waitMs = Math.max(0, CONVERSATION_REFRESH_MS - (Date.now() - loader.lastRequestAt));
+        if (waitMs) await new Promise((resolve) => window.setTimeout(resolve, waitMs));
+        if (loaderRef.current !== loader || loader.generation !== generation) return;
+
+        const requestedRevision = loader.desiredRevision;
+        loader.lastRequestAt = Date.now();
+        let snapshot: AgentConversationSnapshot | undefined;
+        try {
+          snapshot = await window.chopsticks.agentConversation(sessionId);
+        } catch {
+          // A renderer reload or session exit can race an invoke. A later state
+          // revision will retry; the sidebar remains usable with an empty view.
+        }
+        if (loaderRef.current !== loader || loader.generation !== generation) return;
+        loader.loadedRevision = requestedRevision;
+        if (snapshot) setLoadedConversation({ sessionId, snapshot });
+      }
+      if (loaderRef.current === loader && loader.generation === generation) loader.running = false;
+    })();
+  }, [revision, sessionId]);
+
+  useEffect(
+    () => () => {
+      loaderRef.current.generation += 1;
+    },
+    [],
+  );
+
+  return loadedConversation.sessionId === sessionId ? loadedConversation.snapshot : EMPTY_CONVERSATION;
+}
+
 export function AgentSidebar({ workspace }: AgentSidebarProps) {
   const [agentKind, setAgentKind] = useState<AgentKind>('claude');
   const [agents, setAgents] = useState(() => new Map<string, AgentSessionInfo>());
-  const [states, setStates] = useState(() => new Map<string, AgentStateMessage>());
+  const stateRecordsRef = useRef(new Map<string, AgentStateMessage>());
+  const statePublishFrameRef = useRef<number | undefined>(undefined);
+  const [states, setStates] = useState(stateRecordsRef.current);
   const [workspaces, setWorkspaces] = useState(() => new Map<string, WorkspacePanelData>());
   const [spawning, setSpawning] = useState<SpawnMode>();
   const [error, setError] = useState<string>();
@@ -31,6 +126,14 @@ export function AgentSidebar({ workspace }: AgentSidebarProps) {
         ...(note ? { note } : {}),
       }),
     );
+  }, []);
+
+  const publishStates = useCallback((): void => {
+    if (statePublishFrameRef.current !== undefined) return;
+    statePublishFrameRef.current = window.requestAnimationFrame(() => {
+      statePublishFrameRef.current = undefined;
+      setStates(new Map(stateRecordsRef.current));
+    });
   }, []);
 
   const spawnAgent = useCallback(
@@ -102,11 +205,7 @@ export function AgentSidebar({ workspace }: AgentSidebarProps) {
         next.delete(runtimeSessionId);
         return next;
       });
-      setStates((current) => {
-        const next = new Map(current);
-        next.delete(runtimeSessionId);
-        return next;
-      });
+      if (stateRecordsRef.current.delete(runtimeSessionId)) publishStates();
       setWorkspaces((current) => {
         const next = new Map(current);
         next.delete(runtimeSessionId);
@@ -114,7 +213,8 @@ export function AgentSidebar({ workspace }: AgentSidebarProps) {
       });
     });
     const unsubscribeState = window.chopsticks.onAgentState((message) => {
-      setStates((current) => new Map(current).set(message.runtimeSessionId, message));
+      stateRecordsRef.current.set(message.runtimeSessionId, message);
+      publishStates();
     });
     const unsubscribeFinal = window.chopsticks.onWorkspaceFinal((final: WorkspaceFinalEvent) => {
       setWorkspaces((current) => {
@@ -142,21 +242,28 @@ export function AgentSidebar({ workspace }: AgentSidebarProps) {
         });
       }
       setAgents(nextAgents);
-      setStates((current) => new Map([...nextStates, ...current]));
+      stateRecordsRef.current = new Map([...nextStates, ...stateRecordsRef.current]);
+      publishStates();
       setWorkspaces((current) => new Map([...nextWorkspaces, ...current]));
     });
     return () => {
       alive = false;
+      if (statePublishFrameRef.current !== undefined) {
+        window.cancelAnimationFrame(statePublishFrameRef.current);
+        statePublishFrameRef.current = undefined;
+      }
       unsubscribeSession();
       unsubscribeRemoved();
       unsubscribeState();
       unsubscribeFinal();
     };
-  }, [rememberAgent]);
+  }, [publishStates, rememberAgent]);
 
   const activeId = workspace.activeSession?.id;
   const activeAgent = activeId ? agents.get(activeId) : undefined;
   const activeWorkspace = activeId ? workspaces.get(activeId) : undefined;
+  const activeMessage = activeId ? states.get(activeId) : undefined;
+  const activeConversation = useActiveConversation(activeId && activeAgent ? activeId : undefined, activeMessage?.state.lastSequence);
 
   useEffect(() => {
     if (!activeId || !activeAgent || activeWorkspace?.final) return;
@@ -206,7 +313,8 @@ export function AgentSidebar({ workspace }: AgentSidebarProps) {
         <AgentPanel
           runtimeSessionId={activeId}
           agentKind={activeAgent.agent}
-          message={states.get(activeId)}
+          message={activeMessage}
+          conversation={activeConversation}
           workspace={activeWorkspace}
           exited={activeAgent.session.exited || Boolean(activeWorkspace?.final)}
           canResume={Boolean(activeWorkspace?.final)}

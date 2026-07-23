@@ -13,7 +13,6 @@ function state(overrides: Partial<AgentStateMessage['state']> = {}): AgentStateM
   return {
     runtimeSessionId: 'session-1',
     observationLevel: 'structured',
-    conversation: { items: [], responding: false },
     state: {
       lifecycle: 'ready',
       tools: [],

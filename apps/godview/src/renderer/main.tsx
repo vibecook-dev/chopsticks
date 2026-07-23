@@ -171,6 +171,9 @@ function Godview() {
       }
       next.set(pane.id, color);
     }
+    for (const paneId of paneColorRegistry.current.keys()) {
+      if (!next.has(paneId)) paneColorRegistry.current.delete(paneId);
+    }
     setPaneColors((current) => {
       if (current.size === next.size && [...next].every(([id, color]) => current.get(id) === color)) return current;
       return next;

@@ -38,27 +38,30 @@ export function useLiveAgentViews(): readonly LiveAgentView[] {
 
   useEffect(() => {
     let alive = true;
-    const remember = (info: AgentSessionInfo): void => {
-      setRecords((current) => {
-        const next = new Map(current);
-        next.set(info.runtimeSessionId, { ...next.get(info.runtimeSessionId), info });
-        return next;
+    let publishFrame: number | undefined;
+    const current = new Map<string, AgentRecord>();
+    const removed = new Set<string>();
+    const publish = (): void => {
+      if (publishFrame !== undefined) return;
+      publishFrame = window.requestAnimationFrame(() => {
+        publishFrame = undefined;
+        if (alive) setRecords(new Map(current));
       });
+    };
+    const remember = (info: AgentSessionInfo): void => {
+      removed.delete(info.runtimeSessionId);
+      current.set(info.runtimeSessionId, { ...current.get(info.runtimeSessionId), info });
+      publish();
     };
     const forget = (runtimeSessionId: string): void => {
-      setRecords((current) => {
-        if (!current.has(runtimeSessionId)) return current;
-        const next = new Map(current);
-        next.delete(runtimeSessionId);
-        return next;
-      });
+      removed.add(runtimeSessionId);
+      if (current.delete(runtimeSessionId)) publish();
     };
     const updateState = (state: AgentStateMessage): void => {
-      setRecords((current) => {
-        const existing = current.get(state.runtimeSessionId);
-        if (!existing) return current;
-        return new Map(current).set(state.runtimeSessionId, { ...existing, state });
-      });
+      const existing = current.get(state.runtimeSessionId);
+      if (!existing) return;
+      current.set(state.runtimeSessionId, { ...existing, state });
+      publish();
     };
 
     const unsubscribeSession = window.chopsticks.onAgentSession(remember);
@@ -70,14 +73,25 @@ export function useLiveAgentViews(): readonly LiveAgentView[] {
       if (!alive) return;
       const next = new Map<string, AgentRecord>();
       for (const snapshot of snapshots) {
-        if (snapshot.final || snapshot.info.session.exited) continue;
-        next.set(snapshot.info.runtimeSessionId, { info: snapshot.info, state: snapshot.state });
+        const id = snapshot.info.runtimeSessionId;
+        if (removed.has(id) || snapshot.final || snapshot.info.session.exited) continue;
+        const live = current.get(id);
+        next.set(id, {
+          info: live?.info ?? snapshot.info,
+          state: live?.state ?? snapshot.state,
+        });
       }
-      setRecords(next);
+      for (const [id, record] of current) {
+        if (!next.has(id) && !removed.has(id)) next.set(id, record);
+      }
+      current.clear();
+      for (const [id, record] of next) current.set(id, record);
+      publish();
     });
 
     return () => {
       alive = false;
+      if (publishFrame !== undefined) window.cancelAnimationFrame(publishFrame);
       unsubscribeSession();
       unsubscribeState();
       unsubscribeRemoved();

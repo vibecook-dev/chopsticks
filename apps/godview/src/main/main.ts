@@ -24,6 +24,7 @@ import {
 import type {
   AgentSessionInfo,
   AgentSessionSnapshot,
+  AgentStateBatch,
   AgentStateMessage,
   CreateAgentSessionOptions,
   CreateAgentSessionResult,
@@ -43,6 +44,7 @@ import { orderNativeTabs } from './native-tab-order.js';
 import { resolveProcessCwd } from './process-cwd.js';
 import { GodviewTabRegistry } from './tab-registry.js';
 import { godviewTruffleConfig } from './truffle-config.js';
+import { LatestValueQueue } from './latest-value-queue.js';
 
 declare const __dirname: string;
 
@@ -129,10 +131,80 @@ const agentRecords = new Map<string, AgentRecord>();
 const dirtyAgentStates = new Set<string>();
 let agentFlushTimer: NodeJS.Timeout | undefined;
 
+interface AgentStateDelivery {
+  queue: LatestValueQueue<string, AgentStateMessage>;
+  paused: boolean;
+}
+
+const agentStateDeliveries = new Map<number, AgentStateDelivery>();
+
+function safeSend(window: BrowserWindow, channel: string, value: unknown): boolean {
+  if (window.isDestroyed() || window.webContents.isDestroyed()) return false;
+  try {
+    window.webContents.send(channel, value);
+    return true;
+  } catch {
+    // A renderer can disappear between the lifecycle check and send. Periodic
+    // producers must stop quietly until did-finish-load resumes delivery.
+    return false;
+  }
+}
+
 function broadcast(channel: string, value: unknown): void {
   for (const record of tabs.records()) {
-    if (!record.window.isDestroyed()) record.window.webContents.send(channel, value);
+    safeSend(record.window, channel, value);
   }
+}
+
+function stateDeliveryFor(window: BrowserWindow): AgentStateDelivery {
+  const id = window.webContents.id;
+  let delivery = agentStateDeliveries.get(id);
+  if (!delivery) {
+    delivery = { queue: new LatestValueQueue(), paused: false };
+    agentStateDeliveries.set(id, delivery);
+  }
+  return delivery;
+}
+
+function flushAgentStateDelivery(window: BrowserWindow): void {
+  const delivery = stateDeliveryFor(window);
+  if (delivery.paused) return;
+  const batch = delivery.queue.take();
+  if (!batch) return;
+  const message: AgentStateBatch = { sequence: batch.sequence, states: batch.values };
+  if (!safeSend(window, 'chopsticks:agent-states', message)) {
+    delivery.queue.retryInFlight();
+    delivery.paused = true;
+  }
+}
+
+function publishAgentState(message: AgentStateMessage): void {
+  for (const record of tabs.records()) {
+    if (record.window.isDestroyed() || record.window.webContents.isDestroyed()) continue;
+    const delivery = stateDeliveryFor(record.window);
+    delivery.queue.enqueue(message.runtimeSessionId, message);
+    flushAgentStateDelivery(record.window);
+  }
+}
+
+function pauseAgentStateDelivery(window: BrowserWindow): void {
+  if (window.isDestroyed() || window.webContents.isDestroyed()) return;
+  const delivery = agentStateDeliveries.get(window.webContents.id);
+  if (!delivery) return;
+  delivery.queue.retryInFlight();
+  delivery.paused = true;
+}
+
+function resumeAgentStateDelivery(window: BrowserWindow): void {
+  const delivery = stateDeliveryFor(window);
+  delivery.queue.retryInFlight();
+  delivery.paused = false;
+  flushAgentStateDelivery(window);
+}
+
+function discardAgentState(runtimeSessionId: string): void {
+  dirtyAgentStates.delete(runtimeSessionId);
+  for (const delivery of agentStateDeliveries.values()) delivery.queue.delete(runtimeSessionId);
 }
 
 function backendOptions(): GhostteaElectronBackendOptions {
@@ -255,9 +327,8 @@ function serializeState(state: SessionRuntimeState): SerializedSessionState {
 function stateSnapshot(runtimeSessionId: string): AgentStateMessage | undefined {
   const state = agentRuntime.sessionState(runtimeSessionId);
   const observationLevel = agentRuntime.observationLevel(runtimeSessionId);
-  const conversation = agentRuntime.conversationSnapshot(runtimeSessionId);
-  if (!state || !observationLevel || !conversation) return undefined;
-  return { runtimeSessionId, state: serializeState(state), observationLevel, conversation };
+  if (!state || !observationLevel) return undefined;
+  return { runtimeSessionId, state: serializeState(state), observationLevel };
 }
 
 function scheduleAgentStateFlush(): void {
@@ -268,7 +339,7 @@ function scheduleAgentStateFlush(): void {
     dirtyAgentStates.clear();
     for (const sessionId of sessionIds) {
       const snapshot = stateSnapshot(sessionId);
-      if (snapshot) broadcast('chopsticks:agent-state', snapshot);
+      if (snapshot) publishAgentState(snapshot);
     }
   }, AGENT_FLUSH_MS);
 }
@@ -276,7 +347,11 @@ function scheduleAgentStateFlush(): void {
 function pushWorkspaceFinal(final: AgentWorkspaceFinal): void {
   const record = agentRecords.get(final.runtimeSessionId);
   if (record) record.final = final;
+  discardAgentState(final.runtimeSessionId);
   broadcast('chopsticks:workspace-final', final);
+  // Godview presents live topology only; completed session metadata has no
+  // remaining consumer and must not accumulate across a long-running app.
+  agentRecords.delete(final.runtimeSessionId);
 }
 
 function stopAdoptedProcessMonitor(runtimeSessionId: string): void {
@@ -324,7 +399,7 @@ function rememberAgent(info: AgentSessionInfo, session: SessionSummary): void {
   agentRecords.set(info.runtimeSessionId, { info, session });
   broadcast('chopsticks:agent-session', info);
   const snapshot = stateSnapshot(info.runtimeSessionId);
-  if (snapshot) broadcast('chopsticks:agent-state', snapshot);
+  if (snapshot) publishAgentState(snapshot);
 }
 
 function onSessionExited(event: SessionExitedEvent): void {
@@ -435,6 +510,7 @@ async function handleSpawnThroughRequest(request: SpawnThroughRequest): Promise<
       stopAdoptedProcessMonitor(runtimeSessionId);
       managedTerminalIds.delete(runtimeSessionId);
       agentRecords.delete(runtimeSessionId);
+      discardAgentState(runtimeSessionId);
       broadcast('chopsticks:agent-removed', runtimeSessionId);
     }
     process.stderr.write(`[main] spawn-through exec failed: ${request.message}\n`);
@@ -514,6 +590,13 @@ function registerIpc(): void {
   ipcMain.handle('chopsticks:workspace-diff', (_event, runtimeSessionId: string) =>
     agentRuntime.workspaceDiff(runtimeSessionId),
   );
+  ipcMain.on('chopsticks:agent-states-ack', (event, sequence: unknown) => {
+    if (typeof sequence !== 'number' || !Number.isSafeInteger(sequence)) return;
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (!window || !tabs.get(window)) return;
+    const delivery = agentStateDeliveries.get(event.sender.id);
+    if (delivery?.queue.acknowledge(sequence)) flushAgentStateDelivery(window);
+  });
 }
 
 ipcMain.on('terminal-context-menu', (event, canCopy: boolean) => {
@@ -716,6 +799,8 @@ async function createWindow(options: CreateWindowOptions = {}): Promise<BrowserW
       additionalArguments,
     },
   });
+  const webContentsId = window.webContents.id;
+  let rendererRecoveryTimer: NodeJS.Timeout | undefined;
   const record = tabs.add(window, tabId, groupId);
   if (options.tabOf && process.platform === 'darwin' && !options.tabOf.isDestroyed()) {
     options.tabOf.addTabbedWindow(window);
@@ -741,12 +826,23 @@ async function createWindow(options: CreateWindowOptions = {}): Promise<BrowserW
     // another viewport, and must keep running until process exit or app
     // shutdown. Removing the attachment record is intentionally observational.
     tabs.delete(window);
+    agentStateDeliveries.delete(webContentsId);
+    if (rendererRecoveryTimer) clearTimeout(rendererRecoveryTimer);
     if (lastFocusedWindow === window) lastFocusedWindow = undefined;
   });
   window.webContents.on('console-message', (details) => {
     if (details.level === 'error') {
       console.error(`[renderer] ${details.message} (${details.sourceId}:${details.lineNumber})`);
     }
+  });
+  window.webContents.on('render-process-gone', (_event, details) => {
+    pauseAgentStateDelivery(window);
+    console.error(`[renderer] process gone: ${details.reason} (${details.exitCode})`);
+    if (quitting || window.isDestroyed() || details.reason === 'clean-exit' || rendererRecoveryTimer) return;
+    rendererRecoveryTimer = setTimeout(() => {
+      rendererRecoveryTimer = undefined;
+      if (!quitting && !window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.reload();
+    }, 250);
   });
   // Terminal selections live in the render worker rather than the DOM, so
   // Electron's native edit role cannot copy them. Route the shortcut through
@@ -758,6 +854,7 @@ async function createWindow(options: CreateWindowOptions = {}): Promise<BrowserW
     (command) => command !== 'copy' || clipboardHost.canCopy(window.webContents),
   );
   window.webContents.on('did-finish-load', () => {
+    resumeAgentStateDelivery(window);
     if (!window.isDestroyed() && backend?.running) backend.attachRenderer(window.webContents);
   });
   await window.loadFile(join(__dirname, 'index.html'));

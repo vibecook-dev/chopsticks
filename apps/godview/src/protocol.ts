@@ -7,7 +7,6 @@ import type {
   ToolPresentation,
 } from '@vibecook/chopsticks-core';
 import type {
-  AgentConversationSnapshot,
   AgentSessionInfo as RuntimeAgentSessionInfo,
   AgentWorkspaceFinal,
   AgentWorkspaceInfo,
@@ -72,7 +71,11 @@ export interface AgentStateMessage {
   runtimeSessionId: string;
   state: SerializedSessionState;
   observationLevel: ObservationLevel;
-  conversation: AgentConversationSnapshot;
+}
+
+export interface AgentStateBatch {
+  sequence: number;
+  states: AgentStateMessage[];
 }
 
 export interface AgentSessionSnapshot {
