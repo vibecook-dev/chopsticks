@@ -6,3 +6,4 @@
 
 export * from './backend.js';
 export * from './session-observer.js';
+export * from './account-usage.js';

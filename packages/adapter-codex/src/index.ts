@@ -10,6 +10,7 @@
 export * from './normalizer.js';
 export * from './rollout-context.js';
 export * from './app-server-client.js';
+export * from './account-usage.js';
 export * from './ws-transport.js';
 export * from './driver.js';
 export * from './observer.js';

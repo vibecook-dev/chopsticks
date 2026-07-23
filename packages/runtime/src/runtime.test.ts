@@ -140,6 +140,78 @@ function preparableProvider(
 }
 
 describe('createAgentRuntime', () => {
+  it('fetches provider-level account usage without a session and coalesces concurrent reads', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'chopsticks-runtime-usage-'));
+    const handles = new Map<string, { emit: (event: AgentEventEnvelope) => void }>();
+    const provider = fakeProvider('codex', handles);
+    let release: (() => void) | undefined;
+    let calls = 0;
+    provider.fetchAccountUsage = async () => {
+      calls += 1;
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return {
+        status: 'available',
+        snapshot: {
+          provider: 'codex',
+          fetchedAt: '2026-07-23T00:00:00.000Z',
+          scope: 'subscription',
+          source: { kind: 'native-protocol', stability: 'documented' },
+          limits: [],
+        },
+      };
+    };
+    const runtime = createAgentRuntime({ host, defaultCwd: root, providers: [provider] });
+
+    const first = runtime.accountUsage('codex');
+    const second = runtime.accountUsage('codex');
+    await vi.waitFor(() => expect(calls).toBe(1));
+    release?.();
+
+    await expect(first).resolves.toMatchObject({ status: 'available' });
+    await expect(second).resolves.toMatchObject({ status: 'available' });
+    expect(runtime.sessionInfo('codex')).toBeUndefined();
+    await runtime.dispose();
+  });
+
+  it('returns typed unsupported and sanitized unavailable results', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'chopsticks-runtime-usage-errors-'));
+    const handles = new Map<string, { emit: (event: AgentEventEnvelope) => void }>();
+    const unsupported = fakeProvider('acp', handles);
+    const broken = fakeProvider('broken', handles);
+    broken.fetchAccountUsage = () => {
+      throw new Error('native secret detail');
+    };
+    const runtime = createAgentRuntime({
+      host,
+      defaultCwd: root,
+      providers: [unsupported, broken],
+    });
+
+    await expect(runtime.accountUsage('missing')).resolves.toEqual({
+      status: 'unsupported',
+      provider: 'missing',
+      message: 'unknown agent provider: missing',
+      retryable: false,
+    });
+    await expect(runtime.accountUsage('acp')).resolves.toEqual({
+      status: 'unsupported',
+      provider: 'acp',
+      message: 'agent provider does not expose account usage: acp',
+      retryable: false,
+    });
+    const failed = await runtime.accountUsage('broken');
+    expect(failed).toEqual({
+      status: 'unavailable',
+      provider: 'broken',
+      message: 'account usage fetch failed for broken',
+      retryable: true,
+    });
+    expect(JSON.stringify(failed)).not.toContain('native secret detail');
+    await runtime.dispose();
+  });
+
   it('projects provider replay history without reducing its snapshot twice', async () => {
     const root = await mkdtemp(join(tmpdir(), 'chopsticks-runtime-replay-'));
     const sessionId = 'replay-native';

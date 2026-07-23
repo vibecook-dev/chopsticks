@@ -1,4 +1,5 @@
 import type {
+  AccountUsageFetchResult,
   AgentEventEnvelope,
   AgentHost,
   AgentSession,
@@ -66,6 +67,8 @@ export interface AgentProviderSessionOptions {
 export interface AgentProvider {
   readonly kind: string;
   createSession(options: AgentProviderSessionOptions): Promise<AgentSession>;
+  /** Fetch account-wide subscription/API quota state, independent of any session. */
+  fetchAccountUsage?(): Promise<AccountUsageFetchResult>;
   /** Optional split-phase launch for caller-owned terminals. Generic ACP intentionally omits this capability. */
   prepareSession?(options: AgentProviderSessionOptions): Promise<PreparedProviderSession>;
   dispose?(): void | Promise<void>;
@@ -189,6 +192,8 @@ export interface AgentRuntimeOptions {
 
 /** The single application-facing surface for every agent provider. */
 export interface AgentRuntime {
+  /** Fetch account-wide usage for a provider; concurrent calls for one provider are coalesced. */
+  accountUsage(agent: string): Promise<AccountUsageFetchResult>;
   createSession(options: CreateAgentSessionOptions): Promise<CreateAgentSessionResult>;
   prepareSession(options: CreateAgentSessionOptions): Promise<PrepareAgentSessionResult>;
   adoptPrepared(preparationId: string, options: AdoptPreparedSessionOptions): Promise<AdoptPreparedSessionResult>;

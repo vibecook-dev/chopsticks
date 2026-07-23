@@ -212,6 +212,7 @@ export function spawnAppServerTransport(opts?: { executable?: string; args?: str
     onMsg?.(parsed);
   });
   child.on('exit', (code, signal) => onCls?.({ code, signal }));
+  child.on('error', () => onCls?.({ code: null, signal: null }));
 
   return {
     send: (message) => {

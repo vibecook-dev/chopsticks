@@ -3,6 +3,7 @@ import { performance } from 'node:perf_hooks';
 import {
   createEnvelopeStamper,
   reduceSessionState,
+  type AccountUsageFetchResult,
   type AgentEvent,
   type AgentEventConfidence,
   type AgentEventEnvelope,
@@ -125,6 +126,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
   const preparationCleanups = new Map<string, Promise<void>>();
   const claims = new Map<string, Map<symbol, 'direct' | 'exclusive'>>();
   const listeners = new Set<(runtimeSessionId: string, envelope: AgentEventEnvelope) => void>();
+  const accountUsageInflight = new Map<string, Promise<AccountUsageFetchResult>>();
   const preparationTtlMs = options.preparationTtlMs ?? 30_000;
   if (!Number.isFinite(preparationTtlMs) || preparationTtlMs <= 0) {
     throw new Error('preparationTtlMs must be a positive finite number');
@@ -434,6 +436,46 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
   }
 
   return {
+    async accountUsage(agent): Promise<AccountUsageFetchResult> {
+      if (disposed) throw new Error('agent runtime is disposed');
+      const existing = accountUsageInflight.get(agent);
+      if (existing) return existing;
+
+      const provider = providers.get(agent);
+      if (!provider) {
+        return {
+          status: 'unsupported',
+          provider: agent,
+          message: `unknown agent provider: ${agent}`,
+          retryable: false,
+        };
+      }
+      if (!provider.fetchAccountUsage) {
+        return {
+          status: 'unsupported',
+          provider: agent,
+          message: `agent provider does not expose account usage: ${agent}`,
+          retryable: false,
+        };
+      }
+
+      const fetchAccountUsage = provider.fetchAccountUsage;
+      const request = Promise.resolve()
+        .then(() => fetchAccountUsage.call(provider))
+        .catch((error: unknown): AccountUsageFetchResult => {
+          report(error);
+          return {
+            status: 'unavailable',
+            provider: agent,
+            message: `account usage fetch failed for ${agent}`,
+            retryable: true,
+          };
+        })
+        .finally(() => accountUsageInflight.delete(agent));
+      accountUsageInflight.set(agent, request);
+      return request;
+    },
+
     async createSession(request: CreateAgentSessionOptions): Promise<CreateAgentSessionResult> {
       if (disposed) throw new Error('agent runtime is disposed');
       const provider = providers.get(request.agent);

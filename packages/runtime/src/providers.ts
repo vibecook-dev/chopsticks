@@ -1,7 +1,15 @@
 import { createAcpSession, type AcpConnector } from '@vibecook/chopsticks-adapter-acp';
-import { createClaudeSession, prepareClaudeTuiSession } from '@vibecook/chopsticks-adapter-claude';
-import { createCodexTuiSession, prepareCodexTuiSession } from '@vibecook/chopsticks-adapter-codex';
-import { createGrokBackend, type GrokBackend } from '@vibecook/chopsticks-adapter-grok';
+import {
+  createClaudeSession,
+  fetchClaudeAccountUsage,
+  prepareClaudeTuiSession,
+} from '@vibecook/chopsticks-adapter-claude';
+import {
+  createCodexTuiSession,
+  fetchCodexAccountUsage,
+  prepareCodexTuiSession,
+} from '@vibecook/chopsticks-adapter-codex';
+import { createGrokBackend, fetchGrokAccountUsage, type GrokBackend } from '@vibecook/chopsticks-adapter-grok';
 import type {
   AcpAgentOptions,
   AgentProvider,
@@ -33,6 +41,7 @@ export function createBuiltinProviders(options: BuiltinProviderOptions = {}): Ag
   return [
     {
       kind: 'claude',
+      fetchAccountUsage: () => fetchClaudeAccountUsage(),
       createSession: ({ cwd, resume, title, host, agentOptions }) => {
         const launch = agentOptions as ClaudeAgentOptions | undefined;
         return createClaudeSession({
@@ -72,6 +81,7 @@ export function createBuiltinProviders(options: BuiltinProviderOptions = {}): Ag
     },
     {
       kind: 'codex',
+      fetchAccountUsage: () => fetchCodexAccountUsage({ executable: resolved.codex }),
       createSession: ({ cwd, resume, host, agentOptions }) => {
         const launch = agentOptions as CodexAgentOptions | undefined;
         return createCodexTuiSession({
@@ -120,6 +130,7 @@ export function createBuiltinProviders(options: BuiltinProviderOptions = {}): Ag
     },
     {
       kind: 'grok',
+      fetchAccountUsage: fetchGrokAccountUsage,
       createSession: ({ cwd, resume, host, agentOptions }) => {
         const launch = agentOptions as GrokAgentOptions | undefined;
         grokBackend ??= createGrokBackend({ executable: resolved.grok, host });

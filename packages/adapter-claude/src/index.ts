@@ -13,5 +13,12 @@ export * from './settings.js';
 export * from './prepare.js';
 export * from './transcript-observer.js';
 export * from './statusline.js';
+export {
+  CLAUDE_OAUTH_BETA,
+  CLAUDE_USAGE_ENDPOINT,
+  fetchClaudeAccountUsage,
+  normalizeClaudeAccountUsage,
+  type FetchClaudeAccountUsageOptions,
+} from './account-usage.js';
 export * from './prompt.js';
 export * from './driver.js';

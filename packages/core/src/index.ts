@@ -10,5 +10,6 @@ export * from './events.js';
 export * from './state.js';
 export * from './session.js';
 export * from './host.js';
+export * from './account-usage.js';
 
 export const CHOPSTICKS_CORE_VERSION = '0.1.3'; // x-release-please-version

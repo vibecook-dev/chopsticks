@@ -5,10 +5,13 @@ import type { AcpConnector } from '@vibecook/chopsticks-adapter-acp';
 const adapters = vi.hoisted(() => ({
   createAcpSession: vi.fn(),
   createClaudeSession: vi.fn(),
+  fetchClaudeAccountUsage: vi.fn(),
   prepareClaudeTuiSession: vi.fn(),
   createCodexTuiSession: vi.fn(),
+  fetchCodexAccountUsage: vi.fn(),
   prepareCodexTuiSession: vi.fn(),
   createGrokBackend: vi.fn(),
+  fetchGrokAccountUsage: vi.fn(),
 }));
 
 vi.mock('@vibecook/chopsticks-adapter-acp', () => ({
@@ -17,16 +20,19 @@ vi.mock('@vibecook/chopsticks-adapter-acp', () => ({
 
 vi.mock('@vibecook/chopsticks-adapter-claude', () => ({
   createClaudeSession: adapters.createClaudeSession,
+  fetchClaudeAccountUsage: adapters.fetchClaudeAccountUsage,
   prepareClaudeTuiSession: adapters.prepareClaudeTuiSession,
 }));
 
 vi.mock('@vibecook/chopsticks-adapter-codex', () => ({
   createCodexTuiSession: adapters.createCodexTuiSession,
+  fetchCodexAccountUsage: adapters.fetchCodexAccountUsage,
   prepareCodexTuiSession: adapters.prepareCodexTuiSession,
 }));
 
 vi.mock('@vibecook/chopsticks-adapter-grok', () => ({
   createGrokBackend: adapters.createGrokBackend,
+  fetchGrokAccountUsage: adapters.fetchGrokAccountUsage,
 }));
 
 import { createBuiltinProviders } from './providers.js';
@@ -76,13 +82,31 @@ describe('createBuiltinProviders launch options', () => {
     vi.clearAllMocks();
     adapters.createAcpSession.mockResolvedValue(fakeSession('acp'));
     adapters.createClaudeSession.mockResolvedValue(fakeSession('claude'));
+    adapters.fetchClaudeAccountUsage.mockResolvedValue({
+      status: 'unauthenticated',
+      provider: 'claude',
+      message: 'missing',
+      retryable: false,
+    });
     adapters.prepareClaudeTuiSession.mockResolvedValue(fakePreparation('claude'));
     adapters.createCodexTuiSession.mockResolvedValue(fakeSession('codex'));
+    adapters.fetchCodexAccountUsage.mockResolvedValue({
+      status: 'unavailable',
+      provider: 'codex',
+      message: 'missing',
+      retryable: true,
+    });
     adapters.prepareCodexTuiSession.mockResolvedValue(fakePreparation('codex'));
     adapters.createGrokBackend.mockReturnValue({
       createSession: vi.fn(),
       prepareSession: vi.fn(async () => fakePreparation('grok')),
       dispose: vi.fn(),
+    });
+    adapters.fetchGrokAccountUsage.mockResolvedValue({
+      status: 'unsupported',
+      provider: 'grok',
+      message: 'missing',
+      retryable: false,
     });
   });
 
@@ -107,6 +131,23 @@ describe('createBuiltinProviders launch options', () => {
         permissionMode: 'plan',
       }),
     );
+  });
+
+  it('exposes provider-level account usage independently of sessions', async () => {
+    const providers = createBuiltinProviders({ executables: { codex: '/opt/codex' } });
+    const claude = providers.find((provider) => provider.kind === 'claude')!;
+    const codex = providers.find((provider) => provider.kind === 'codex')!;
+    const acp = providers.find((provider) => provider.kind === 'acp')!;
+    const grok = providers.find((provider) => provider.kind === 'grok')!;
+
+    await claude.fetchAccountUsage!();
+    await codex.fetchAccountUsage!();
+    await grok.fetchAccountUsage!();
+
+    expect(adapters.fetchClaudeAccountUsage).toHaveBeenCalledWith();
+    expect(adapters.fetchCodexAccountUsage).toHaveBeenCalledWith({ executable: '/opt/codex' });
+    expect(adapters.fetchGrokAccountUsage).toHaveBeenCalledWith();
+    expect(acp.fetchAccountUsage).toBeUndefined();
   });
 
   it('forwards Codex safety posture to the native-TUI thread bootstrap', async () => {
