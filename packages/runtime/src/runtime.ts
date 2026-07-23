@@ -287,7 +287,8 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     if (extras.processId !== undefined) info.processId = extras.processId;
     const conversation = new AgentConversationProjector();
     let state = session.state();
-    const stamper = createEnvelopeStamper(state.lastSequence);
+    const providerSnapshotSequence = state.lastSequence;
+    const stamper = createEnvelopeStamper(providerSnapshotSequence);
     let gitObserver: GitStateObserver | undefined;
 
     const dispatch = (
@@ -296,6 +297,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       confidence: AgentEventConfidence,
       nativeEvent?: unknown,
       upstream?: AgentEventEnvelope,
+      reduceIntoState = true,
     ): void => {
       const envelope = stamper.next({
         sessionId: upstream?.sessionId || info.sessionId,
@@ -311,11 +313,13 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       });
       const nativeSessionId = envelope.nativeSessionId || envelope.sessionId;
       if (nativeSessionId && info.sessionId !== nativeSessionId) info.sessionId = nativeSessionId;
-      const previousCwd = state.environment.currentCwd?.value;
-      state = reduceSessionState(state, envelope);
-      managed.state = state;
-      const currentCwd = state.environment.currentCwd?.value;
-      if (currentCwd && currentCwd !== previousCwd) gitObserver?.setCwd(currentCwd);
+      if (reduceIntoState) {
+        const previousCwd = state.environment.currentCwd?.value;
+        state = reduceSessionState(state, envelope);
+        managed.state = state;
+        const currentCwd = state.environment.currentCwd?.value;
+        if (currentCwd && currentCwd !== previousCwd) gitObserver?.setCwd(currentCwd);
+      }
       if (!isCanonicalApplicationEvent(session, envelope)) return;
       conversation.consume(envelope);
       for (const listener of listeners) {
@@ -339,7 +343,19 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     };
     sessions.set(session.runtimeSessionId, managed);
     managed.unsubscribe = session.onEvent((envelope) => {
-      dispatch(envelope.event, envelope.source, envelope.confidence, envelope.nativeEvent, envelope);
+      // Some providers synchronously replay buffered history from `onEvent`.
+      // Their `state()` snapshot already contains every envelope up to its
+      // lastSequence, so project those events to consumers without reducing
+      // them into managed state a second time.
+      const alreadyInSnapshot = envelope.sequence <= providerSnapshotSequence;
+      dispatch(
+        envelope.event,
+        envelope.source,
+        envelope.confidence,
+        envelope.nativeEvent,
+        envelope,
+        !alreadyInSnapshot,
+      );
     });
 
     if (!state.environment.currentCwd) {

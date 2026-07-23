@@ -48,6 +48,20 @@ describe('resolveGitState', () => {
       detached: false,
     });
   });
+
+  it('identifies linked worktrees while resolving their own root and branch', async () => {
+    const main = await repo();
+    const worktrees = await mkdtemp(join(tmpdir(), 'chopsticks-git-worktrees-'));
+    const linked = join(worktrees, 'linked');
+    await run(main, 'worktree', 'add', '-b', 'feature/linked', linked);
+
+    expect(await resolveGitState(linked)).toMatchObject({
+      root: await realpath(linked),
+      branch: 'feature/linked',
+      detached: false,
+      worktree: true,
+    });
+  });
 });
 
 describe('createGitStateObserver', () => {
@@ -60,7 +74,9 @@ describe('createGitStateObserver', () => {
     const changed = (): Promise<void> => new Promise((resolve) => (wake = resolve));
     const observer = createGitStateObserver({
       cwd: first,
-      pollIntervalMs: 25,
+      // Keep fallback polling out of the test: the branch transition below
+      // must be delivered by the Git ref/HEAD watchers.
+      pollIntervalMs: 60_000,
       onChange: (state) => {
         values.push(state?.branch ?? null);
         wake?.();
@@ -70,6 +86,11 @@ describe('createGitStateObserver', () => {
     try {
       await changed();
       expect(values.at(-1)).toBe('main');
+      const watched = changed();
+      await run(first, 'checkout', '-b', 'watched');
+      await watched;
+      expect(values.at(-1)).toBe('watched');
+
       const rebound = changed();
       observer.setCwd(second);
       await rebound;

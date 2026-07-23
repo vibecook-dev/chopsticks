@@ -6,6 +6,8 @@ import { promisify } from 'node:util';
 import type { AgentGitState } from '@vibecook/chopsticks-core';
 
 const execFileAsync = promisify(execFile);
+const DEFAULT_POLL_INTERVAL_MS = 30_000;
+const WATCHER_TOPOLOGY_REFRESH_MS = 5 * 60_000;
 
 async function git(cwd: string, args: readonly string[]): Promise<string | undefined> {
   try {
@@ -27,14 +29,18 @@ function fromGitPath(cwd: string, value: string | undefined): string | undefined
 
 /** Resolve branch/head facts for any directory, including worktrees, unborn branches, and detached HEADs. */
 export async function resolveGitState(cwd: string): Promise<AgentGitState | null> {
-  const root = await git(cwd, ['rev-parse', '--show-toplevel']);
+  const metadata = await git(cwd, [
+    'rev-parse',
+    '--show-toplevel',
+    '--absolute-git-dir',
+    '--git-common-dir',
+  ]);
+  const [root, gitDir, commonDir] = metadata?.split(/\r?\n/) ?? [];
   if (!root) return null;
 
-  const [branch, headSha, gitDir, commonDir] = await Promise.all([
+  const [branch, headSha] = await Promise.all([
     git(cwd, ['symbolic-ref', '--quiet', '--short', 'HEAD']),
     git(cwd, ['rev-parse', '--verify', 'HEAD']),
-    git(cwd, ['rev-parse', '--absolute-git-dir']),
-    git(cwd, ['rev-parse', '--git-common-dir']),
   ]);
   const absoluteGitDir = fromGitPath(cwd, gitDir);
   const absoluteCommonDir = fromGitPath(cwd, commonDir);
@@ -80,6 +86,9 @@ export function createGitStateObserver(options: GitStateObserverOptions): GitSta
   let queued = false;
   let last: string | undefined;
   let watchers: FSWatcher[] = [];
+  let watchersInitialized = false;
+  let watcherTopologyDirty = true;
+  let watcherTopologyRefreshedAt = 0;
 
   const clearWatchers = (): void => {
     for (const watcher of watchers) watcher.close();
@@ -95,32 +104,43 @@ export function createGitStateObserver(options: GitStateObserverOptions): GitSta
     void refreshNow();
   };
 
+  const scheduleFromWatcher = (): void => {
+    // Git commonly replaces refs atomically. Rebuild after a real filesystem
+    // event so the observer remains attached to the replacement inode.
+    watcherTopologyDirty = true;
+    schedule();
+  };
+
   const watchPath = (path: string | undefined): void => {
     if (!path) return;
     const target = existsSync(path) ? path : dirname(path);
     if (!existsSync(target)) return;
     try {
-      const watcher = watch(target, { persistent: false }, schedule);
-      watcher.on('error', () => undefined);
+      const watcher = watch(target, { persistent: false }, scheduleFromWatcher);
+      watcher.on('error', scheduleFromWatcher);
       watchers.push(watcher);
     } catch {
       // The poller remains the correctness fallback.
     }
   };
 
-  const rebuildWatchers = async (observedCwd: string, observedGeneration: number): Promise<void> => {
-    const [headPath, packedRefs, branchRef] = await Promise.all([
-      git(observedCwd, ['rev-parse', '--git-path', 'HEAD']),
-      git(observedCwd, ['rev-parse', '--git-path', 'packed-refs']),
-      git(observedCwd, ['symbolic-ref', '--quiet', 'HEAD']).then((ref) =>
-        ref ? git(observedCwd, ['rev-parse', '--git-path', ref]) : undefined,
-      ),
+  const rebuildWatchers = async (observedCwd: string, observedGeneration: number): Promise<boolean> => {
+    const branchRef = await git(observedCwd, ['symbolic-ref', '--quiet', 'HEAD']);
+    const gitPaths = await git(observedCwd, [
+      'rev-parse',
+      '--git-path',
+      'HEAD',
+      '--git-path',
+      'packed-refs',
+      ...(branchRef ? ['--git-path', branchRef] : []),
     ]);
-    if (stopped || generation !== observedGeneration) return;
+    const [headPath, packedRefs, branchPath] = gitPaths?.split(/\r?\n/) ?? [];
+    if (stopped || generation !== observedGeneration) return false;
     clearWatchers();
     watchPath(fromGitPath(observedCwd, headPath));
     watchPath(fromGitPath(observedCwd, packedRefs));
-    watchPath(fromGitPath(observedCwd, branchRef));
+    watchPath(fromGitPath(observedCwd, branchPath));
+    return true;
   };
 
   async function refreshNow(): Promise<void> {
@@ -133,9 +153,21 @@ export function createGitStateObserver(options: GitStateObserverOptions): GitSta
       const serialized = stableState(state);
       if (serialized !== last) {
         last = serialized;
+        watcherTopologyDirty = true;
         options.onChange(state);
       }
-      await rebuildWatchers(observedCwd, observedGeneration);
+      const now = Date.now();
+      if (
+        watcherTopologyDirty ||
+        !watchersInitialized ||
+        now - watcherTopologyRefreshedAt >= WATCHER_TOPOLOGY_REFRESH_MS
+      ) {
+        watcherTopologyDirty = false;
+        if (await rebuildWatchers(observedCwd, observedGeneration)) {
+          watchersInitialized = true;
+          watcherTopologyRefreshedAt = Date.now();
+        }
+      }
     } catch (error) {
       options.onError?.(error instanceof Error ? error : new Error(String(error)));
     } finally {
@@ -147,7 +179,10 @@ export function createGitStateObserver(options: GitStateObserverOptions): GitSta
     }
   }
 
-  const poller = setInterval(schedule, options.pollIntervalMs ?? 2_000);
+  // fs.watch is the fast path. Poll slowly as a correctness fallback for
+  // network filesystems, missed atomic replacements, and repositories created
+  // after observation begins.
+  const poller = setInterval(schedule, options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
   poller.unref?.();
   schedule();
 
@@ -159,6 +194,9 @@ export function createGitStateObserver(options: GitStateObserverOptions): GitSta
       generation += 1;
       last = undefined;
       clearWatchers();
+      watchersInitialized = false;
+      watcherTopologyDirty = true;
+      watcherTopologyRefreshedAt = 0;
       schedule();
     },
     refresh: schedule,

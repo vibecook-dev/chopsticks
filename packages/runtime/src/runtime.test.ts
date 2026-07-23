@@ -6,7 +6,9 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  createEnvelopeStamper,
   createInitialSessionState,
+  reduceSessionState,
   type AgentEventEnvelope,
   type AgentHost,
   type AgentSession,
@@ -138,6 +140,65 @@ function preparableProvider(
 }
 
 describe('createAgentRuntime', () => {
+  it('projects provider replay history without reducing its snapshot twice', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'chopsticks-runtime-replay-'));
+    const sessionId = 'replay-native';
+    const runtimeSessionId = 'replay-runtime';
+    const stamper = createEnvelopeStamper();
+    const stamp = (event: AgentEventEnvelope['event']): AgentEventEnvelope =>
+      stamper.next({
+        sessionId,
+        timestamp: new Date().toISOString(),
+        monotonicTime: performance.now(),
+        source: 'native-protocol',
+        confidence: 'authoritative',
+        event,
+      });
+    const replay = [
+      stamp({ type: 'tool.started', toolCallId: 'tool-1', tool: 'command' }),
+      stamp({ type: 'tool.completed', toolCallId: 'tool-1', tool: 'command' }),
+      stamp({ type: 'adapter.native-event', adapter: 'replay', nativeType: 'future/event' }),
+    ];
+    const snapshot = replay.reduce(reduceSessionState, createInitialSessionState());
+    const provider: AgentProvider = {
+      kind: 'replay',
+      async createSession() {
+        return {
+          sessionId,
+          runtimeSessionId,
+          state: () => snapshot,
+          observationLevel: () => 'structured',
+          onEvent(listener) {
+            for (const envelope of replay) listener(envelope);
+            return () => undefined;
+          },
+          async submitPrompt() {
+            return { status: 'confirmed' };
+          },
+          async dispose() {},
+        };
+      },
+    };
+    const runtime = createAgentRuntime({ host, defaultCwd: root, providers: [provider] });
+    const projected: string[] = [];
+    runtime.onEvent((_id, envelope) => projected.push(envelope.event.type));
+
+    const created = await runtime.createSession({ agent: 'replay', cwd: root });
+    if ('error' in created) throw new Error('unexpected create failure');
+
+    expect(runtime.sessionState(runtimeSessionId)?.counters).toMatchObject({
+      toolsCompleted: 1,
+      toolsFailed: 0,
+      unknownEvents: 1,
+    });
+    expect(projected.slice(0, replay.length)).toEqual([
+      'tool.started',
+      'tool.completed',
+      'adapter.native-event',
+    ]);
+    await runtime.dispose();
+  });
+
   it('tracks provider cwd/model and resolves the matching live Git branch', async () => {
     const first = await makeRepo();
     const second = await makeRepo();
