@@ -1,5 +1,7 @@
 import type { SessionSummary } from '@vibecook/ghosttea-protocol';
 import type {
+  AccountUsageFailure,
+  AccountUsageFetchResult,
   ContextWindowRuntimeState,
   ObservationLevel,
   PromptReceipt as CorePromptReceipt,
@@ -19,6 +21,21 @@ export type AgentKind = BuiltinAgentKind;
 export type WorkspaceInfo = AgentWorkspaceInfo;
 export type PromptReceipt = CorePromptReceipt;
 export type WorkspaceFinalEvent = AgentWorkspaceFinal;
+export const ACCOUNT_USAGE_AGENTS = ['claude', 'codex', 'grok'] as const;
+export type AccountUsageAgent = (typeof ACCOUNT_USAGE_AGENTS)[number];
+
+export interface AgentAccountUsage {
+  agent: AccountUsageAgent;
+  result: AccountUsageFetchResult;
+  /** The last good snapshot is retained when a later refresh fails. */
+  stale?: boolean;
+  refreshFailure?: AccountUsageFailure;
+}
+
+export interface AgentAccountUsageBatch {
+  refreshedAt: string;
+  entries: AgentAccountUsage[];
+}
 
 export interface CreateAgentSessionOptions {
   agent: AgentKind;
@@ -98,4 +115,7 @@ export interface ChopsticksBridge {
   onAgentState(cb: (state: AgentStateMessage) => void): () => void;
   workspaceDiff(runtimeSessionId: string): Promise<WorkspaceDiff | null>;
   onWorkspaceFinal(cb: (event: WorkspaceFinalEvent) => void): () => void;
+  accountUsage(): Promise<AgentAccountUsageBatch>;
+  refreshAccountUsage(): Promise<AgentAccountUsageBatch>;
+  onAccountUsage(cb: (batch: AgentAccountUsageBatch) => void): () => void;
 }

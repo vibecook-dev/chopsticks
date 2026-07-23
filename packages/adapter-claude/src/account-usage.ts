@@ -130,6 +130,16 @@ function isoTimestamp(value: unknown): string | undefined {
   return Number.isFinite(date.valueOf()) ? date.toISOString() : undefined;
 }
 
+function retryAtFromHeader(value: string | null, now: Date): string | undefined {
+  const header = value?.trim();
+  if (!header) return undefined;
+  const seconds = Number(header);
+  const millis =
+    Number.isFinite(seconds) && seconds >= 0 ? now.valueOf() + seconds * 1_000 : Date.parse(header);
+  if (!Number.isFinite(millis)) return undefined;
+  return new Date(millis).toISOString();
+}
+
 function firstFinite(window: Record<string, unknown>, keys: readonly string[]): number | undefined {
   for (const key of keys) {
     const value = finite(window[key]);
@@ -427,11 +437,17 @@ export async function fetchClaudeAccountUsageWithDependencies(
       };
     }
     if (!response.ok) {
+      const retryable = response.status === 429 || response.status >= 500;
+      const retryAt = retryable
+        ? retryAtFromHeader(response.headers.get('retry-after'), (options.now ?? (() => new Date()))())
+        : undefined;
       return {
         status: 'unavailable',
         provider: 'claude',
         message: `Claude account usage request failed with HTTP ${response.status}`,
-        retryable: response.status === 429 || response.status >= 500,
+        retryable,
+        ...(response.status === 429 ? { code: 'rate-limited' as const } : {}),
+        ...(retryAt ? { retryAt } : {}),
       };
     }
 

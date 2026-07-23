@@ -240,13 +240,18 @@ describe('Claude account usage', () => {
     await expect(
       fetchClaudeAccountUsageWithDependencies({
         resolveAccessToken: async () => 'valid',
-        fetchImpl: vi.fn(async () => new Response('', { status: 429 })) as typeof fetch,
+        fetchImpl: vi.fn(
+          async () => new Response('', { status: 429, headers: { 'retry-after': '120' } }),
+        ) as typeof fetch,
+        now: () => new Date('2026-07-23T20:00:00.000Z'),
       }),
     ).resolves.toEqual({
       status: 'unavailable',
       provider: 'claude',
       message: 'Claude account usage request failed with HTTP 429',
       retryable: true,
+      code: 'rate-limited',
+      retryAt: '2026-07-23T20:02:00.000Z',
     });
   });
 

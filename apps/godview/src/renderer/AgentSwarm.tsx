@@ -9,6 +9,7 @@ import {
 import Matter from 'matter-js';
 import type { SessionSummary } from '@vibecook/ghosttea-protocol';
 import type { AgentSessionInfo, AgentStateMessage } from '../protocol.js';
+import { AccountUsagePanel } from './AccountUsagePanel.js';
 import { AgentIcon } from './AgentIcon.js';
 import { liveAgentView, type LiveAgentView } from './agent-status.js';
 import type { PaneAttachment } from './pane-attachments.js';
@@ -123,9 +124,11 @@ interface PhysicsBody {
 interface PhysicsWorld {
   engine: Matter.Engine;
   walls: [Matter.Body, Matter.Body, Matter.Body, Matter.Body];
+  usageObstacle: Matter.Body;
 }
 
 const PHYSICAL_GAP = 4;
+const USAGE_OBSTACLE_PADDING = 7;
 const DRAG_STIFFNESS = 0.2;
 const WALL_THICKNESS = 5000;
 const SPAWN_DURATION_MS = 720;
@@ -272,6 +275,7 @@ export function AgentSwarm({
       wrapper.body.frictionAir = parameters.frictionAir;
     }
     for (const wall of world.walls) wall.restitution = parameters.restitution;
+    world.usageObstacle.restitution = parameters.restitution;
   }, [parameters]);
 
   useEffect(() => {
@@ -289,20 +293,39 @@ export function AgentSwarm({
       Matter.Bodies.rectangle(-WALL_THICKNESS / 2, height / 2, WALL_THICKNESS, 10000, wallOptions),
       Matter.Bodies.rectangle(width + WALL_THICKNESS / 2, height / 2, WALL_THICKNESS, 10000, wallOptions),
     ];
-    Matter.Composite.add(engine.world, walls);
-    worldRef.current = { engine, walls };
+    const usagePanel = container.querySelector<HTMLElement>('.account-usage-panel');
+    const initialPanelRect = usagePanel?.getBoundingClientRect();
+    let obstacleWidth = Math.max(1, (initialPanelRect?.width ?? 1) + USAGE_OBSTACLE_PADDING * 2);
+    let obstacleHeight = Math.max(1, (initialPanelRect?.height ?? 1) + USAGE_OBSTACLE_PADDING * 2);
+    const usageObstacle = Matter.Bodies.rectangle(0, 0, obstacleWidth, obstacleHeight, wallOptions);
+    Matter.Composite.add(engine.world, [...walls, usageObstacle]);
+    worldRef.current = { engine, walls, usageObstacle };
 
-    const resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        width = entry.contentRect.width;
-        height = entry.contentRect.height;
-        Matter.Body.setPosition(walls[0], { x: width / 2, y: height + WALL_THICKNESS / 2 });
-        Matter.Body.setPosition(walls[1], { x: width / 2, y: -WALL_THICKNESS / 2 });
-        Matter.Body.setPosition(walls[2], { x: -WALL_THICKNESS / 2, y: height / 2 });
-        Matter.Body.setPosition(walls[3], { x: width + WALL_THICKNESS / 2, y: height / 2 });
-      }
-    });
+    const updateBounds = (): void => {
+      width = container.clientWidth;
+      height = container.clientHeight;
+      Matter.Body.setPosition(walls[0], { x: width / 2, y: height + WALL_THICKNESS / 2 });
+      Matter.Body.setPosition(walls[1], { x: width / 2, y: -WALL_THICKNESS / 2 });
+      Matter.Body.setPosition(walls[2], { x: -WALL_THICKNESS / 2, y: height / 2 });
+      Matter.Body.setPosition(walls[3], { x: width + WALL_THICKNESS / 2, y: height / 2 });
+      if (!usagePanel) return;
+      const containerRect = container.getBoundingClientRect();
+      const panelRect = usagePanel.getBoundingClientRect();
+      const nextWidth = Math.max(1, panelRect.width + USAGE_OBSTACLE_PADDING * 2);
+      const nextHeight = Math.max(1, panelRect.height + USAGE_OBSTACLE_PADDING * 2);
+      Matter.Body.scale(usageObstacle, nextWidth / obstacleWidth, nextHeight / obstacleHeight);
+      obstacleWidth = nextWidth;
+      obstacleHeight = nextHeight;
+      Matter.Body.setPosition(usageObstacle, {
+        x: panelRect.left - containerRect.left + panelRect.width / 2,
+        y: panelRect.top - containerRect.top + panelRect.height / 2,
+      });
+    };
+
+    const resizeObserver = new ResizeObserver(updateBounds);
     resizeObserver.observe(container);
+    if (usagePanel) resizeObserver.observe(usagePanel);
+    updateBounds();
 
     let frame = 0;
     let previousTime = performance.now();
@@ -452,6 +475,7 @@ export function AgentSwarm({
       }}
     >
       <div className="godview-swarm-grid" aria-hidden="true" />
+      <AccountUsagePanel />
       {longPressPosition ? (
         <span
           className="godview-long-press-indicator"

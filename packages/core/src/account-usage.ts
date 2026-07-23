@@ -89,6 +89,9 @@ export interface AccountUsageFailure {
   provider: string;
   message: string;
   retryable: boolean;
+  code?: 'rate-limited';
+  /** Earliest provider-authorized retry time, normalized from Retry-After when available. */
+  retryAt?: string;
 }
 
 export type AccountUsageFetchResult = AccountUsageAvailable | AccountUsageFailure;

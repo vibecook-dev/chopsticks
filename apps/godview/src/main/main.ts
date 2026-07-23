@@ -22,6 +22,7 @@ import {
   type BuiltinExecutableAgentKind,
 } from '@vibecook/chopsticks-runtime';
 import type {
+  AgentAccountUsageBatch,
   AgentSessionInfo,
   AgentSessionSnapshot,
   AgentStateBatch,
@@ -32,6 +33,7 @@ import type {
   SerializedSessionState,
   SubmitPromptOptions,
 } from '../protocol.js';
+import { createAccountUsageMonitor } from './account-usage-monitor.js';
 import { missingManagedSessionIds } from './session-recovery.js';
 import {
   prepareSpawnThroughLaunch,
@@ -293,6 +295,13 @@ const agentRuntime: AgentRuntime = createBuiltinAgentRuntime({
   executables: realAgentExecutables,
   recorder,
   onError: (error) => process.stderr.write(`[main] agent runtime: ${error.message}\n`),
+});
+const accountUsageMonitor = createAccountUsageMonitor({
+  fetchUsage: (agent) => agentRuntime.accountUsage(agent),
+  publish: (batch: AgentAccountUsageBatch) => {
+    if (!quitting) broadcast('chopsticks:account-usage', batch);
+  },
+  onError: (error) => process.stderr.write(`[main] account usage: ${error.message}\n`),
 });
 agentRuntime.onEvent((runtimeSessionId) => {
   const runtimeInfo = agentRuntime.sessionInfo(runtimeSessionId);
@@ -573,6 +582,8 @@ async function initializeSpawnThrough(): Promise<void> {
 }
 
 function registerIpc(): void {
+  ipcMain.handle('chopsticks:account-usage', () => accountUsageMonitor.snapshot());
+  ipcMain.handle('chopsticks:refresh-account-usage', () => accountUsageMonitor.refresh());
   ipcMain.handle('chopsticks:create-agent-session', (event, options: CreateAgentSessionOptions) => {
     const owner = BrowserWindow.fromWebContents(event.sender);
     return createAgentSession(options, owner && tabs.get(owner) ? owner : undefined);
@@ -976,6 +987,7 @@ async function runSpawnThroughSmoke(agent: BuiltinExecutableAgentKind): Promise<
 function shutdown(): Promise<void> {
   shutdownPromise ??= (async () => {
     quitting = true;
+    accountUsageMonitor.stop();
     if (agentFlushTimer) clearTimeout(agentFlushTimer);
     for (const runtimeSessionId of adoptedProcessMonitors.keys()) stopAdoptedProcessMonitor(runtimeSessionId);
     const client = backend?.automation;
@@ -1014,6 +1026,7 @@ app
       app.exit(0);
       return;
     }
+    accountUsageMonitor.start();
     await createWindow();
   })
   .catch((error) => {

@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { createGhostteaClipboardBridge, forwardGhostteaRendererPorts } from '@vibecook/ghosttea-electron/preload';
 import type {
+  AgentAccountUsageBatch,
   AgentSessionSnapshot,
   AgentSessionInfo,
   AgentStateBatch,
@@ -45,6 +46,13 @@ try {
 }
 
 const chopsticks: ChopsticksBridge = {
+  accountUsage: (): Promise<AgentAccountUsageBatch> => ipcRenderer.invoke('chopsticks:account-usage'),
+  refreshAccountUsage: (): Promise<AgentAccountUsageBatch> => ipcRenderer.invoke('chopsticks:refresh-account-usage'),
+  onAccountUsage: (callback: (batch: AgentAccountUsageBatch) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, batch: AgentAccountUsageBatch): void => callback(batch);
+    ipcRenderer.on('chopsticks:account-usage', listener);
+    return () => ipcRenderer.removeListener('chopsticks:account-usage', listener);
+  },
   createAgentSession: (options: CreateAgentSessionOptions): Promise<CreateAgentSessionResult> =>
     ipcRenderer.invoke('chopsticks:create-agent-session', options),
   listAgentSessions: (): Promise<AgentSessionSnapshot[]> => ipcRenderer.invoke('chopsticks:list-agent-sessions'),
