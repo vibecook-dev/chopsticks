@@ -24,9 +24,11 @@ import type { Transport } from './app-server-client.js';
 
 const OP_TEXT = 0x1;
 const OP_BINARY = 0x2;
+const OP_CONTINUATION = 0x0;
 const OP_CLOSE = 0x8;
 const OP_PING = 0x9;
 const OP_PONG = 0xa;
+const MAX_MESSAGE_BYTES = 64 * 1024 * 1024;
 
 /** Encode a client frame (client → server frames MUST be masked). */
 function encodeFrame(opcode: number, payload: Buffer): Buffer {
@@ -55,17 +57,27 @@ interface DecodedFrame {
   payload: Buffer;
 }
 
-/** Incremental frame decoder: feed bytes, get back whole frames. */
+/**
+ * Incremental RFC-6455 decoder. Data frames are returned as complete logical
+ * messages: fragmented text/binary frames are buffered across continuation
+ * frames, while interleaved control frames are delivered immediately.
+ */
 class FrameDecoder {
   private buf = Buffer.alloc(0);
+  private fragmentedOpcode: number | undefined;
+  private fragmentedPayloads: Buffer[] = [];
+  private fragmentedBytes = 0;
 
   feed(chunk: Buffer): DecodedFrame[] {
     this.buf = Buffer.concat([this.buf, chunk]);
     const frames: DecodedFrame[] = [];
     for (;;) {
       if (this.buf.length < 2) break;
+      const first = this.buf[0]!;
       const b1 = this.buf[1]!;
-      const opcode = this.buf[0]! & 0x0f;
+      const fin = (first & 0x80) !== 0;
+      const opcode = first & 0x0f;
+      if ((first & 0x70) !== 0) throw new Error('unsupported WebSocket extension bits');
       const masked = (b1 & 0x80) !== 0;
       let len = b1 & 0x7f;
       let off = 2;
@@ -75,9 +87,13 @@ class FrameDecoder {
         off = 4;
       } else if (len === 127) {
         if (this.buf.length < 10) break;
-        len = Number(this.buf.readBigUInt64BE(2));
+        const wideLength = this.buf.readBigUInt64BE(2);
+        if (wideLength > BigInt(MAX_MESSAGE_BYTES)) throw new Error('WebSocket frame exceeds message limit');
+        len = Number(wideLength);
         off = 10;
       }
+      if (len > MAX_MESSAGE_BYTES) throw new Error('WebSocket frame exceeds message limit');
+      if (opcode >= OP_CLOSE && (!fin || len > 125)) throw new Error('invalid fragmented WebSocket control frame');
       let maskKey: Buffer | undefined;
       if (masked) {
         if (this.buf.length < off + 4) break;
@@ -92,7 +108,36 @@ class FrameDecoder {
         payload = u;
       }
       this.buf = this.buf.subarray(off + len);
-      frames.push({ opcode, payload });
+
+      if (opcode >= OP_CLOSE) {
+        if (opcode !== OP_CLOSE && opcode !== OP_PING && opcode !== OP_PONG) {
+          throw new Error(`unsupported WebSocket control opcode ${opcode}`);
+        }
+        frames.push({ opcode, payload });
+        continue;
+      }
+      if (opcode === OP_CONTINUATION) {
+        if (this.fragmentedOpcode === undefined) throw new Error('unexpected WebSocket continuation frame');
+        this.fragmentedPayloads.push(payload);
+        this.fragmentedBytes += payload.length;
+        if (this.fragmentedBytes > MAX_MESSAGE_BYTES) throw new Error('WebSocket message exceeds message limit');
+        if (fin) {
+          frames.push({ opcode: this.fragmentedOpcode, payload: Buffer.concat(this.fragmentedPayloads) });
+          this.fragmentedOpcode = undefined;
+          this.fragmentedPayloads = [];
+          this.fragmentedBytes = 0;
+        }
+        continue;
+      }
+      if (opcode !== OP_TEXT && opcode !== OP_BINARY) throw new Error(`unsupported WebSocket opcode ${opcode}`);
+      if (this.fragmentedOpcode !== undefined) throw new Error('new WebSocket data frame during fragmented message');
+      if (fin) {
+        frames.push({ opcode, payload });
+      } else {
+        this.fragmentedOpcode = opcode;
+        this.fragmentedPayloads = [payload];
+        this.fragmentedBytes = payload.length;
+      }
     }
     return frames;
   }
@@ -142,10 +187,14 @@ export function wsOverUnixTransport(socketPath: string, opts: WsUnixTransportOpt
   };
 
   const handleFrames = (chunk: Buffer): void => {
-    for (const f of decoder.feed(chunk)) {
-      if (f.opcode === OP_TEXT || f.opcode === OP_BINARY) deliverText(f.payload.toString('utf8'));
-      else if (f.opcode === OP_PING) sock.write(encodeFrame(OP_PONG, f.payload));
-      else if (f.opcode === OP_CLOSE) sock.destroy();
+    try {
+      for (const f of decoder.feed(chunk)) {
+        if (f.opcode === OP_TEXT || f.opcode === OP_BINARY) deliverText(f.payload.toString('utf8'));
+        else if (f.opcode === OP_PING) sock.write(encodeFrame(OP_PONG, f.payload));
+        else if (f.opcode === OP_CLOSE) sock.destroy();
+      }
+    } catch (error) {
+      sock.destroy(error instanceof Error ? error : new Error(String(error)));
     }
   };
 
@@ -235,7 +284,7 @@ export function createUnixWebSocketTapProxy(
   });
   const server = net.createServer((downstream) => {
     const upstream = net.connect(upstreamPath);
-    const decoder = new FrameDecoder();
+    let decoder = new FrameDecoder();
     let upgraded = false;
     let requestHeaders = Buffer.alloc(0);
 
@@ -251,13 +300,19 @@ export function createUnixWebSocketTapProxy(
         framed = requestHeaders.subarray(end + 4);
         requestHeaders = Buffer.alloc(0);
       }
-      for (const frame of decoder.feed(framed)) {
-        if (frame.opcode !== OP_TEXT && frame.opcode !== OP_BINARY) continue;
-        try {
-          onClientMessage(JSON.parse(frame.payload.toString('utf8')));
-        } catch {
-          // Non-JSON frames remain transparently forwarded.
+      try {
+        for (const frame of decoder.feed(framed)) {
+          if (frame.opcode !== OP_TEXT && frame.opcode !== OP_BINARY) continue;
+          try {
+            onClientMessage(JSON.parse(frame.payload.toString('utf8')));
+          } catch {
+            // Non-JSON frames remain transparently forwarded.
+          }
         }
+      } catch {
+        // Observation must never disturb the transparent byte stream. Reset
+        // after malformed/unsupported framing and keep forwarding untouched.
+        decoder = new FrameDecoder();
       }
     });
     const close = (): void => {

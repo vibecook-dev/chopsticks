@@ -16,8 +16,13 @@ declare global {
       showContextMenu: (canCopy: boolean) => void;
       toggleFullscreen: () => void;
       closeWindow: () => void;
+      newWindow: (cwd?: string) => void;
+      quit: () => void;
+      closeAllWindows: () => void;
+      openConfig: () => void;
+      reloadConfig: () => void;
       newTab: (cwd?: string) => void;
-      selectTab: (target: 'previous' | 'next' | number) => void;
+      selectTab: (target: 'previous' | 'next' | 'last' | number) => void;
       closeTab: () => void;
       updateTabSessions: (sessionIds: readonly string[]) => void;
       updateActiveCwd: (cwd?: string) => void;

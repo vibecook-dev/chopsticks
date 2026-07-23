@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   assistantMessageEvent,
   createTranscriptObserver,
+  projectTranscriptHistory,
   type TranscriptObserver,
   type TranscriptRecordEvent,
 } from './transcript-observer.js';
@@ -94,5 +95,144 @@ describe('assistantMessageEvent', () => {
 
   it('returns null for non-assistant records', () => {
     expect(assistantMessageEvent({ type: 'user', message: { content: 'hi' } } as never)).toBeNull();
+  });
+});
+
+describe('projectTranscriptHistory', () => {
+  it('reconstructs completed user/assistant turns and ignores synthetic tool-result rows', () => {
+    const messages = [
+      {
+        type: 'user',
+        uuid: 'user-1',
+        promptId: 'prompt-1',
+        timestamp: '2026-07-13T00:00:00.000Z',
+        message: { role: 'user', content: 'First question' },
+      },
+      JSON.parse(assistantLine('assistant-1', 'First answer')),
+      {
+        type: 'user',
+        uuid: 'tool-result',
+        timestamp: '2026-07-13T00:00:01.000Z',
+        message: {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 'toolu_x', content: 'result' }],
+        },
+      },
+      {
+        type: 'user',
+        uuid: 'synthetic',
+        timestamp: '2026-07-13T00:00:02.000Z',
+        message: { role: 'user', content: '<system-reminder>internal context</system-reminder>' },
+      },
+      {
+        type: 'assistant',
+        uuid: 'sidechain-assistant',
+        isSidechain: true,
+        message: {
+          id: 'sidechain-answer',
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Internal subagent answer' }],
+        },
+      },
+      {
+        type: 'user',
+        uuid: 'tool-derived-text',
+        sourceToolUseID: 'toolu_x',
+        message: { role: 'user', content: [{ type: 'text', text: 'Tool-generated context' }] },
+      },
+      {
+        type: 'user',
+        uuid: 'user-2',
+        timestamp: '2026-07-13T00:00:03.000Z',
+        message: { role: 'user', content: [{ type: 'text', text: 'Second question' }] },
+      },
+      JSON.parse(assistantLine('assistant-2', 'Second answer')),
+    ] as never[];
+
+    expect(projectTranscriptHistory(messages).map(({ event }) => event)).toEqual([
+      { type: 'turn.started', turnId: 'prompt-1', prompt: 'First question' },
+      {
+        type: 'assistant.message',
+        messageId: 'assistant-1',
+        turnId: 'prompt-1',
+        text: 'First answer',
+        final: true,
+        displayOnly: false,
+      },
+      { type: 'turn.completed', turnId: 'prompt-1', lastAssistantMessage: 'First answer' },
+      { type: 'turn.started', turnId: 'user-2', prompt: 'Second question' },
+      {
+        type: 'assistant.message',
+        messageId: 'assistant-2',
+        turnId: 'user-2',
+        text: 'Second answer',
+        final: true,
+        displayOnly: false,
+      },
+      { type: 'turn.completed', turnId: 'user-2', lastAssistantMessage: 'Second answer' },
+    ]);
+  });
+
+  it('preserves a real prompt after one or more leading synthetic blocks', () => {
+    const messages = [
+      {
+        type: 'user',
+        uuid: 'user-with-preamble',
+        timestamp: '2026-07-13T00:00:00.000Z',
+        message: {
+          role: 'user',
+          content:
+            '<system-reminder>internal context</system-reminder>\n' +
+            '<ide_opened_file>/work/repo/file.ts</ide_opened_file>\n' +
+            'Explain this implementation',
+        },
+      },
+      JSON.parse(assistantLine('assistant-with-preamble', 'It works like this')),
+    ] as never[];
+
+    expect(projectTranscriptHistory(messages).map(({ event }) => event)).toEqual([
+      {
+        type: 'turn.started',
+        turnId: 'user-with-preamble',
+        prompt: 'Explain this implementation',
+      },
+      {
+        type: 'assistant.message',
+        messageId: 'assistant-with-preamble',
+        turnId: 'user-with-preamble',
+        text: 'It works like this',
+        final: true,
+        displayOnly: false,
+      },
+      {
+        type: 'turn.completed',
+        turnId: 'user-with-preamble',
+        lastAssistantMessage: 'It works like this',
+      },
+    ]);
+  });
+
+  it('marks a final prompt without an assistant response as interrupted', () => {
+    const messages = [
+      {
+        type: 'user',
+        uuid: 'interrupted-user',
+        timestamp: '2026-07-13T00:00:00.000Z',
+        message: { role: 'user', content: 'This turn was interrupted' },
+      },
+    ] as never[];
+
+    expect(projectTranscriptHistory(messages).map(({ event }) => event)).toEqual([
+      {
+        type: 'turn.started',
+        turnId: 'interrupted-user',
+        prompt: 'This turn was interrupted',
+      },
+      {
+        type: 'turn.failed',
+        turnId: 'interrupted-user',
+        error: 'interrupted before an assistant response',
+      },
+    ]);
   });
 });

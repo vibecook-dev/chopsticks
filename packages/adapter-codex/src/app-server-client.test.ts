@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { AppServerClient, AppServerError, type Transport } from './app-server-client.js';
+import { describe, it, expect, vi } from 'vitest';
+import { AppServerClient, AppServerError, AppServerRequestTimeoutError, type Transport } from './app-server-client.js';
 
 interface Fake {
   transport: Transport;
@@ -39,6 +39,31 @@ describe('AppServerClient', () => {
     const p = c.request('thread/start');
     f.deliver({ jsonrpc: '2.0', id: 1, error: { code: -32600, message: 'bad' } });
     await expect(p).rejects.toBeInstanceOf(AppServerError);
+  });
+
+  it('times out a lost response and ignores a response that arrives later', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = fake();
+      const c = new AppServerClient(f.transport, { requestTimeoutMs: 25 });
+      const timedOut = c.request('thread/read');
+      const capturedError = timedOut.catch((error: unknown) => error);
+
+      await vi.advanceTimersByTimeAsync(25);
+      const error = await capturedError;
+      expect(error).toBeInstanceOf(AppServerRequestTimeoutError);
+      expect(error).toMatchObject({ method: 'thread/read', timeoutMs: 25 });
+
+      // A fragmented/lost response may eventually arrive. Its expired id must
+      // be ignored without affecting subsequent request correlation.
+      f.deliver({ jsonrpc: '2.0', id: 1, result: { stale: true } });
+      const next = c.request('thread/read');
+      f.deliver({ jsonrpc: '2.0', id: 2, result: { fresh: true } });
+      await expect(next).resolves.toEqual({ fresh: true });
+      c.close();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('routes notifications (no id) to the notification handler', () => {

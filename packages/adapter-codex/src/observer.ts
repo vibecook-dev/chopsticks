@@ -108,8 +108,9 @@ export async function createCodexObserver(opts: CreateCodexObserverOptions): Pro
   const listeners = new Set<(e: AgentEventEnvelope) => void>();
   const threadListeners = new Set<(info: CodexThreadInfo) => void>();
   const pendingEvents: AgentEventEnvelope[] = [];
+  const queuedLiveNotifications: Array<{ method: string; params: Record<string, unknown> }> = [];
 
-  function apply(event: AgentEvent, source: AgentEventEnvelope['source'], nativeEvent?: unknown): void {
+  function apply(event: AgentEvent, source: AgentEventEnvelope['source'], nativeEvent?: unknown, replay = false): void {
     const envelope = stamper.next({
       sessionId: sessionId ?? '',
       nativeSessionId: sessionId,
@@ -120,6 +121,7 @@ export async function createCodexObserver(opts: CreateCodexObserverOptions): Pro
       confidence: 'authoritative',
       event,
       nativeEvent,
+      ...(replay ? { replay: true } : {}),
     });
     state = reduceSessionState(state, envelope);
     if (listeners.size === 0) pendingEvents.push(envelope);
@@ -142,8 +144,20 @@ export async function createCodexObserver(opts: CreateCodexObserverOptions): Pro
         event.type.startsWith('context-window.') || event.type === 'session.environment.updated'
           ? 'native-protocol'
           : 'native-hook';
-      apply(event, source, replayed ? { method, params, replayed: true } : { method, params });
+      apply(event, source, replayed ? { method, params, replayed: true } : { method, params }, replayed);
     }
+  }
+
+  function notificationThreadId(params: Record<string, unknown>): string | undefined {
+    return str(params.threadId) ?? str(rec(params.thread)?.id);
+  }
+
+  function notificationTurnId(params: Record<string, unknown>): string | undefined {
+    return str(params.turnId) ?? str(rec(params.turn)?.id);
+  }
+
+  function isTurnStreamNotification(method: string): boolean {
+    return method === 'turn/started' || method === 'turn/completed' || method.startsWith('item/');
   }
 
   function applyEnvironmentFromResponse(
@@ -175,7 +189,8 @@ export async function createCodexObserver(opts: CreateCodexObserverOptions): Pro
     );
   }
 
-  function replayCompletedTurns(resumed: Record<string, unknown> | undefined): void {
+  function replayCompletedTurns(resumed: Record<string, unknown> | undefined): Set<string> {
+    const replayedTurnIds = new Set<string>();
     const thread = rec(resumed?.thread);
     const legacyTurns = Array.isArray(thread?.turns) ? thread.turns : [];
     const page = rec(resumed?.initialTurnsPage);
@@ -186,6 +201,7 @@ export async function createCodexObserver(opts: CreateCodexObserverOptions): Pro
       const turnId = str(turn?.id);
       const status = str(turn?.status);
       if (!turn || !turnId || status === 'inProgress') continue;
+      replayedTurnIds.add(turnId);
       consumeNotification('turn/started', { threadId: sessionId, turn }, true);
       for (const value of Array.isArray(turn.items) ? turn.items : []) {
         const item = rec(value);
@@ -196,6 +212,7 @@ export async function createCodexObserver(opts: CreateCodexObserverOptions): Pro
       }
       consumeNotification('turn/completed', { threadId: sessionId, turn }, true);
     }
+    return replayedTurnIds;
   }
 
   /**
@@ -220,7 +237,6 @@ export async function createCodexObserver(opts: CreateCodexObserverOptions): Pro
       try {
         const resumed = rec(await client.request('thread/resume', { threadId })); // opens the live stream
         threadPath = str(rec(resumed?.thread)?.path) ?? threadPath;
-        attached = true;
         let history = resumed;
         applyEnvironmentFromResponse(resumed);
         try {
@@ -230,7 +246,20 @@ export async function createCodexObserver(opts: CreateCodexObserverOptions): Pro
           // History enrichment must never prevent live resume attachment.
         }
         apply({ type: 'session.started', nativeSessionId: threadId }, 'native-hook');
-        replayCompletedTurns(history);
+        const replayedTurnIds = replayCompletedTurns(history);
+
+        // thread/resume opens the live stream before thread/read resolves. Keep
+        // live traffic behind this replay barrier so the stateful normalizer
+        // always sees old turns first. If thread/read already contains a turn
+        // that completed while it was in flight, discard that turn's queued
+        // protocol notifications rather than reducing it twice.
+        attached = true;
+        attaching = false;
+        for (const notification of queuedLiveNotifications.splice(0)) {
+          const turnId = notificationTurnId(notification.params);
+          if (turnId && replayedTurnIds.has(turnId) && isTurnStreamNotification(notification.method)) continue;
+          consumeNotification(notification.method, notification.params);
+        }
       } catch {
         await new Promise((r) => setTimeout(r, delay));
         delay = Math.min(Math.floor(delay * 1.5), 2000);
@@ -251,6 +280,14 @@ export async function createCodexObserver(opts: CreateCodexObserverOptions): Pro
 
   client.onNotification((method, params) => {
     if (!attached) {
+      const notificationParams = params ?? {};
+      if (
+        attaching &&
+        (!notificationThreadId(notificationParams) || notificationThreadId(notificationParams) === sessionId)
+      ) {
+        queuedLiveNotifications.push({ method, params: notificationParams });
+        return;
+      }
       // Passive mode only: wait for another client (the TUI) to create a thread.
       // Controller-owned start/resume never relies on this path.
       if (!opts.threadId && !opts.start && method === 'thread/started') {

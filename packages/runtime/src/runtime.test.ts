@@ -145,19 +145,48 @@ describe('createAgentRuntime', () => {
     const sessionId = 'replay-native';
     const runtimeSessionId = 'replay-runtime';
     const stamper = createEnvelopeStamper();
-    const stamp = (event: AgentEventEnvelope['event']): AgentEventEnvelope =>
+    const stamp = (
+      event: AgentEventEnvelope['event'],
+      source: AgentEventEnvelope['source'] = 'native-protocol',
+      replayed = false,
+    ): AgentEventEnvelope =>
       stamper.next({
         sessionId,
         timestamp: new Date().toISOString(),
         monotonicTime: performance.now(),
-        source: 'native-protocol',
+        source,
         confidence: 'authoritative',
+        ...(replayed ? { replay: true } : {}),
         event,
       });
     const replay = [
-      stamp({ type: 'tool.started', toolCallId: 'tool-1', tool: 'command' }),
-      stamp({ type: 'tool.completed', toolCallId: 'tool-1', tool: 'command' }),
+      stamp({
+        type: 'tool.started',
+        toolCallId: 'tool-1',
+        tool: 'command',
+        presentation: { kind: 'command', title: 'Running command' },
+      }),
+      stamp({
+        type: 'tool.completed',
+        toolCallId: 'tool-1',
+        tool: 'command',
+        presentation: { kind: 'command', title: 'Ran command' },
+      }),
       stamp({ type: 'adapter.native-event', adapter: 'replay', nativeType: 'future/event' }),
+      stamp({ type: 'turn.started', turnId: 'history-turn', prompt: 'Historical question' }),
+      stamp(
+        {
+          type: 'assistant.message',
+          messageId: 'history-answer',
+          turnId: 'history-turn',
+          text: 'Historical answer',
+          final: true,
+          displayOnly: false,
+        },
+        'native-transcript',
+        true,
+      ),
+      stamp({ type: 'turn.completed', turnId: 'history-turn' }),
     ];
     const snapshot = replay.reduce(reduceSessionState, createInitialSessionState());
     const provider: AgentProvider = {
@@ -195,6 +224,14 @@ describe('createAgentRuntime', () => {
       'tool.started',
       'tool.completed',
       'adapter.native-event',
+      'turn.started',
+      'assistant.message',
+      'turn.completed',
+    ]);
+    expect(runtime.conversationSnapshot(runtimeSessionId)?.items).toEqual([
+      expect.objectContaining({ kind: 'activity', activity: 'command', status: 'completed' }),
+      expect.objectContaining({ kind: 'user', text: 'Historical question' }),
+      expect.objectContaining({ kind: 'assistant', markdown: 'Historical answer', streaming: false }),
     ]);
     await runtime.dispose();
   });

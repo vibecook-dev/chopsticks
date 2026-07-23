@@ -8,13 +8,18 @@ import type { Transport } from './app-server-client.js';
  * succeeds — the shape of the real 0.144.4 behaviour (a thread has no rollout
  * until its first turn produces output).
  */
-function controllable(resumeFailuresBeforeSuccess: number, historyResult: unknown = {}) {
+function controllable(
+  resumeFailuresBeforeSuccess: number,
+  historyResult: unknown = {},
+  options: { deferRead?: boolean } = {},
+) {
   let onMsg: ((m: unknown) => void) | undefined;
   let onCls: ((i: { code: number | null; signal: string | null }) => void) | undefined;
   let resumeFails = resumeFailuresBeforeSuccess;
   let resumeAttempts = 0;
   const calls: { method?: string; params?: unknown }[] = [];
   const sent: Record<string, unknown>[] = [];
+  let deferredReadId: number | undefined;
   const transport: Transport = {
     send: (m) => {
       const msg = m as { id?: number; method?: string; params?: unknown };
@@ -32,7 +37,8 @@ function controllable(resumeFailuresBeforeSuccess: number, historyResult: unknow
             onMsg?.({ jsonrpc: '2.0', id: msg.id, result: {} });
           }
         } else if (msg.method === 'thread/read') {
-          onMsg?.({ jsonrpc: '2.0', id: msg.id, result: historyResult });
+          if (options.deferRead) deferredReadId = msg.id;
+          else onMsg?.({ jsonrpc: '2.0', id: msg.id, result: historyResult });
         } else if (msg.method === 'thread/start') {
           onMsg?.({
             jsonrpc: '2.0',
@@ -61,6 +67,11 @@ function controllable(resumeFailuresBeforeSuccess: number, historyResult: unknow
     resumeAttempts: () => resumeAttempts,
     calls: () => calls,
     sent: () => sent,
+    releaseRead: () => {
+      if (deferredReadId === undefined) throw new Error('thread/read is not pending');
+      onMsg?.({ jsonrpc: '2.0', id: deferredReadId, result: historyResult });
+      deferredReadId = undefined;
+    },
   };
 }
 
@@ -226,6 +237,131 @@ describe('createCodexObserver controller-owned bootstrap', () => {
       threadId: 'th-history',
       includeTurns: true,
     });
+    await obs.dispose();
+  });
+
+  it('queues live notifications until history replay finishes, without replay overlap', async () => {
+    const history = {
+      thread: {
+        id: 'th-history',
+        turns: [
+          {
+            id: 'turn-old',
+            status: 'completed',
+            items: [
+              {
+                type: 'userMessage',
+                id: 'user-old',
+                content: [{ type: 'text', text: 'Old prompt' }],
+              },
+              { type: 'agentMessage', id: 'assistant-old', text: 'Old answer' },
+            ],
+          },
+          {
+            id: 'turn-overlap',
+            status: 'completed',
+            items: [
+              {
+                type: 'userMessage',
+                id: 'user-overlap',
+                content: [{ type: 'text', text: 'Overlapping prompt' }],
+              },
+              { type: 'agentMessage', id: 'assistant-overlap', text: 'Overlapping answer' },
+            ],
+          },
+        ],
+      },
+    };
+    const t = controllable(0, history, { deferRead: true });
+    const creating = createCodexObserver({ transport: t.transport, threadId: 'th-history' });
+
+    await vi.waitFor(() => expect(t.calls().some((call) => call.method === 'thread/read')).toBe(true));
+
+    // This completed turn is already in the eventual read response and must
+    // not be reduced a second time when the replay barrier drains.
+    t.deliver({
+      jsonrpc: '2.0',
+      method: 'turn/started',
+      params: { threadId: 'th-history', turn: { id: 'turn-overlap' } },
+    });
+    t.deliver({
+      jsonrpc: '2.0',
+      method: 'item/completed',
+      params: {
+        threadId: 'th-history',
+        turnId: 'turn-overlap',
+        item: {
+          type: 'userMessage',
+          id: 'user-overlap',
+          content: [{ type: 'text', text: 'Overlapping prompt' }],
+        },
+      },
+    });
+    t.deliver({
+      jsonrpc: '2.0',
+      method: 'item/completed',
+      params: {
+        threadId: 'th-history',
+        turnId: 'turn-overlap',
+        item: { type: 'agentMessage', id: 'assistant-overlap', text: 'Overlapping answer' },
+      },
+    });
+    t.deliver({
+      jsonrpc: '2.0',
+      method: 'turn/completed',
+      params: { threadId: 'th-history', turn: { id: 'turn-overlap', status: 'completed' } },
+    });
+
+    // This turn is not in the read snapshot and must land strictly after all
+    // replayed history.
+    t.deliver({
+      jsonrpc: '2.0',
+      method: 'turn/started',
+      params: { threadId: 'th-history', turn: { id: 'turn-live' } },
+    });
+    t.deliver({
+      jsonrpc: '2.0',
+      method: 'item/completed',
+      params: {
+        threadId: 'th-history',
+        turnId: 'turn-live',
+        item: {
+          type: 'userMessage',
+          id: 'user-live',
+          content: [{ type: 'text', text: 'Live prompt' }],
+        },
+      },
+    });
+    t.deliver({
+      jsonrpc: '2.0',
+      method: 'item/completed',
+      params: {
+        threadId: 'th-history',
+        turnId: 'turn-live',
+        item: { type: 'agentMessage', id: 'assistant-live', text: 'Live answer' },
+      },
+    });
+    t.deliver({
+      jsonrpc: '2.0',
+      method: 'turn/completed',
+      params: { threadId: 'th-history', turn: { id: 'turn-live', status: 'completed' } },
+    });
+
+    t.releaseRead();
+    const obs = await creating;
+    const events: Array<{ replay?: boolean; event: { type: string; text?: string } }> = [];
+    obs.onEvent((envelope) => events.push(envelope));
+
+    expect(
+      events
+        .filter((envelope) => envelope.event.type === 'assistant.message')
+        .map((envelope) => ({ text: envelope.event.text, replay: envelope.replay })),
+    ).toEqual([
+      { text: 'Old answer', replay: true },
+      { text: 'Overlapping answer', replay: true },
+      { text: 'Live answer', replay: undefined },
+    ]);
+    expect(events.filter((envelope) => envelope.event.type === 'turn.completed')).toHaveLength(3);
     await obs.dispose();
   });
 

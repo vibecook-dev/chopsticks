@@ -70,6 +70,8 @@ document.documentElement.dataset.theme = bootTheme;
 const terminalRuntime = createGhostteaTerminalRuntime({
   ports: waitForGhostteaRendererPorts(),
   clientBuild: 'godview',
+  // Godview windows are viewports, not PTY owners. Agent sessions remain live
+  // while bubbles and panes attach, detach, or mirror them.
   platform: {
     writeClipboard: (text) => window.desktop.writeClipboard(text),
     forceCanvasFallback: () => sessionStorage.getItem('ghosttea:force-canvas-fallback') === '1',
@@ -108,8 +110,18 @@ function Godview() {
       showContextMenu: window.desktop.showContextMenu,
       toggleFullscreen: window.desktop.toggleFullscreen,
       closeWindow: window.desktop.closeWindow,
+      newWindow: window.desktop.newWindow,
+      quit: window.desktop.quit,
+      closeAllWindows: window.desktop.closeAllWindows,
+      openConfig: window.desktop.openConfig,
+      reloadConfig: window.desktop.reloadConfig,
       newTab: window.desktop.newTab,
-      selectTab: window.desktop.selectTab,
+      // Godview reserves ⌘1/2/3 for status navigation. Ghosttea still owns
+      // every other table-driven tab binding, including the "last" target.
+      selectTab: (target: 'previous' | 'next' | 'last' | number) => {
+        if (typeof target === 'number' && target >= 1 && target <= 3) return;
+        window.desktop.selectTab(target);
+      },
       closeTab: window.desktop.closeTab,
       onMenuAction: window.desktop.onMenuAction,
     }),

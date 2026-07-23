@@ -36,7 +36,13 @@ import { createHookBridge, type HookBridge } from './hook-bridge.js';
 import { ClaudeHookNormalizer, type ClaudeHookPayload } from './normalizer.js';
 import { prepareClaudeSession, cleanupClaudeSession, type PreparedClaudeSession } from './prepare.js';
 import { createPromptInjector, type PromptInjector } from './prompt.js';
-import { assistantMessageEvent, createTranscriptObserver, type TranscriptObserver } from './transcript-observer.js';
+import {
+  assistantMessageEvent,
+  createTranscriptObserver,
+  projectTranscriptHistory,
+  type TranscriptObserver,
+  type TranscriptRecordEvent,
+} from './transcript-observer.js';
 import { claudeContextWindowEvent, claudeEnvironmentEvent } from './statusline.js';
 
 const TOKEN_ENV_VAR = 'CHOPSTICKS_HOOK_TOKEN';
@@ -107,6 +113,7 @@ export async function prepareClaudeTuiSession(
   // being resumed (it keeps its own id); otherwise mint a fresh one.
   const sessionId = options.resume ?? randomUUID();
   let selectedSessionId = options.resume;
+  let selectionLocked = options.resume !== undefined;
   const bridge: HookBridge = createHookBridge({
     allowSession: (id, kind, body) => {
       if (!options.resumeInvocation) return id === sessionId;
@@ -114,14 +121,20 @@ export async function prepareClaudeTuiSession(
       // highlighted conversation before the user commits a selection. That
       // preview must not claim the bridge. Claude can also emit SessionStart
       // for a picker preview before it emits the final resumed SessionStart,
-      // so every SessionStart is an authoritative rebind, not just the first.
+      // so SessionStart may rebind only until the selected session reaches its
+      // boot-finished InstructionsLoaded hook.
       if (kind === 'statusline' && selectedSessionId === undefined) return true;
       if (kind === 'hook' && body.hook_event_name === 'SessionStart') {
+        if (selectionLocked) return id === selectedSessionId;
         selectedSessionId = id;
         return true;
       }
       selectedSessionId ??= id;
-      return id === selectedSessionId;
+      if (id !== selectedSessionId) return false;
+      if (kind === 'hook' && body.hook_event_name === 'InstructionsLoaded' && body.load_reason === 'session_start') {
+        selectionLocked = true;
+      }
+      return true;
     },
   });
   await bridge.start();
@@ -161,6 +174,8 @@ function createPreparedClaudeSession(
   let observation: ObservationLevel = 'terminal-only';
   let transcriptPath: string | undefined;
   let observer: TranscriptObserver | undefined;
+  let observerGeneration = 0;
+  let historyBootstrap: Promise<void> | undefined;
   let adoptedRuntimeSessionId: string | undefined;
   let adoptedSession: ClaudeSession | undefined;
   let disposed = false;
@@ -183,6 +198,7 @@ function createPreparedClaudeSession(
       promptId?: string;
       turnId?: string;
       native?: unknown;
+      replay?: boolean;
     },
   ): void {
     const envelope = stamper.next({
@@ -194,6 +210,7 @@ function createPreparedClaudeSession(
       monotonicTime: performance.now(),
       source: meta.source,
       confidence: 'authoritative',
+      ...(meta.replay ? { replay: true } : {}),
       event,
       nativeEvent: meta.native,
     });
@@ -227,36 +244,92 @@ function createPreparedClaudeSession(
   }
 
   function ensureObserver(path: string): void {
-    if (observer) return;
+    if (observer && transcriptPath === path) return;
+    observer?.stop();
+    observerGeneration += 1;
+    const generation = observerGeneration;
     transcriptPath = path;
-    observer = createTranscriptObserver(path, { pollIntervalMs: options.transcriptPollIntervalMs });
-    observer.onRecord((record) => {
+    const nextObserver = createTranscriptObserver(path, { pollIntervalMs: options.transcriptPollIntervalMs });
+    observer = nextObserver;
+    const historyRecords: TranscriptRecordEvent[] = [];
+    let capturingHistory = options.resume !== undefined || options.resumeInvocation !== undefined;
+    nextObserver.onRecord((record) => {
+      if (generation !== observerGeneration) return;
+      if (capturingHistory) {
+        historyRecords.push(record);
+        return;
+      }
       const event = assistantMessageEvent(record.message);
       if (!event) return; // non-assistant records: transcript is enrichment, not lifecycle
-      apply(event, { source: 'native-transcript', timestamp: new Date().toISOString() });
+      apply(event, {
+        source: 'native-transcript',
+        timestamp: (record.message as { timestamp?: string }).timestamp ?? new Date().toISOString(),
+        native: record.message,
+      });
     });
-    observer.onError(() => {
+    nextObserver.onError(() => {
       // §16.8: transcript failure must never fail the session; hooks carry on.
     });
+    historyBootstrap = capturingHistory
+      ? nextObserver
+          .notifyActivity()
+          .then(() => {
+            if (generation !== observerGeneration) return;
+            capturingHistory = false;
+            for (const projection of projectTranscriptHistory(historyRecords.map((record) => record.message))) {
+              apply(projection.event, {
+                source: 'native-transcript',
+                timestamp: projection.timestamp ?? new Date().toISOString(),
+                promptId: projection.promptId,
+                turnId: projection.turnId,
+                native: projection.nativeEvent,
+                replay: true,
+              });
+            }
+          })
+          .catch(() => {
+            capturingHistory = false;
+          })
+      : undefined;
   }
 
   bridge.onEvent((hookEnvelope) => {
     observation = 'native-hooks';
     const body = hookEnvelope.body as ClaudeHookPayload;
     const normalized = normalizer.normalize(body);
-    if (normalized.transcriptPath) ensureObserver(normalized.transcriptPath);
-    for (const event of normalized.events) {
-      apply(event, {
-        source: 'native-hook',
-        timestamp: hookEnvelope.receivedAt,
-        promptId: normalized.promptId,
-        turnId: normalized.turnId,
-        native: body,
-      });
+    // A picker preview can emit SessionStart. Wait for the selected session's
+    // boot-finished hook before binding its durable transcript.
+    if (
+      normalized.transcriptPath &&
+      (!options.resumeInvocation ||
+        (body.hook_event_name === 'InstructionsLoaded' && body.load_reason === 'session_start'))
+    ) {
+      ensureObserver(normalized.transcriptPath);
     }
-    // Hooks fire 1:1 with transcript appends — poke the tail now instead of
-    // waiting out its fallback interval.
-    void observer?.notifyActivity();
+    const deliver = (): void => {
+      for (const event of normalized.events) {
+        apply(event, {
+          source: 'native-hook',
+          timestamp: hookEnvelope.receivedAt,
+          promptId: normalized.promptId,
+          turnId: normalized.turnId,
+          native: body,
+        });
+      }
+      // Hooks fire 1:1 with transcript appends — poke the tail now instead of
+      // waiting out its fallback interval.
+      void observer?.notifyActivity();
+    };
+
+    // SessionStart establishes identity, then durable history must be
+    // projected before any newer hook mutates state. Promise callbacks retain
+    // bridge arrival order, forming the Claude equivalent of Codex's replay
+    // barrier.
+    if (historyBootstrap && body.hook_event_name !== 'SessionStart') {
+      void historyBootstrap.then(deliver);
+    } else {
+      deliver();
+    }
   });
 
   bridge.onStatusLine((statusEnvelope) => {
@@ -330,6 +403,7 @@ function createPreparedClaudeSession(
         },
         submitPrompt: (submission) => injector.submit(submission),
         pollTranscript: async () => {
+          await historyBootstrap;
           await observer?.notifyActivity();
         },
         dispose,

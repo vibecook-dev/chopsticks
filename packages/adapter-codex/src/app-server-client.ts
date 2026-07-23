@@ -36,6 +36,26 @@ export class AppServerError extends Error {
   }
 }
 
+export class AppServerRequestTimeoutError extends Error {
+  constructor(
+    public readonly method: string,
+    public readonly timeoutMs: number,
+  ) {
+    super(`app-server request "${method}" timed out after ${timeoutMs}ms`);
+    this.name = 'AppServerRequestTimeoutError';
+  }
+}
+
+export interface AppServerClientOptions {
+  /** Upper bound for every JSON-RPC request. Default: 30 seconds. */
+  requestTimeoutMs?: number;
+}
+
+export interface AppServerRequestOptions {
+  /** Override the client's timeout for this request. Must be positive. */
+  timeoutMs?: number;
+}
+
 export type NotificationHandler = (method: string, params: Record<string, unknown> | undefined) => void;
 export type ServerRequestHandler = (
   method: string,
@@ -48,29 +68,54 @@ const rec = (v: unknown): Record<string, unknown> | undefined =>
 
 export class AppServerClient {
   private nextId = 1;
-  private pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: unknown) => void }>();
+  private pending = new Map<
+    number,
+    {
+      resolve: (v: unknown) => void;
+      reject: (e: unknown) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
   private notificationHandler?: NotificationHandler;
   private serverRequestHandler?: ServerRequestHandler;
   private closeHandler?: (info: { code: number | null; signal: string | null }) => void;
   private closed = false;
+  private readonly requestTimeoutMs: number;
 
-  constructor(private readonly transport: Transport) {
+  constructor(
+    private readonly transport: Transport,
+    options: AppServerClientOptions = {},
+  ) {
+    this.requestTimeoutMs = positiveTimeout(options.requestTimeoutMs ?? 30_000);
     transport.onMessage((msg) => void this.handle(msg));
     // The transport carries a single onClose; the client owns it and fans out to
     // its subscriber, so the driver layers on the client, never the transport.
     transport.onClose((info) => {
+      this.closed = true;
       this.rejectAllPending(new Error('app-server transport closed'));
       this.closeHandler?.(info);
     });
   }
 
   /** Send a request; resolves with `result`, rejects with an AppServerError. */
-  request(method: string, params?: unknown): Promise<unknown> {
+  request(method: string, params?: unknown, options: AppServerRequestOptions = {}): Promise<unknown> {
     if (this.closed) return Promise.reject(new Error('client closed'));
     const id = this.nextId++;
+    const timeoutMs = positiveTimeout(options.timeoutMs ?? this.requestTimeoutMs);
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      this.transport.send({ jsonrpc: '2.0', id, method, params });
+      const timer = setTimeout(() => {
+        if (!this.pending.delete(id)) return;
+        reject(new AppServerRequestTimeoutError(method, timeoutMs));
+      }, timeoutMs);
+      timer.unref?.();
+      this.pending.set(id, { resolve, reject, timer });
+      try {
+        this.transport.send({ jsonrpc: '2.0', id, method, params });
+      } catch (error) {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(error);
+      }
     });
   }
 
@@ -100,7 +145,10 @@ export class AppServerClient {
   }
 
   private rejectAllPending(err: Error): void {
-    for (const { reject } of this.pending.values()) reject(err);
+    for (const { reject, timer } of this.pending.values()) {
+      clearTimeout(timer);
+      reject(err);
+    }
     this.pending.clear();
   }
 
@@ -114,6 +162,7 @@ export class AppServerClient {
       const entry = this.pending.get(m.id as number);
       if (!entry) return; // unknown/duplicate id
       this.pending.delete(m.id as number);
+      clearTimeout(entry.timer);
       if (m.error !== undefined) entry.reject(new AppServerError(m.error as JsonRpcErrorBody));
       else entry.resolve(m.result);
       return;
@@ -135,6 +184,11 @@ export class AppServerClient {
 
     if (method !== undefined) this.notificationHandler?.(method, rec(m.params));
   }
+}
+
+function positiveTimeout(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) throw new RangeError('app-server request timeout must be positive');
+  return value;
 }
 
 /** Default transport: spawn `codex app-server` and speak newline-delimited JSON over stdio. */

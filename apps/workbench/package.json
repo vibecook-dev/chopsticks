@@ -8,7 +8,7 @@
   "author": "James Yong",
   "main": "./dist/main.cjs",
   "scripts": {
-    "prebundle": "npm --prefix ../../../../electron-ghostty run build:sdk",
+    "prebundle": "npm --prefix ../../../../electron-ghostty run build:sdk && node ../../../../electron-ghostty/scripts/build-desktop-native-tabs.mjs apps/desktop-experiment",
     "bundle": "node build.mjs",
     "start": "pnpm bundle && electron .",
     "smoke": "pnpm bundle && electron . --smoke",

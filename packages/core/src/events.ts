@@ -59,6 +59,8 @@ export interface AgentEventEnvelope<T extends AgentEvent = AgentEvent> {
   monotonicTime: number;
   source: AgentEventSource;
   confidence: AgentEventConfidence;
+  /** True when this envelope reconstructs durable history rather than reporting a new live event. */
+  replay?: boolean;
   event: T;
   /** DESIGN ADR-008 — the raw native event is always retained. */
   nativeEvent?: unknown;

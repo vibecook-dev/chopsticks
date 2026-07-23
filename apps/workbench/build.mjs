@@ -10,6 +10,15 @@ import { fileURLToPath } from 'node:url';
 const root = dirname(fileURLToPath(import.meta.url));
 const dist = join(root, 'dist');
 const ghostteaRoot = join(root, '..', '..', '..', '..', 'electron-ghostty');
+const nativeTabAddon = join(
+  ghostteaRoot,
+  'apps',
+  'desktop-experiment',
+  'native',
+  'build',
+  'Release',
+  'ghosttea_native_tabs.node',
+);
 const shared = { bundle: true, sourcemap: true, logLevel: 'info' };
 const requireFromWorkbench = createRequire(import.meta.url);
 const reactSingletonPlugin = {
@@ -75,5 +84,12 @@ await Promise.all([
     requireFromWorkbench.resolve('@vibecook/ghosttea-react/terminal-render.worker.js'),
     join(dist, 'terminal-render.worker.js'),
   ),
+  ...(process.platform === 'darwin'
+    ? [
+        mkdir(join(dist, 'native'), { recursive: true }).then(() =>
+          cp(nativeTabAddon, join(dist, 'native', 'ghosttea_native_tabs.node')),
+        ),
+      ]
+    : []),
 ]);
 await writeFile(join(dist, '.built'), new Date().toISOString());

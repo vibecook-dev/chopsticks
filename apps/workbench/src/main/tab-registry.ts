@@ -6,7 +6,7 @@ export interface WorkbenchTabRecord<Window extends object> {
   activeCwd: string | undefined;
 }
 
-/** Tracks native tab order and which terminal sessions each window owns. */
+/** Tracks native tab creation order and the terminal sessions attached to each window viewport. */
 export class WorkbenchTabRegistry<Window extends object> {
   readonly #byWindow = new Map<Window, WorkbenchTabRecord<Window>>();
 

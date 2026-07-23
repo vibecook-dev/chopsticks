@@ -14,6 +14,8 @@ import './styles.css';
 const terminalRuntime = createGhostteaTerminalRuntime({
   ports: waitForGhostteaRendererPorts(),
   clientBuild: 'chopsticks-workbench',
+  // Workbench windows are viewports, not PTY owners. In particular, an
+  // adopted agent must survive closing the window where its shell originated.
   platform: {
     writeClipboard: (text) => window.desktop.writeClipboard(text),
     forceCanvasFallback: () => sessionStorage.getItem('ghosttea:force-canvas-fallback') === '1',
@@ -29,11 +31,17 @@ function Workbench() {
   const [active, setActive] = useState(document.visibilityState !== 'hidden');
   const platform = useMemo(
     () => ({
+      platform: window.desktop.platform,
       defaultShell: window.desktop.defaultShell,
       readClipboard: window.desktop.readClipboard,
       showContextMenu: window.desktop.showContextMenu,
       toggleFullscreen: window.desktop.toggleFullscreen,
       closeWindow: window.desktop.closeWindow,
+      newWindow: window.desktop.newWindow,
+      quit: window.desktop.quit,
+      closeAllWindows: window.desktop.closeAllWindows,
+      openConfig: window.desktop.openConfig,
+      reloadConfig: window.desktop.reloadConfig,
       newTab: window.desktop.newTab,
       selectTab: window.desktop.selectTab,
       closeTab: window.desktop.closeTab,

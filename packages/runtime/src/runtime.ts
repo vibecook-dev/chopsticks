@@ -87,6 +87,7 @@ type PreparationTombstone = 'expired' | 'cancelled';
  */
 function isCanonicalApplicationEvent(session: AgentSession, envelope: AgentEventEnvelope): boolean {
   if (envelope.event.type !== 'assistant.message' || envelope.source !== 'native-transcript') return true;
+  if (envelope.replay) return true;
   const level = session.observationLevel();
   return level !== 'native-hooks' && level !== 'structured';
 }
@@ -308,6 +309,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
         monotonicTime: upstream?.monotonicTime ?? performance.now(),
         source,
         confidence,
+        ...(upstream?.replay ? { replay: true } : {}),
         event,
         ...(nativeEvent !== undefined ? { nativeEvent } : {}),
       });

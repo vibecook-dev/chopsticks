@@ -276,6 +276,30 @@ describe('createClaudeSession (full loop, test-as-Claude)', () => {
 
   it('resume spawns with the resumed id and its bridge accepts only that session', async () => {
     const resumeId = '64a61b19-f4d8-4f96-ba56-07024b470813';
+    const transcriptDirectory = mkdtempSync(join(tmpdir(), 'driver-resume-history-'));
+    const transcript = join(transcriptDirectory, `${resumeId}.jsonl`);
+    writeFileSync(
+      transcript,
+      [
+        JSON.stringify({
+          type: 'user',
+          uuid: 'history-user',
+          promptId: 'history-prompt',
+          timestamp: '2026-07-13T00:00:00.000Z',
+          message: { role: 'user', content: 'What did we decide?' },
+        }),
+        JSON.stringify({
+          type: 'assistant',
+          uuid: 'history-assistant-row',
+          timestamp: '2026-07-13T00:00:01.000Z',
+          message: {
+            id: 'history-assistant',
+            role: 'assistant',
+            content: [{ type: 'text', text: 'Use the native resume path.' }],
+          },
+        }),
+      ].join('\n') + '\n',
+    );
     let prepared: PreparedClaudeSession | undefined;
     const session = await createClaudeSession({
       cwd: '/tmp',
@@ -293,6 +317,8 @@ describe('createClaudeSession (full loop, test-as-Claude)', () => {
     expect(session.sessionId).toBe(resumeId);
     expect(prepared!.args).toContain('--resume');
     expect(prepared!.args).not.toContain('--session-id');
+    const historyEvents: AgentEventEnvelope[] = [];
+    session.onEvent((event) => historyEvents.push(event));
 
     // The bridge is scoped to the resumed id — a hook for it lands in state.
     const endpoint = (
@@ -303,10 +329,32 @@ describe('createClaudeSession (full loop, test-as-Claude)', () => {
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${prepared!.env.CHOPSTICKS_HOOK_TOKEN}` },
-      body: JSON.stringify({ session_id: resumeId, cwd: '/tmp', hook_event_name: 'SessionStart' }),
+      body: JSON.stringify({
+        session_id: resumeId,
+        transcript_path: transcript,
+        cwd: '/tmp',
+        hook_event_name: 'SessionStart',
+      }),
     });
     expect(res.status).toBe(200);
+    await session.pollTranscript();
     expect(session.observationLevel()).toBe('native-hooks');
+    expect(historyEvents.filter((event) => event.replay).map((event) => event.event)).toEqual([
+      { type: 'turn.started', turnId: 'history-prompt', prompt: 'What did we decide?' },
+      {
+        type: 'assistant.message',
+        messageId: 'history-assistant',
+        turnId: 'history-prompt',
+        text: 'Use the native resume path.',
+        final: true,
+        displayOnly: false,
+      },
+      {
+        type: 'turn.completed',
+        turnId: 'history-prompt',
+        lastAssistantMessage: 'Use the native resume path.',
+      },
+    ]);
   });
 
   it('keeps the native resume picker and adopts the session selected after launch', async () => {
@@ -385,6 +433,37 @@ describe('createClaudeSession (full loop, test-as-Claude)', () => {
       displayName: 'Haiku 4.5',
     });
     expect(session.state().contextWindow?.usedPercent).toBe(16);
+
+    const selectedTranscriptDirectory = mkdtempSync(join(tmpdir(), 'driver-picker-history-'));
+    const selectedTranscript = join(selectedTranscriptDirectory, `${selectedId}.jsonl`);
+    writeFileSync(selectedTranscript, '');
+    const confirmed = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${prepared.launch.env.CHOPSTICKS_HOOK_TOKEN}`,
+      },
+      body: JSON.stringify({
+        session_id: selectedId,
+        transcript_path: selectedTranscript,
+        cwd: '/tmp',
+        hook_event_name: 'InstructionsLoaded',
+        load_reason: 'session_start',
+      }),
+    });
+    expect(confirmed.status).toBe(200);
+    expect(session.transcriptPath()).toBe(selectedTranscript);
+
+    const stalePreviewStart = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${prepared.launch.env.CHOPSTICKS_HOOK_TOKEN}`,
+      },
+      body: JSON.stringify({ session_id: previewId, cwd: '/preview', hook_event_name: 'SessionStart' }),
+    });
+    expect(stalePreviewStart.status).toBe(403);
+    expect(session.sessionId).toBe(selectedId);
 
     const stalePreview = await fetch(prepared.launch.env.CHOPSTICKS_STATUSLINE_ENDPOINT, {
       method: 'POST',

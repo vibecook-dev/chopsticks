@@ -1,9 +1,11 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { accessSync, chmodSync, constants, copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { delimiter, isAbsolute, join, resolve } from 'node:path';
-import { app, BrowserWindow, ipcMain, Menu, nativeTheme } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, nativeTheme, shell } from 'electron';
 import {
+  allSettledWithin,
   GhostteaElectronBackend,
+  installGhostteaEditShortcuts,
   type GhostteaAutomationClient,
   type GhostteaElectronBackendOptions,
   type SessionExitedEvent,
@@ -36,6 +38,7 @@ import {
   type SpawnThroughRequest,
   type SpawnThroughResponse,
 } from './spawn-through.js';
+import { orderNativeTabs } from './native-tab-order.js';
 import { WorkbenchTabRegistry } from './tab-registry.js';
 import { workbenchTruffleConfig } from './truffle-config.js';
 
@@ -44,6 +47,7 @@ declare const __dirname: string;
 const DEFAULT_COLS = 100;
 const DEFAULT_ROWS = 30;
 const AGENT_FLUSH_MS = 16;
+const SHUTDOWN_CLEANUP_TIMEOUT_MS = 5_000;
 const SMOKE = process.argv.includes('--smoke');
 const SPAWN_THROUGH_SMOKE = process.argv
   .find((argument) => argument.startsWith('--spawn-through-smoke='))
@@ -51,6 +55,10 @@ const SPAWN_THROUGH_SMOKE = process.argv
 const appRoot = resolve(__dirname, '..');
 const repoRoot = resolve(appRoot, '../..');
 const ghostteaRoot = resolve(appRoot, '../../../../electron-ghostty');
+const nativeTabAddonPaths = [
+  join(app.getAppPath(), 'dist', 'native', 'ghosttea_native_tabs.node'),
+  join(process.resourcesPath, 'native', 'ghosttea_native_tabs.node'),
+];
 const originalPath = process.env.PATH ?? '';
 
 function executableOnOriginalPath(command: string): string | undefined {
@@ -527,6 +535,50 @@ ipcMain.on('terminal-close-window', (event) => {
   if (window && tabs.get(window)) window.close();
 });
 
+ipcMain.on('terminal-new-window', (event, cwd: unknown) => {
+  const source = BrowserWindow.fromWebContents(event.sender);
+  if (!source || !tabs.get(source)) return;
+  void createWindow({
+    initialCwd: typeof cwd === 'string' && cwd.trim() ? cwd : undefined,
+  }).catch((error) => console.error('failed to create window', error));
+});
+
+ipcMain.on('terminal-quit', (event) => {
+  const source = BrowserWindow.fromWebContents(event.sender);
+  if (source && tabs.get(source)) app.quit();
+});
+
+ipcMain.on('terminal-close-all-windows', (event) => {
+  const source = BrowserWindow.fromWebContents(event.sender);
+  if (!source || !tabs.get(source)) return;
+  for (const record of tabs.records()) {
+    if (!record.window.isDestroyed()) record.window.close();
+  }
+});
+
+async function openConfigPath(): Promise<void> {
+  try {
+    const errorMessage = await shell.openPath(app.getPath('userData'));
+    if (errorMessage) console.error(`[main] failed to open config path: ${errorMessage}`);
+  } catch (error) {
+    console.error('[main] failed to open config path', error);
+  }
+}
+
+ipcMain.on('terminal-open-config', (event) => {
+  const source = BrowserWindow.fromWebContents(event.sender);
+  if (!source || !tabs.get(source)) return;
+  void openConfigPath();
+});
+
+ipcMain.on('terminal-reload-config', (event) => {
+  const source = BrowserWindow.fromWebContents(event.sender);
+  if (!source || !tabs.get(source)) return;
+  for (const record of tabs.records()) {
+    if (!record.window.isDestroyed()) record.window.webContents.reload();
+  }
+});
+
 ipcMain.on('terminal-new-tab', (event, cwd: unknown) => {
   const window = BrowserWindow.fromWebContents(event.sender);
   if (!window || !tabs.get(window)) return;
@@ -544,8 +596,17 @@ ipcMain.on('terminal-select-tab', (event, target: unknown) => {
   } else if (target === 'next') {
     if (process.platform === 'darwin') window.selectNextTab();
     else focusRelativeTab(window, 1);
-  } else if (typeof target === 'number' && Number.isSafeInteger(target)) {
-    focusTab(tabs.tabAt(window, target)?.window);
+  } else if (target === 'last' || (typeof target === 'number' && Number.isSafeInteger(target))) {
+    const current = tabs.get(window);
+    if (!current) return;
+    const orderedWindows = orderNativeTabs(
+      tabs.group(current.groupId).map((record) => record.window),
+      nativeTabAddonPaths,
+    );
+    if (orderedWindows.length === 0) return;
+    const index =
+      target === 'last' ? orderedWindows.length - 1 : Math.min(Math.max(target, 1), orderedWindows.length) - 1;
+    focusTab(orderedWindows[index]);
   }
 });
 
@@ -590,15 +651,6 @@ function focusRelativeTab(window: BrowserWindow, offset: -1 | 1): void {
   const index = group.findIndex((record) => record.window === window);
   if (index < 0 || group.length < 2) return;
   focusTab(group[(index + offset + group.length) % group.length]?.window);
-}
-
-function terminateClosedTabSessions(sessionIds: ReadonlySet<string>): void {
-  if (quitting || !backend || sessionIds.size === 0) return;
-  for (const sessionId of sessionIds) {
-    void backend.automation
-      .terminate(sessionId, 'user')
-      .catch((error) => console.warn(`[main] failed to terminate closed-tab session ${sessionId}`, error));
-  }
 }
 
 interface CreateWindowOptions {
@@ -663,15 +715,23 @@ async function createWindow(options: CreateWindowOptions = {}): Promise<BrowserW
     );
   });
   window.once('closed', () => {
-    const closed = tabs.delete(window);
+    // A window is only a viewport. Its PTYs may be agents, may be mirrored in
+    // another viewport, and must keep running until process exit or app
+    // shutdown. Removing the attachment record is intentionally observational.
+    tabs.delete(window);
     if (lastFocusedWindow === window) lastFocusedWindow = undefined;
-    if (closed) terminateClosedTabSessions(closed.sessionIds);
   });
   window.webContents.on('console-message', (details) => {
     if (details.level === 'error') {
       console.error(`[renderer] ${details.message} (${details.sourceId}:${details.lineNumber})`);
     }
   });
+  // Terminal selections live in the render worker rather than the DOM, so
+  // Electron's native edit role cannot copy them. Route the shortcut through
+  // the same renderer command path as the terminal context menu.
+  installGhostteaEditShortcuts(window.webContents, (command) =>
+    window.webContents.send('terminal-menu-action', command),
+  );
   window.webContents.on('did-finish-load', () => {
     if (!window.isDestroyed() && backend?.running) backend.attachRenderer(window.webContents);
   });
@@ -798,9 +858,15 @@ function shutdown(): Promise<void> {
     for (const runtimeSessionId of adoptedProcessMonitors.keys()) stopAdoptedProcessMonitor(runtimeSessionId);
     const client = backend?.automation;
     if (client) {
-      await Promise.allSettled([...managedTerminalIds].map((id) => client.terminateAndWait(id, 'application', 5_000)));
+      const settled = await allSettledWithin(
+        [...managedTerminalIds].map((id) => client.terminateAndWait(id, 'application', 5_000)),
+        SHUTDOWN_CLEANUP_TIMEOUT_MS,
+      );
+      if (!settled) console.warn('[main] terminal cleanup timed out during shutdown');
     }
-    await Promise.allSettled([...exitCleanups]);
+    if (!(await allSettledWithin(exitCleanups, SHUTDOWN_CLEANUP_TIMEOUT_MS))) {
+      console.warn('[main] agent exit cleanup timed out during shutdown');
+    }
     const finals = await agentRuntime.dispose();
     for (const final of finals) pushWorkspaceFinal(final);
     backend?.stop();
