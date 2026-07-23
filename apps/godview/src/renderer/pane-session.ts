@@ -1,4 +1,5 @@
 import type { SessionSummary } from '@vibecook/ghosttea-protocol';
+import { folderName } from './folder-name.js';
 
 function usableCwd(value: string | null | undefined): string | undefined {
   const normalized = value?.trim();
@@ -15,4 +16,9 @@ export function paneSessionLaunchSource(
   const refreshed = refreshedSessions.find((session) => session.id === selected.id) ?? selected;
   const cwd = usableCwd(agentCwd) ?? usableCwd(refreshed.cwd) ?? usableCwd(selected.cwd) ?? usableCwd(fallbackCwd);
   return { session: refreshed, ...(cwd ? { cwd } : {}) };
+}
+
+/** A pane badge is always a folder basename; terminal titles are deliberately ignored. */
+export function paneBadgeLabel(session: SessionSummary, agentProject?: string, fallbackCwd?: string): string {
+  return folderName(agentProject || session.cwd || fallbackCwd, 'terminal');
 }

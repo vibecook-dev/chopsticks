@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SessionSummary } from '@vibecook/ghosttea-protocol';
-import { paneSessionLaunchSource } from './pane-session.js';
+import { paneBadgeLabel, paneSessionLaunchSource } from './pane-session.js';
 
 function session(id: string, cwd: string | null, cols = 100, rows = 30): SessionSummary {
   return { id, handle: id, cwd, cols, rows, exited: false } as SessionSummary;
@@ -30,5 +30,26 @@ describe('Godview pane session launch source', () => {
     expect(paneSessionLaunchSource(selected, [refreshed], '/agent/current-directory', '/workspace')).toMatchObject({
       cwd: '/agent/current-directory',
     });
+  });
+});
+
+describe('Godview pane badge label', () => {
+  it('shows only the current folder and never the terminal title or executable', () => {
+    const terminal = {
+      ...session('terminal', '/Users/james/Projects/chopsticks/'),
+      title: 'james@Jamess-MacBook-Pro-9:/Users/james/Projects/chopsticks',
+      executable: '/bin/zsh',
+    };
+    expect(paneBadgeLabel(terminal)).toBe('chopsticks');
+  });
+
+  it('matches the agent-circle project and supports Windows paths', () => {
+    expect(paneBadgeLabel(session('agent', '/stale/path'), 'godview')).toBe('godview');
+    expect(paneBadgeLabel(session('windows', 'C:\\Users\\james\\project'))).toBe('project');
+  });
+
+  it('uses a known fallback cwd or a neutral terminal label', () => {
+    expect(paneBadgeLabel(session('fallback', null), undefined, '/workspace/project')).toBe('project');
+    expect(paneBadgeLabel(session('unknown', null))).toBe('terminal');
   });
 });

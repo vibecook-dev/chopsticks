@@ -1,4 +1,5 @@
 import type { AgentSessionInfo, AgentStateMessage } from '../protocol.js';
+import { folderName } from './folder-name.js';
 
 export type AgentVisualStatus = 'idle' | 'working' | 'waiting';
 
@@ -36,8 +37,7 @@ export function classifyAgentStatus(message?: AgentStateMessage): AgentVisualSta
 
 export function projectLabel(info: AgentSessionInfo, currentCwd?: string): string {
   const path = currentCwd || info.workspace.sourcePath || info.workspace.root || info.session.cwd || '';
-  const normalized = path.replace(/[\\/]+$/, '');
-  return normalized.split(/[\\/]/).pop() || info.agent;
+  return folderName(path, info.agent);
 }
 
 export function providerLabel(agent: AgentSessionInfo['agent']): string {

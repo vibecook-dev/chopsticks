@@ -25,8 +25,9 @@ import {
 import { AgentSwarm, useLiveAgentViews, type AgentBubbleView, type UnassignedAgentView } from './AgentSwarm.js';
 import { TweakPanel } from './TweakPanel.js';
 import { agentColor, nextAgentForStatus, type AgentVisualStatus } from './agent-status.js';
+import { folderName } from './folder-name.js';
 import { buildPaneAttachments } from './pane-attachments.js';
-import { paneSessionLaunchSource } from './pane-session.js';
+import { paneBadgeLabel, paneSessionLaunchSource } from './pane-session.js';
 import {
   DEFAULT_SWARM_PARAMETERS,
   normalizeSwarmParameters,
@@ -57,11 +58,6 @@ function initialParameters(): SwarmParameters {
   } catch {
     return { ...DEFAULT_SWARM_PARAMETERS };
   }
-}
-
-function folderLabel(cwd: string | null | undefined): string {
-  const normalized = cwd?.replace(/[\\/]+$/, '') ?? '';
-  return normalized.split(/[\\/]/).pop() || 'terminal';
 }
 
 const bootTheme = initialTheme();
@@ -200,7 +196,7 @@ function Godview() {
         session,
         ...(cwd ? { cwd } : {}),
         status: 'idle',
-        project: folderLabel(cwd),
+        project: folderName(cwd, 'terminal'),
         provider: '',
         detail: cwd || 'Unassigned terminal',
         color: agentColor(session.id),
@@ -270,13 +266,12 @@ function Godview() {
   const decoratePane = useCallback(
     (session: SessionSummary, paneId: string): GhostteaWorkspacePaneDecoration => {
       const agent = agentsBySession.get(session.id);
-      const executable = session.executable.split(/[\\/]/).pop();
-      const title = session.title?.trim();
-      const label = agent ? `${agent.project} · ${agent.status}` : title || executable || 'terminal';
+      const unassigned = unassignedAgents.find((candidate) => candidate.session.id === session.id);
+      const label = paneBadgeLabel(session, agent?.project, unassigned?.cwd);
       const color = paneColors.get(paneId);
       return { label, ...(color ? { color } : {}) };
     },
-    [agentsBySession, paneColors],
+    [agentsBySession, paneColors, unassignedAgents],
   );
   const counts = agents.reduce((current, agent) => ({ ...current, [agent.status]: current[agent.status] + 1 }), {
     idle: 0,
