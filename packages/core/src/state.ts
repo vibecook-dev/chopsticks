@@ -19,6 +19,8 @@ import type {
   AgentEventConfidence,
   AgentEventEnvelope,
   AgentEventSource,
+  AgentGitState,
+  AgentModelIdentity,
   ProcessExitReason,
   ToolPresentation,
 } from './events.js';
@@ -73,6 +75,20 @@ export interface ContextWindowRuntimeState {
   confidence: AgentEventConfidence;
 }
 
+export interface ObservedEnvironmentValue<T> {
+  value: T;
+  updatedAt: string;
+  source: AgentEventSource;
+  confidence: AgentEventConfidence;
+}
+
+export interface SessionEnvironmentRuntimeState {
+  currentCwd?: ObservedEnvironmentValue<string>;
+  model?: ObservedEnvironmentValue<AgentModelIdentity>;
+  /** A null value authoritatively means the current cwd is not in a Git repo. */
+  git?: ObservedEnvironmentValue<AgentGitState | null>;
+}
+
 export interface SessionRuntimeState {
   lifecycle: SessionLifecycle;
   activeTurn?: { id?: string; startedAt: string };
@@ -86,6 +102,8 @@ export interface SessionRuntimeState {
   tasks: Map<string, TaskRuntimeState>;
   /** Absent until measured, and while invalidated after compaction/history changes. */
   contextWindow?: ContextWindowRuntimeState;
+  /** Live provider/runtime facts about where and how the agent is executing. */
+  environment: SessionEnvironmentRuntimeState;
   lastAssistantMessage?: string;
   exit?: { exitCode?: number; signal?: string; reason?: ProcessExitReason | string };
   counters: {
@@ -106,6 +124,7 @@ export function createInitialSessionState(): SessionRuntimeState {
     permissions: new Map(),
     subagents: new Map(),
     tasks: new Map(),
+    environment: {},
     counters: { toolsCompleted: 0, toolsFailed: 0, unknownEvents: 0 },
     lastSequence: 0,
     diagnostics: [],
@@ -221,6 +240,51 @@ export function reduceSessionState(state: SessionRuntimeState, envelope: AgentEv
     case 'context-window.invalidated':
       next = { ...next, contextWindow: undefined };
       break;
+
+    case 'session.environment.updated': {
+      let environment = next.environment;
+      const observed = <T>(value: T): ObservedEnvironmentValue<T> => ({
+        value,
+        updatedAt: envelope.timestamp,
+        source: envelope.source,
+        confidence: envelope.confidence,
+      });
+
+      if (event.currentCwd !== undefined) {
+        if (event.currentCwd === null) {
+          environment = { ...environment, currentCwd: undefined, git: undefined };
+        } else if (!event.currentCwd.trim()) {
+          next = withDiagnostic(next, seq, 'environment-cwd-invalid', 'current cwd must be non-empty');
+        } else {
+          const cwd = event.currentCwd.trim();
+          const changed = environment.currentCwd?.value !== cwd;
+          environment = { ...environment, currentCwd: observed(cwd), ...(changed ? { git: undefined } : {}) };
+        }
+      }
+
+      if (event.model !== undefined) {
+        if (event.model === null) {
+          environment = { ...environment, model: undefined };
+        } else if (!event.model.id.trim()) {
+          next = withDiagnostic(next, seq, 'environment-model-invalid', 'model id must be non-empty');
+        } else {
+          const id = event.model.id.trim();
+          const previous = environment.model?.value.id === id ? environment.model.value : undefined;
+          environment = { ...environment, model: observed({ ...previous, ...event.model, id }) };
+        }
+      }
+
+      if (event.git !== undefined) {
+        if (event.git !== null && !event.git.root.trim()) {
+          next = withDiagnostic(next, seq, 'environment-git-invalid', 'Git root must be non-empty');
+        } else {
+          environment = { ...environment, git: observed(event.git) };
+        }
+      }
+
+      if (environment !== next.environment) next = { ...next, environment };
+      break;
+    }
 
     case 'reasoning.started':
       next = {

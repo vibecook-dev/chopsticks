@@ -1,5 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentEventEnvelope, AgentSession, PromptReceipt, TerminalSpec } from '@vibecook/chopsticks-core';
+import { performance } from 'node:perf_hooks';
+import {
+  createEnvelopeStamper,
+  reduceSessionState,
+  type AgentEvent,
+  type AgentEventConfidence,
+  type AgentEventEnvelope,
+  type AgentEventSource,
+  type AgentSession,
+  type PromptReceipt,
+  type SessionRuntimeState,
+  type TerminalSpec,
+} from '@vibecook/chopsticks-core';
 import {
   createWorkspace,
   workspaceIdentity,
@@ -28,6 +40,7 @@ import type {
   PrepareAgentSessionResult,
 } from './types.js';
 import { AgentConversationProjector } from './conversation.js';
+import { createGitStateObserver, type GitStateObserver } from './git-observer.js';
 
 interface ManagedSession {
   session: AgentSession;
@@ -36,6 +49,8 @@ interface ManagedSession {
   unsubscribe: () => void;
   releaseClaim: () => void;
   conversation: AgentConversationProjector;
+  state: SessionRuntimeState;
+  gitObserver?: GitStateObserver;
   preparationId?: string;
 }
 
@@ -169,6 +184,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       rememberTombstone(managed.preparationId, 'cancelled');
     }
     managed.unsubscribe();
+    managed.gitObserver?.stop();
     managed.releaseClaim();
 
     if (exit) {
@@ -270,9 +286,36 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     if (extras.preparationId !== undefined) info.preparationId = extras.preparationId;
     if (extras.processId !== undefined) info.processId = extras.processId;
     const conversation = new AgentConversationProjector();
-    const unsubscribe = session.onEvent((envelope) => {
+    let state = session.state();
+    const stamper = createEnvelopeStamper(state.lastSequence);
+    let gitObserver: GitStateObserver | undefined;
+
+    const dispatch = (
+      event: AgentEvent,
+      source: AgentEventSource,
+      confidence: AgentEventConfidence,
+      nativeEvent?: unknown,
+      upstream?: AgentEventEnvelope,
+    ): void => {
+      const envelope = stamper.next({
+        sessionId: upstream?.sessionId || info.sessionId,
+        ...(upstream?.nativeSessionId ? { nativeSessionId: upstream.nativeSessionId } : {}),
+        ...(upstream?.promptId ? { promptId: upstream.promptId } : {}),
+        ...(upstream?.turnId ? { turnId: upstream.turnId } : {}),
+        timestamp: upstream?.timestamp ?? new Date().toISOString(),
+        monotonicTime: upstream?.monotonicTime ?? performance.now(),
+        source,
+        confidence,
+        event,
+        ...(nativeEvent !== undefined ? { nativeEvent } : {}),
+      });
       const nativeSessionId = envelope.nativeSessionId || envelope.sessionId;
       if (nativeSessionId && info.sessionId !== nativeSessionId) info.sessionId = nativeSessionId;
+      const previousCwd = state.environment.currentCwd?.value;
+      state = reduceSessionState(state, envelope);
+      managed.state = state;
+      const currentCwd = state.environment.currentCwd?.value;
+      if (currentCwd && currentCwd !== previousCwd) gitObserver?.setCwd(currentCwd);
       if (!isCanonicalApplicationEvent(session, envelope)) return;
       conversation.consume(envelope);
       for (const listener of listeners) {
@@ -282,16 +325,32 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
           // Listener faults stay out of the observation pipeline.
         }
       }
-    });
-    sessions.set(session.runtimeSessionId, {
+    };
+
+    const managed: ManagedSession = {
       session,
       info,
       workspace: lease.workspace,
-      unsubscribe,
+      unsubscribe: () => undefined,
       releaseClaim: lease.releaseClaim,
       conversation,
+      state,
       preparationId: extras.preparationId,
+    };
+    sessions.set(session.runtimeSessionId, managed);
+    managed.unsubscribe = session.onEvent((envelope) => {
+      dispatch(envelope.event, envelope.source, envelope.confidence, envelope.nativeEvent, envelope);
     });
+
+    if (!state.environment.currentCwd) {
+      dispatch({ type: 'session.environment.updated', currentCwd: lease.workspace.root }, 'runtime', 'derived');
+    }
+    gitObserver = createGitStateObserver({
+      cwd: state.environment.currentCwd?.value ?? lease.workspace.root,
+      onChange: (git) => dispatch({ type: 'session.environment.updated', git }, 'runtime', 'derived'),
+      onError: report,
+    });
+    managed.gitObserver = gitObserver;
     return info;
   }
 
@@ -550,7 +609,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     cancelPrepared,
 
     sessionInfo: (id) => sessions.get(id)?.info,
-    sessionState: (id) => sessions.get(id)?.session.state(),
+    sessionState: (id) => sessions.get(id)?.state,
     observationLevel: (id) => sessions.get(id)?.session.observationLevel(),
     conversationSnapshot: (id) => sessions.get(id)?.conversation.snapshot(),
 

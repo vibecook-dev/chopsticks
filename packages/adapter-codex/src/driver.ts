@@ -73,7 +73,8 @@ const rec = (v: unknown): Record<string, unknown> | undefined =>
 export async function createCodexSession(options: CreateCodexSessionOptions): Promise<CodexSession> {
   const transport = options.transport ?? spawnAppServerTransport({ executable: options.executable });
   const client = new AppServerClient(transport);
-  const normalizer = new CodexNotificationNormalizer();
+  const modelNames = new Map<string, string>();
+  const normalizer = new CodexNotificationNormalizer((modelId) => modelNames.get(modelId));
   const stamper = createEnvelopeStamper();
 
   let state = createInitialSessionState();
@@ -121,7 +122,10 @@ export async function createCodexSession(options: CreateCodexSessionOptions): Pr
     const norm = normalizer.normalize({ method, params });
     if (norm.turnId) currentTurnId = norm.turnId;
     for (const event of norm.events) {
-      const source = event.type.startsWith('context-window.') ? 'native-protocol' : 'native-hook';
+      const source =
+        event.type.startsWith('context-window.') || event.type === 'session.environment.updated'
+          ? 'native-protocol'
+          : 'native-hook';
       apply(event, source, { method, params });
     }
   });
@@ -159,6 +163,21 @@ export async function createCodexSession(options: CreateCodexSessionOptions): Pr
 
   await client.request('initialize', { clientInfo: CLIENT_INFO, capabilities: {} });
   client.notify('initialized');
+  try {
+    const catalog = rec(await client.request('model/list', {}));
+    const models = Array.isArray(catalog?.data) ? catalog.data : Array.isArray(catalog?.models) ? catalog.models : [];
+    for (const value of models) {
+      const model = rec(value);
+      const displayName = str(model?.displayName);
+      if (!displayName) continue;
+      const id = str(model?.id);
+      const wireModel = str(model?.model);
+      if (id) modelNames.set(id, displayName);
+      if (wireModel) modelNames.set(wireModel, displayName);
+    }
+  } catch {
+    // Catalog enrichment is optional; stable model ids remain available.
+  }
 
   const startResult = options.resume
     ? await client.request('thread/resume', { threadId: options.resume })
@@ -169,12 +188,33 @@ export async function createCodexSession(options: CreateCodexSessionOptions): Pr
         approvalPolicy: options.approvalPolicy ?? 'on-request',
       });
 
-  const thread = rec(rec(startResult)?.thread);
+  const response = rec(startResult);
+  const thread = rec(response?.thread);
   if (thread) {
     sessionId = str(thread.sessionId) ?? str(thread.id) ?? sessionId;
     runtimeSessionId = str(thread.id) ?? (runtimeSessionId || sessionId);
     threadPath = str(thread.path) ?? threadPath;
   }
+  const currentCwd = str(response?.cwd) ?? str(thread?.cwd) ?? options.cwd;
+  const modelId = str(response?.model) ?? options.model;
+  const modelProvider = str(response?.modelProvider);
+  apply(
+    {
+      type: 'session.environment.updated',
+      currentCwd,
+      ...(modelId
+        ? {
+            model: {
+              id: modelId,
+              ...(modelNames.get(modelId) ? { displayName: modelNames.get(modelId) } : {}),
+              ...(modelProvider ? { provider: modelProvider } : {}),
+            },
+          }
+        : {}),
+    },
+    'native-protocol',
+    { response: startResult, bootstrap: options.resume ? 'thread/resume' : 'thread/start' },
+  );
 
   return {
     sessionId,

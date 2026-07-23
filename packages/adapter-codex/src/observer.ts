@@ -93,7 +93,8 @@ export async function createCodexObserver(opts: CreateCodexObserverOptions): Pro
   }
 
   const client = new AppServerClient(opts.transport);
-  const normalizer = new CodexNotificationNormalizer();
+  const modelNames = new Map<string, string>();
+  const normalizer = new CodexNotificationNormalizer((modelId) => modelNames.get(modelId));
   const stamper = createEnvelopeStamper();
 
   let state = createInitialSessionState();
@@ -137,9 +138,41 @@ export async function createCodexObserver(opts: CreateCodexObserverOptions): Pro
     const norm = normalizer.normalize({ method, params });
     if (norm.turnId) currentTurnId = norm.turnId;
     for (const event of norm.events) {
-      const source = event.type.startsWith('context-window.') ? 'native-protocol' : 'native-hook';
+      const source =
+        event.type.startsWith('context-window.') || event.type === 'session.environment.updated'
+          ? 'native-protocol'
+          : 'native-hook';
       apply(event, source, replayed ? { method, params, replayed: true } : { method, params });
     }
+  }
+
+  function applyEnvironmentFromResponse(
+    response: Record<string, unknown> | undefined,
+    fallbackCwd?: string,
+    fallbackModel?: string,
+  ): void {
+    const thread = rec(response?.thread);
+    const currentCwd = str(response?.cwd) ?? str(thread?.cwd) ?? fallbackCwd;
+    const modelId = str(response?.model) ?? fallbackModel;
+    const provider = str(response?.modelProvider);
+    if (!currentCwd && !modelId) return;
+    apply(
+      {
+        type: 'session.environment.updated',
+        ...(currentCwd ? { currentCwd } : {}),
+        ...(modelId
+          ? {
+              model: {
+                id: modelId,
+                ...(modelNames.get(modelId) ? { displayName: modelNames.get(modelId) } : {}),
+                ...(provider ? { provider } : {}),
+              },
+            }
+          : {}),
+      },
+      'native-protocol',
+      { response, bootstrap: 'thread-response' },
+    );
   }
 
   function replayCompletedTurns(resumed: Record<string, unknown> | undefined): void {
@@ -176,6 +209,7 @@ export async function createCodexObserver(opts: CreateCodexObserverOptions): Pro
     attaching = true;
     sessionId = threadId;
     threadPath = str(thread?.path) ?? threadPath;
+    if (thread) applyEnvironmentFromResponse({ thread });
     // A thread isn't materializable until it has a rollout. Passive-created threads
     // only write one on the first user message; controller-owned threads write
     // one via empty inject_items before calling attach. Retry until it takes,
@@ -188,6 +222,7 @@ export async function createCodexObserver(opts: CreateCodexObserverOptions): Pro
         threadPath = str(rec(resumed?.thread)?.path) ?? threadPath;
         attached = true;
         let history = resumed;
+        applyEnvironmentFromResponse(resumed);
         try {
           history = rec(await client.request('thread/read', { threadId, includeTurns: true })) ?? resumed;
           threadPath = str(rec(history?.thread)?.path) ?? threadPath;
@@ -252,6 +287,21 @@ export async function createCodexObserver(opts: CreateCodexObserverOptions): Pro
 
   await client.request('initialize', { clientInfo: CLIENT_INFO, capabilities: {} });
   client.notify('initialized');
+  try {
+    const catalog = rec(await client.request('model/list', {}));
+    const models = Array.isArray(catalog?.data) ? catalog.data : Array.isArray(catalog?.models) ? catalog.models : [];
+    for (const value of models) {
+      const model = rec(value);
+      const displayName = str(model?.displayName);
+      if (!displayName) continue;
+      const id = str(model?.id);
+      const wireModel = str(model?.model);
+      if (id) modelNames.set(id, displayName);
+      if (wireModel) modelNames.set(wireModel, displayName);
+    }
+  } catch {
+    // A missing/older model-list method must not prevent session attachment.
+  }
 
   // Controller-owned bootstrap: create + materialize, or resume a known id,
   // before returning so callers can spawn `codex resume <id> --remote` with a
@@ -279,6 +329,7 @@ export async function createCodexObserver(opts: CreateCodexObserverOptions): Pro
       client.close();
       throw new Error(`codex observer failed to attach to owned thread ${tid}`);
     }
+    applyEnvironmentFromResponse(rec(startResult), opts.start.cwd, opts.start.model);
   } else if (opts.threadId) {
     await attach(opts.threadId, undefined);
     if (!attached) {

@@ -114,7 +114,21 @@ export class ClaudeHookNormalizer {
           title: str(body.session_title),
           startSource: str(body.source),
         });
+        if (str(body.cwd) || str(body.model)) {
+          result.events.push({
+            type: 'session.environment.updated',
+            ...(str(body.cwd) ? { currentCwd: str(body.cwd) } : {}),
+            ...(str(body.model) ? { model: { id: str(body.model)!, provider: 'anthropic' } } : {}),
+          });
+        }
         break;
+
+      case 'CwdChanged': {
+        const currentCwd = str(body.new_cwd) ?? str(body.cwd);
+        if (currentCwd) result.events.push({ type: 'session.environment.updated', currentCwd });
+        else result.events.push({ type: 'adapter.native-event', adapter: 'claude-code', nativeType: name });
+        break;
+      }
 
       case 'InstructionsLoaded':
         // load_reason "session_start" is the closest thing to a boot-finished

@@ -20,6 +20,7 @@ function state(overrides: Partial<AgentStateMessage['state']> = {}): AgentStateM
       permissions: [],
       subagents: [],
       tasks: [],
+      environment: {},
       counters: { toolsCompleted: 0, toolsFailed: 0, unknownEvents: 0 },
       lastSequence: 0,
       diagnostics: [],
@@ -51,6 +52,35 @@ describe('Godview agent presentation', () => {
     expect(liveAgentView(info, state())?.project).toBe('godview');
     expect(liveAgentView({ ...info, session: { ...info.session, exited: true } }, state())).toBeUndefined();
     expect(liveAgentView(info, state({ lifecycle: 'failed' }))).toBeUndefined();
+  });
+
+  it('prefers live cwd, Git branch, and model-card state over launch workspace metadata', () => {
+    const live = liveAgentView(
+      info,
+      state({
+        environment: {
+          currentCwd: {
+            value: '/project/godview/packages/app',
+            updatedAt: 'now',
+            source: 'native-protocol',
+            confidence: 'authoritative',
+          },
+          model: {
+            value: { id: 'gpt-5.6-sol', displayName: 'GPT-5.6-Codex' },
+            updatedAt: 'now',
+            source: 'native-protocol',
+            confidence: 'authoritative',
+          },
+          git: {
+            value: { root: '/project/godview', branch: 'feature/live', headSha: 'abc', detached: false },
+            updatedAt: 'now',
+            source: 'runtime',
+            confidence: 'derived',
+          },
+        },
+      }),
+    );
+    expect(live).toMatchObject({ project: 'app', branch: 'feature/live', model: 'GPT-5.6-Codex' });
   });
 
   it('assigns a stable per-session relationship color', () => {

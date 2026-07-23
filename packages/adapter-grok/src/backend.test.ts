@@ -165,6 +165,37 @@ describe('createPendingControlSession', () => {
     expect(observed.stopped).toBe(true);
   });
 
+  it('bootstraps the model card and cwd already negotiated by ACP control', async () => {
+    const control = fakeControl();
+    const controlWithEnvironment: AgentSession = {
+      ...control.session,
+      state: () => ({
+        ...createInitialSessionState(),
+        lifecycle: 'ready',
+        environment: {
+          currentCwd: {
+            value: '/repo',
+            updatedAt: 'now',
+            source: 'native-protocol',
+            confidence: 'authoritative',
+          },
+          model: {
+            value: { id: 'grok-4.5', displayName: 'Grok 4.5' },
+            updatedAt: 'now',
+            source: 'native-protocol',
+            confidence: 'authoritative',
+          },
+        },
+      }),
+    };
+    const session = createPendingControlSession('sid', 'rt', () => controlWithEnvironment);
+    expect(session.state().environment).toMatchObject({
+      currentCwd: { value: '/repo' },
+      model: { value: { id: 'grok-4.5', displayName: 'Grok 4.5' } },
+    });
+    await session.dispose();
+  });
+
   it('prefers standard ACP context usage over the native signals fallback', async () => {
     const control = fakeControl();
     const observed = fakeObserver();

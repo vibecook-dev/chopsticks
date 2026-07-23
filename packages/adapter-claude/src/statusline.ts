@@ -3,7 +3,11 @@
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, parse, resolve } from 'node:path';
-import type { ContextWindowInvalidatedEvent, ContextWindowUpdatedEvent } from '@vibecook/chopsticks-core';
+import type {
+  ContextWindowInvalidatedEvent,
+  ContextWindowUpdatedEvent,
+  SessionEnvironmentUpdatedEvent,
+} from '@vibecook/chopsticks-core';
 
 export interface ClaudeStatusLineConfig {
   type: 'command';
@@ -14,15 +18,39 @@ export interface ClaudeStatusLineConfig {
 }
 
 interface ClaudeStatusLinePayload {
-  model?: { id?: unknown };
+  model?: { id?: unknown; display_name?: unknown };
+  workspace?: { current_dir?: unknown };
+  cwd?: unknown;
   context_window?: {
     total_input_tokens?: unknown;
     context_window_size?: unknown;
+    used_percentage?: unknown;
+    remaining_percentage?: unknown;
     current_usage?: {
       input_tokens?: unknown;
       cache_creation_input_tokens?: unknown;
       cache_read_input_tokens?: unknown;
     } | null;
+  };
+}
+
+/** Claude's status line is the authoritative live cwd/model-card surface. */
+export function claudeEnvironmentEvent(payload: unknown): SessionEnvironmentUpdatedEvent | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const body = payload as ClaudeStatusLinePayload;
+  const currentCwd =
+    typeof body.workspace?.current_dir === 'string'
+      ? body.workspace.current_dir
+      : typeof body.cwd === 'string'
+        ? body.cwd
+        : undefined;
+  const id = typeof body.model?.id === 'string' ? body.model.id : undefined;
+  const displayName = typeof body.model?.display_name === 'string' ? body.model.display_name : undefined;
+  if (!currentCwd && !id) return null;
+  return {
+    type: 'session.environment.updated',
+    ...(currentCwd ? { currentCwd } : {}),
+    ...(id ? { model: { id, ...(displayName ? { displayName } : {}), provider: 'anthropic' } } : {}),
   };
 }
 
@@ -38,11 +66,19 @@ export function claudeContextWindowEvent(
   const body = payload as ClaudeStatusLinePayload;
   const context = body.context_window;
   if (!context) return null;
+  const capacityTokens = finiteNumber(context.context_window_size);
   if (context.current_usage === null) {
+    // Before the first API response Claude reports a known empty window:
+    // total_input_tokens=0, a concrete capacity, and null usage/percentages.
+    // Preserve invalidation for compaction/reset payloads that do not make
+    // that explicit, but give new sessions a useful CTX:00% state.
+    if (capacityTokens !== undefined && finiteNumber(context.total_input_tokens) === 0) {
+      const modelId = typeof body.model?.id === 'string' ? body.model.id : undefined;
+      return { type: 'context-window.updated', usedTokens: 0, capacityTokens, modelId };
+    }
     return { type: 'context-window.invalidated', reason: 'provider-reset' };
   }
 
-  const capacityTokens = finiteNumber(context.context_window_size);
   if (capacityTokens === undefined) return null;
 
   const usage = context.current_usage;
@@ -58,6 +94,13 @@ export function claudeContextWindowEvent(
   // Current Claude versions expose this as the same input-only sum. It is a
   // useful compatibility fallback if an older payload omits the components.
   usedTokens ??= finiteNumber(context.total_input_tokens);
+  // Claude also publishes an authoritative pre-calculated percentage. Keep
+  // supporting payloads that omit the token breakdown rather than dropping
+  // context telemetry completely.
+  const usedPercentage = finiteNumber(context.used_percentage);
+  if (usedTokens === undefined && usedPercentage !== undefined && usedPercentage >= 0 && usedPercentage <= 100) {
+    usedTokens = (capacityTokens * usedPercentage) / 100;
+  }
   if (usedTokens === undefined) return null;
 
   const modelId = typeof body.model?.id === 'string' ? body.model.id : undefined;

@@ -117,6 +117,28 @@ describe('MessageDisplay delta accumulation', () => {
   });
 });
 
+describe('environment telemetry', () => {
+  it('captures startup cwd/model and live CwdChanged updates', () => {
+    const normalizer = new ClaudeHookNormalizer();
+    expect(
+      normalizer.normalize({
+        hook_event_name: 'SessionStart',
+        session_id: 's1',
+        cwd: '/repo',
+        model: 'claude-sonnet-4-5',
+      }).events,
+    ).toContainEqual({
+      type: 'session.environment.updated',
+      currentCwd: '/repo',
+      model: { id: 'claude-sonnet-4-5', provider: 'anthropic' },
+    });
+    expect(
+      normalizer.normalize({ hook_event_name: 'CwdChanged', session_id: 's1', old_cwd: '/repo', new_cwd: '/tmp' })
+        .events,
+    ).toEqual([{ type: 'session.environment.updated', currentCwd: '/tmp' }]);
+  });
+});
+
 describe('permission correlation (no native request id)', () => {
   it('synthesizes a request id and resolves allowed when the matching PreToolUse arrives', () => {
     const normalizer = new ClaudeHookNormalizer();

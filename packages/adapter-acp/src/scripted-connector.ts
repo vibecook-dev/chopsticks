@@ -7,7 +7,7 @@
  */
 
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk';
-import type { Agent, Client, PromptRequest, PromptResponse } from '@agentclientprotocol/sdk';
+import type { Agent, Client, PromptRequest, PromptResponse, SessionConfigOption } from '@agentclientprotocol/sdk';
 import type { AcpConnector } from './connection.js';
 
 export interface ScriptedAcpOptions {
@@ -17,6 +17,7 @@ export interface ScriptedAcpOptions {
   toolTurn?: boolean;
   /** Also emit a protocol thought chunk before visible activity. */
   thought?: string;
+  configOptions?: SessionConfigOption[];
 }
 
 export function scriptedAcpConnector(opts: ScriptedAcpOptions): AcpConnector {
@@ -30,7 +31,7 @@ export function scriptedAcpConnector(opts: ScriptedAcpOptions): AcpConnector {
         return { protocolVersion: PROTOCOL_VERSION, agentCapabilities: {} };
       },
       async newSession() {
-        return { sessionId };
+        return { sessionId, configOptions: opts.configOptions };
       },
       async loadSession() {
         return {};

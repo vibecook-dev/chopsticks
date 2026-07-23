@@ -9,6 +9,7 @@ export interface LiveAgentView {
   status: AgentVisualStatus;
   project: string;
   provider: string;
+  model?: string;
   branch?: string;
   detail: string;
   color: string;
@@ -33,8 +34,8 @@ export function classifyAgentStatus(message?: AgentStateMessage): AgentVisualSta
   return 'idle';
 }
 
-export function projectLabel(info: AgentSessionInfo): string {
-  const path = info.workspace.sourcePath || info.workspace.root || info.session.cwd || '';
+export function projectLabel(info: AgentSessionInfo, currentCwd?: string): string {
+  const path = currentCwd || info.workspace.sourcePath || info.workspace.root || info.session.cwd || '';
   const normalized = path.replace(/[\\/]+$/, '');
   return normalized.split(/[\\/]/).pop() || info.agent;
 }
@@ -78,15 +79,21 @@ export function liveAgentView(info: AgentSessionInfo, state?: AgentStateMessage)
   if (info.session.exited) return undefined;
   const status = classifyAgentStatus(state);
   if (!status) return undefined;
+  const environment = state?.state.environment;
+  const currentCwd = environment?.currentCwd?.value;
+  const model = environment?.model?.value;
+  const git = environment?.git?.value;
+  const branch = environment?.git ? (git?.branch ?? undefined) : info.workspace.branch;
   return {
     // Keep the visual body stable when an unassigned terminal becomes an agent.
     id: info.session.id,
     info,
     state,
     status,
-    project: projectLabel(info),
+    project: projectLabel(info, currentCwd),
     provider: providerLabel(info.agent),
-    branch: info.workspace.branch,
+    ...(model ? { model: model.displayName || model.id } : {}),
+    ...(branch ? { branch } : {}),
     detail: agentDetail(state, status),
     color: agentColor(info.runtimeSessionId),
   };

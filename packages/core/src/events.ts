@@ -260,6 +260,37 @@ export interface ContextWindowInvalidatedEvent {
   reason: 'compacted' | 'history-changed' | 'model-changed' | 'provider-reset';
 }
 
+/** Provider-neutral identity for the model currently serving this session. */
+export interface AgentModelIdentity {
+  /** Stable provider model id, suitable for matching a model catalog. */
+  id: string;
+  /** Human-facing model-card label when the provider publishes one. */
+  displayName?: string;
+  /** Provider/model-family name when it is available independently of the id. */
+  provider?: string;
+}
+
+/** Git metadata resolved for the agent's current working directory. */
+export interface AgentGitState {
+  root: string;
+  branch: string | null;
+  headSha: string | null;
+  detached: boolean;
+  worktree?: boolean;
+}
+
+/**
+ * A sparse update to the agent-owned execution environment. Omitted fields do
+ * not change existing state; null explicitly clears cwd/model or records that
+ * the current cwd is outside a Git repository.
+ */
+export interface SessionEnvironmentUpdatedEvent {
+  type: 'session.environment.updated';
+  currentCwd?: string | null;
+  model?: AgentModelIdentity | null;
+  git?: AgentGitState | null;
+}
+
 /** DESIGN ADR-008 — unrecognized native events survive normalization. */
 export interface UnknownNativeEvent {
   type: 'adapter.native-event';
@@ -295,6 +326,7 @@ export type AgentEvent =
   | NativeNotificationEvent
   | ContextWindowUpdatedEvent
   | ContextWindowInvalidatedEvent
+  | SessionEnvironmentUpdatedEvent
   | UnknownNativeEvent;
 
 // ---------------------------------------------------------------------------
@@ -310,8 +342,8 @@ export interface EnvelopeStamper {
  * consumer observes the same order (DESIGN §12.1 applies the same rule to
  * terminal chunks). One stamper per session.
  */
-export function createEnvelopeStamper(): EnvelopeStamper {
-  let sequence = 0;
+export function createEnvelopeStamper(initialSequence = 0): EnvelopeStamper {
+  let sequence = initialSequence;
   return {
     next(fields) {
       sequence += 1;

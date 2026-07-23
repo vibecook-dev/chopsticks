@@ -231,6 +231,7 @@ function serializeState(state: SessionRuntimeState): SerializedSessionState {
     subagents: [...state.subagents.values()],
     tasks: [...state.tasks.values()],
     contextWindow: state.contextWindow,
+    environment: state.environment,
     lastAssistantMessage: state.lastAssistantMessage,
     exit: state.exit,
     counters: state.counters,

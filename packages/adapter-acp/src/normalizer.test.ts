@@ -127,6 +127,31 @@ describe('AcpNotificationNormalizer', () => {
     expect(r.events).toEqual([{ type: 'context-window.updated', usedTokens: 53_000, capacityTokens: 200_000 }]);
   });
 
+  it('maps the standard model config selector to id and model-card name', () => {
+    const n = new AcpNotificationNormalizer();
+    const r = n.normalize(
+      note({
+        sessionUpdate: 'config_option_update',
+        configOptions: [
+          {
+            type: 'select',
+            id: 'model',
+            name: 'Model',
+            category: 'model',
+            currentValue: 'grok-4.5',
+            options: [
+              { value: 'grok-4.5', name: 'Grok 4.5' },
+              { value: 'grok-code-fast-1', name: 'Grok Code Fast' },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(r.events).toEqual([
+      { type: 'session.environment.updated', model: { id: 'grok-4.5', displayName: 'Grok 4.5' } },
+    ]);
+  });
+
   it('retains unmodeled kinds (available_commands_update) as native-events (ADR-008)', () => {
     const n = new AcpNotificationNormalizer();
     const r = n.normalize(note({ sessionUpdate: 'available_commands_update', availableCommands: [] }));

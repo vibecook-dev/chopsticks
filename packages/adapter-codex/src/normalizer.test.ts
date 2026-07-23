@@ -134,13 +134,33 @@ describe('CodexNotificationNormalizer', () => {
     }
   });
 
-  it('invalidates context after compaction or model rerouting', () => {
+  it('invalidates context after compaction and updates identity on model rerouting', () => {
     const n = new CodexNotificationNormalizer();
     expect(n.normalize({ method: 'thread/compacted', params: {} }).events).toEqual([
       { type: 'context-window.invalidated', reason: 'compacted' },
     ]);
-    expect(n.normalize({ method: 'model/rerouted', params: {} }).events).toEqual([
+    expect(n.normalize({ method: 'model/rerouted', params: { toModel: 'gpt-5.6-sol' } }).events).toEqual([
+      { type: 'session.environment.updated', model: { id: 'gpt-5.6-sol' } },
       { type: 'context-window.invalidated', reason: 'model-changed' },
+    ]);
+  });
+
+  it('maps thread cwd/settings and resolves model card display names', () => {
+    const n = new CodexNotificationNormalizer((id) => (id === 'gpt-5.6-sol' ? 'GPT-5.6-Codex' : undefined));
+    expect(
+      n.normalize({ method: 'thread/started', params: { thread: { id: THREAD, cwd: '/repo' } } }).events,
+    ).toContainEqual({ type: 'session.environment.updated', currentCwd: '/repo' });
+    expect(
+      n.normalize({
+        method: 'thread/settings/updated',
+        params: { threadSettings: { cwd: '/repo/packages/app', model: 'gpt-5.6-sol', modelProvider: 'openai' } },
+      }).events,
+    ).toEqual([
+      {
+        type: 'session.environment.updated',
+        currentCwd: '/repo/packages/app',
+        model: { id: 'gpt-5.6-sol', displayName: 'GPT-5.6-Codex', provider: 'openai' },
+      },
     ]);
   });
 

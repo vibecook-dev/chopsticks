@@ -37,7 +37,7 @@ import { ClaudeHookNormalizer, type ClaudeHookPayload } from './normalizer.js';
 import { prepareClaudeSession, cleanupClaudeSession, type PreparedClaudeSession } from './prepare.js';
 import { createPromptInjector, type PromptInjector } from './prompt.js';
 import { assistantMessageEvent, createTranscriptObserver, type TranscriptObserver } from './transcript-observer.js';
-import { claudeContextWindowEvent } from './statusline.js';
+import { claudeContextWindowEvent, claudeEnvironmentEvent } from './statusline.js';
 
 const TOKEN_ENV_VAR = 'CHOPSTICKS_HOOK_TOKEN';
 
@@ -108,8 +108,18 @@ export async function prepareClaudeTuiSession(
   const sessionId = options.resume ?? randomUUID();
   let selectedSessionId = options.resume;
   const bridge: HookBridge = createHookBridge({
-    allowSession: (id) => {
+    allowSession: (id, kind, body) => {
       if (!options.resumeInvocation) return id === sessionId;
+      // The native resume picker renders status lines for the currently
+      // highlighted conversation before the user commits a selection. That
+      // preview must not claim the bridge. Claude can also emit SessionStart
+      // for a picker preview before it emits the final resumed SessionStart,
+      // so every SessionStart is an authoritative rebind, not just the first.
+      if (kind === 'statusline' && selectedSessionId === undefined) return true;
+      if (kind === 'hook' && body.hook_event_name === 'SessionStart') {
+        selectedSessionId = id;
+        return true;
+      }
       selectedSessionId ??= id;
       return id === selectedSessionId;
     },
@@ -250,19 +260,37 @@ function createPreparedClaudeSession(
   });
 
   bridge.onStatusLine((statusEnvelope) => {
-    const event = claudeContextWindowEvent(statusEnvelope.body);
-    if (!event) return;
-    const current = state.contextWindow;
-    if (event.type === 'context-window.invalidated') {
-      if (!current) return;
+    const environment = claudeEnvironmentEvent(statusEnvelope.body);
+    if (environment) {
+      const current = state.environment;
+      const unchangedCwd = environment.currentCwd === undefined || environment.currentCwd === current.currentCwd?.value;
+      const unchangedModel =
+        environment.model === undefined ||
+        (environment.model !== null &&
+          environment.model.id === current.model?.value.id &&
+          environment.model.displayName === current.model?.value.displayName);
+      if (!unchangedCwd || !unchangedModel) {
+        apply(environment, {
+          source: 'native-statusline',
+          timestamp: statusEnvelope.receivedAt,
+          native: statusEnvelope.body,
+        });
+      }
+    }
+
+    const contextEvent = claudeContextWindowEvent(statusEnvelope.body);
+    if (!contextEvent) return;
+    const currentContext = state.contextWindow;
+    if (contextEvent.type === 'context-window.invalidated') {
+      if (!currentContext) return;
     } else if (
-      current?.usedTokens === event.usedTokens &&
-      current.capacityTokens === event.capacityTokens &&
-      current.modelId === event.modelId
+      currentContext?.usedTokens === contextEvent.usedTokens &&
+      currentContext.capacityTokens === contextEvent.capacityTokens &&
+      currentContext.modelId === contextEvent.modelId
     ) {
       return;
     }
-    apply(event, {
+    apply(contextEvent, {
       source: 'native-statusline',
       timestamp: statusEnvelope.receivedAt,
       native: statusEnvelope.body,

@@ -32,6 +32,32 @@ describe('createAcpSession', () => {
       expect(session.sessionId).toBe(SID);
       expect(session.runtimeSessionId).toBe(SID);
       expect(session.observationLevel()).toBe('structured');
+      expect(session.state().environment.currentCwd?.value).toBe('/x');
+    } finally {
+      await session.dispose();
+    }
+  });
+
+  it('bootstraps the active model card from session config options', async () => {
+    const session = await createAcpSession({
+      cwd: '/x',
+      connector: scriptedAcpConnector({
+        sessionId: SID,
+        reply: 'pong',
+        configOptions: [
+          {
+            type: 'select',
+            id: 'model',
+            name: 'Model',
+            category: 'model',
+            currentValue: 'grok-4.5',
+            options: [{ value: 'grok-4.5', name: 'Grok 4.5' }],
+          },
+        ],
+      }),
+    });
+    try {
+      expect(session.state().environment.model?.value).toEqual({ id: 'grok-4.5', displayName: 'Grok 4.5' });
     } finally {
       await session.dispose();
     }

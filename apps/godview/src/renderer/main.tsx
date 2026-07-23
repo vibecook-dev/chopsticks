@@ -26,6 +26,7 @@ import { AgentSwarm, useLiveAgentViews, type AgentBubbleView, type UnassignedAge
 import { TweakPanel } from './TweakPanel.js';
 import { agentColor, nextAgentForStatus, type AgentVisualStatus } from './agent-status.js';
 import { buildPaneAttachments } from './pane-attachments.js';
+import { paneSessionLaunchSource } from './pane-session.js';
 import {
   DEFAULT_SWARM_PARAMETERS,
   normalizeSwarmParameters,
@@ -185,6 +186,7 @@ function Godview() {
       const placeholder: UnassignedAgentView = {
         id: session.id,
         session,
+        ...(cwd ? { cwd } : {}),
         status: 'idle',
         project: folderLabel(cwd),
         provider: '',
@@ -231,6 +233,27 @@ function Godview() {
   const paneAttachments = useMemo(
     () => buildPaneAttachments(workspace?.panes ?? [], paneColors, workspace?.activePaneId),
     [paneColors, workspace?.activePaneId, workspace?.panes],
+  );
+  const createSplitSession = useCallback(
+    async (selectedSession: SessionSummary): Promise<SessionSummary> => {
+      const refreshedSessions = await terminalRuntime.listSessions();
+      const agent = agentsBySession.get(selectedSession.id);
+      const unassigned = unassignedAgents.find((candidate) => candidate.session.id === selectedSession.id);
+      const agentCwd = agent?.state?.state.environment.currentCwd?.value;
+      const fallbackCwd =
+        agent?.info.workspace.sourcePath || agent?.info.workspace.root || unassigned?.cwd || undefined;
+      const source = paneSessionLaunchSource(selectedSession, refreshedSessions, agentCwd, fallbackCwd);
+      return terminalRuntime.createSession({
+        executable: platform.defaultShell,
+        args: [],
+        ...(source.cwd ? { cwd: source.cwd } : {}),
+        environment: { mode: 'inherit' },
+        cols: source.session.cols,
+        rows: source.session.rows,
+        persistence: 'terminate-with-app',
+      });
+    },
+    [agentsBySession, platform.defaultShell, unassignedAgents],
   );
   const decoratePane = useCallback(
     (session: SessionSummary, paneId: string): GhostteaWorkspacePaneDecoration => {
@@ -344,6 +367,7 @@ function Godview() {
               sidebar={WorkspaceReporter}
               theme={theme === 'dark' ? TERMINAL_THEMES.midnight : TERMINAL_THEMES.daylight}
               decoratePane={decoratePane}
+              createSplitSession={createSplitSession}
               claimExistingSessions={window.desktop.claimExistingSessions}
               enableRemoteSessions={window.desktop.remoteSessionsEnabled}
               active={active}

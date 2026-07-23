@@ -4,3 +4,4 @@ export * from './runtime.js';
 export * from './builtin-runtime.js';
 export * from './conversation.js';
 export * from './environment.js';
+export * from './git-observer.js';

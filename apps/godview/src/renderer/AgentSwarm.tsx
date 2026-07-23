@@ -22,6 +22,7 @@ interface AgentRecord {
 export interface UnassignedAgentView {
   id: string;
   session: SessionSummary;
+  cwd?: string;
   status: 'idle';
   project: string;
   provider: '';
@@ -485,10 +486,10 @@ export function AgentSwarm({
               aria-current={active ? 'true' : undefined}
               aria-label={
                 liveAgent
-                  ? `${agent.project}, ${agent.provider}, ${agent.status}: ${agent.detail}, ${contextLabel}`
+                  ? `${agent.project}, ${agent.model ?? agent.provider}, ${agent.status}: ${agent.detail}, ${contextLabel}`
                   : `${agent.project}, unassigned terminal`
               }
-              title={liveAgent ? `${agent.project} · ${agent.provider} · ${agent.detail}` : agent.detail}
+              title={liveAgent ? `${agent.project} · ${agent.model ?? agent.provider} · ${agent.detail}` : agent.detail}
               onPointerDown={(event) => {
                 const wrapper = bodiesRef.current.get(agent.id);
                 const world = worldRef.current;
@@ -572,14 +573,9 @@ export function AgentSwarm({
               <span className="agent-bubble-copy">
                 {liveAgent && agent.branch ? <span className="agent-bubble-branch">{agent.branch}</span> : null}
                 <strong>{agent.project}</strong>
-                {liveAgent ? <span className="agent-bubble-provider">{agent.provider}</span> : null}
+                {liveAgent ? <span className="agent-bubble-provider">{agent.model ?? agent.provider}</span> : null}
               </span>
-              {liveAgent ? (
-                <>
-                  <span className="agent-bubble-context">{contextLabel}</span>
-                  <span className="agent-bubble-status">{agent.status}</span>
-                </>
-              ) : null}
+              {liveAgent ? <span className="agent-bubble-context">{contextLabel}</span> : null}
             </button>
           </div>
         );

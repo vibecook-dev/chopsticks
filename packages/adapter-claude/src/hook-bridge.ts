@@ -26,9 +26,11 @@ export interface NativeHookEnvelope {
 
 export type NativeStatusLineEnvelope = NativeHookEnvelope;
 
+export type HookBridgeRequestKind = 'hook' | 'statusline';
+
 export interface HookBridgeOptions {
   /** Explicit session allow-list; events for other sessions get 403. */
-  allowSession: (sessionId: string) => boolean;
+  allowSession: (sessionId: string, kind: HookBridgeRequestKind, body: Readonly<Record<string, unknown>>) => boolean;
   port?: number;
   token?: string;
   maxBodyBytes?: number;
@@ -77,9 +79,11 @@ export function createHookBridge(options: HookBridgeOptions): HookBridge {
   }
 
   function handle(req: IncomingMessage, res: ServerResponse): void {
+    const requestKind: HookBridgeRequestKind | undefined =
+      req.url === '/statusline' ? 'statusline' : req.url === '/hooks' ? 'hook' : undefined;
     const targetListeners =
-      req.url === '/statusline' ? statusLineListeners : req.url === '/hooks' ? listeners : undefined;
-    if (!targetListeners) {
+      requestKind === 'statusline' ? statusLineListeners : requestKind === 'hook' ? listeners : undefined;
+    if (!requestKind || !targetListeners) {
       res.writeHead(404, { 'content-type': 'application/json' });
       res.end('{}');
       return;
@@ -119,7 +123,7 @@ export function createHookBridge(options: HookBridgeOptions): HookBridge {
       }
 
       const sessionId = body.session_id;
-      if (typeof sessionId !== 'string' || !options.allowSession(sessionId)) {
+      if (typeof sessionId !== 'string' || !options.allowSession(sessionId, requestKind, body)) {
         reject(res, 403, 'unknown-session', String(sessionId ?? 'missing session_id'));
         return;
       }

@@ -83,7 +83,7 @@ function scriptedAppServer(opts?: {
   let onCls: ((info: { code: number | null; signal: string | null }) => void) | undefined;
   const sent: Array<Record<string, unknown>> = [];
   const emit = (m: unknown): void => void queueMicrotask(() => onMsg?.(m));
-  const thread = { id: THREAD, sessionId: THREAD, path: ROLLOUT, status: { type: 'idle' } };
+  const thread = { id: THREAD, sessionId: THREAD, path: ROLLOUT, cwd: '/x', status: { type: 'idle' } };
 
   const transport: Transport = {
     send: (raw) => {
@@ -93,6 +93,13 @@ function scriptedAppServer(opts?: {
       switch (m.method) {
         case 'initialize':
           emit({ jsonrpc: '2.0', id: m.id, result: {} });
+          break;
+        case 'model/list':
+          emit({
+            jsonrpc: '2.0',
+            id: m.id,
+            result: { data: [{ id: 'gpt-5.6-sol', model: 'gpt-5.6-sol', displayName: 'GPT-5.6-Codex' }] },
+          });
           break;
         case 'thread/start':
           emit({ jsonrpc: '2.0', id: m.id, result: { thread } });
@@ -130,6 +137,10 @@ describe('createCodexSession', () => {
     expect(session.observationLevel()).toBe('structured');
     await flush();
     expect(session.state().lifecycle).toBe('ready'); // thread/started -> session.started
+    expect(session.state().environment).toMatchObject({
+      currentCwd: { value: '/x' },
+      model: { value: { id: 'gpt-5.6-sol', displayName: 'GPT-5.6-Codex' } },
+    });
     expect(s.sent.find((message) => message.method === 'thread/start')?.params).toMatchObject({
       model: 'gpt-5.6-sol',
     });

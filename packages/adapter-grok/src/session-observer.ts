@@ -1,6 +1,6 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import type { AgentEvent, AgentEventConfidence, AgentEventSource } from '@vibecook/chopsticks-core';
 import { AcpNotificationNormalizer } from '@vibecook/chopsticks-adapter-acp';
 
@@ -35,6 +35,14 @@ interface GrokSignals {
   contextWindowUsage?: number;
   primaryModelId?: string;
   compactionCount?: number;
+  [key: string]: unknown;
+}
+
+interface GrokSummary {
+  info?: { cwd?: unknown };
+  cwd?: unknown;
+  current_model_id?: unknown;
+  currentModelId?: unknown;
   [key: string]: unknown;
 }
 
@@ -292,7 +300,7 @@ export class GrokUpdateNormalizer {
 /** Incrementally tails complete JSONL records; partial final writes are retried. */
 export function createGrokSessionObserver(
   updatesPath: string,
-  options: { pollIntervalMs?: number; signalsPath?: string } = {},
+  options: { pollIntervalMs?: number; signalsPath?: string; summaryPath?: string } = {},
 ): GrokSessionObserver {
   const normalizer = new GrokUpdateNormalizer();
   const eventListeners = new Set<(event: GrokObservedEvent) => void>();
@@ -300,6 +308,12 @@ export function createGrokSessionObserver(
   let offset = 0;
   let lastSignalsMeasurement: string | undefined;
   let lastCompactionCount: number | undefined;
+  let lastEnvironment: string | undefined;
+  let currentUpdatesPath = updatesPath;
+  let currentSessionDirectory = dirname(updatesPath);
+  const sessionId = basename(currentSessionDirectory);
+  const sessionsRoot = dirname(dirname(currentSessionDirectory));
+  let lastRelocationSearch = 0;
   let stopped = false;
   let polling: Promise<void> | undefined;
 
@@ -324,9 +338,30 @@ export function createGrokSessionObserver(
     }
   };
 
+  const locateRelocatedSession = async (): Promise<void> => {
+    const now = Date.now();
+    if (now - lastRelocationSearch < 1_000) return;
+    lastRelocationSearch = now;
+    try {
+      for (const cwdDirectory of await readdir(sessionsRoot)) {
+        const candidate = join(sessionsRoot, cwdDirectory, sessionId);
+        try {
+          await stat(join(candidate, 'summary.json'));
+          currentSessionDirectory = candidate;
+          currentUpdatesPath = join(candidate, 'updates.jsonl');
+          return;
+        } catch {
+          // Continue scanning cwd buckets.
+        }
+      }
+    } catch {
+      // The next regular poll retries.
+    }
+  };
+
   const pollUpdates = async (): Promise<void> => {
     try {
-      const data = await readFile(updatesPath);
+      const data = await readFile(currentUpdatesPath);
       if (data.length < offset) offset = 0;
       const unread = data.subarray(offset);
       const lastNewline = unread.lastIndexOf(0x0a);
@@ -342,12 +377,13 @@ export function createGrokSessionObserver(
         }
       }
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') report(error);
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') await locateRelocatedSession();
+      else report(error);
     }
   };
 
   const pollSignals = async (): Promise<void> => {
-    const signalsPath = options.signalsPath ?? join(dirname(updatesPath), 'signals.json');
+    const signalsPath = options.signalsPath ?? join(currentSessionDirectory, 'signals.json');
     try {
       const raw = await readFile(signalsPath, 'utf8');
       let signals: GrokSignals;
@@ -402,10 +438,47 @@ export function createGrokSessionObserver(
     }
   };
 
+  const pollSummary = async (): Promise<void> => {
+    const summaryPath = options.summaryPath ?? join(currentSessionDirectory, 'summary.json');
+    try {
+      const summary = JSON.parse(await readFile(summaryPath, 'utf8')) as GrokSummary;
+      const currentCwd =
+        typeof summary.info?.cwd === 'string'
+          ? summary.info.cwd
+          : typeof summary.cwd === 'string'
+            ? summary.cwd
+            : undefined;
+      const modelId =
+        typeof summary.current_model_id === 'string'
+          ? summary.current_model_id
+          : typeof summary.currentModelId === 'string'
+            ? summary.currentModelId
+            : undefined;
+      if (!currentCwd && !modelId) return;
+      const fingerprint = `${currentCwd ?? ''}:${modelId ?? ''}`;
+      if (fingerprint === lastEnvironment) return;
+      lastEnvironment = fingerprint;
+      emit({
+        event: {
+          type: 'session.environment.updated',
+          ...(currentCwd ? { currentCwd } : {}),
+          ...(modelId ? { model: { id: modelId, provider: 'xai' } } : {}),
+        },
+        source: 'native-log',
+        confidence: 'authoritative',
+        nativeEvent: summary,
+      });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') await locateRelocatedSession();
+      else if (error instanceof SyntaxError) return;
+      else report(error);
+    }
+  };
+
   const poll = async (): Promise<void> => {
     if (stopped) return;
     if (polling) return polling;
-    polling = Promise.all([pollUpdates(), pollSignals()])
+    polling = Promise.all([pollUpdates(), pollSignals(), pollSummary()])
       .then(() => undefined)
       .finally(() => {
         polling = undefined;

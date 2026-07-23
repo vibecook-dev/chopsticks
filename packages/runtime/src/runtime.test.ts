@@ -138,6 +138,47 @@ function preparableProvider(
 }
 
 describe('createAgentRuntime', () => {
+  it('tracks provider cwd/model and resolves the matching live Git branch', async () => {
+    const first = await makeRepo();
+    const second = await makeRepo();
+    await execFileAsync('git', ['-C', second, 'checkout', '-b', 'feature/environment']);
+    const handles = new Map<string, { emit: (event: AgentEventEnvelope) => void }>();
+    const runtime = createAgentRuntime({
+      host,
+      defaultCwd: first,
+      providers: [fakeProvider('environment-provider', handles)],
+    });
+    const created = await runtime.createSession({ agent: 'environment-provider', cwd: first });
+    if ('error' in created) throw new Error('unexpected create failure');
+
+    await vi.waitFor(() => {
+      expect(runtime.sessionState(created.runtimeSessionId)?.environment.git?.value).toMatchObject({ branch: 'main' });
+    });
+
+    handles.get(created.runtimeSessionId)!.emit({
+      sequence: 1,
+      sessionId: created.sessionId,
+      timestamp: new Date().toISOString(),
+      monotonicTime: 1,
+      source: 'native-protocol',
+      confidence: 'authoritative',
+      event: {
+        type: 'session.environment.updated',
+        currentCwd: second,
+        model: { id: 'model-2', displayName: 'Model Two' },
+      },
+    });
+    expect(runtime.sessionState(created.runtimeSessionId)?.environment.git).toBeUndefined();
+    await vi.waitFor(() => {
+      expect(runtime.sessionState(created.runtimeSessionId)?.environment).toMatchObject({
+        currentCwd: { value: second, source: 'native-protocol', confidence: 'authoritative' },
+        model: { value: { id: 'model-2', displayName: 'Model Two' } },
+        git: { value: { branch: 'feature/environment' }, source: 'runtime', confidence: 'derived' },
+      });
+    });
+    await runtime.dispose();
+  });
+
   it('projects native-log assistant messages instead of filtering them as structured duplicates', async () => {
     const root = await mkdtemp(join(tmpdir(), 'chopsticks-runtime-native-log-'));
     const handles = new Map<string, { emit: (event: AgentEventEnvelope) => void }>();

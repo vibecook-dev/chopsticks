@@ -47,6 +47,11 @@ const arbitraryEvent: fc.Arbitrary<AgentEvent> = fc.oneof(
     capacityTokens,
   })),
   fc.constant<AgentEvent>({ type: 'context-window.invalidated', reason: 'compacted' }),
+  fc.constant<AgentEvent>({
+    type: 'session.environment.updated',
+    currentCwd: '/tmp/project',
+    model: { id: 'model-a', displayName: 'Model A' },
+  }),
   fc.constant<AgentEvent>({ type: 'session.exited', reason: 'other' }),
   fc.constant<AgentEvent>({ type: 'process.exited', reason: 'completed', exitCode: 0 }),
   fc.constant<AgentEvent>({ type: 'adapter.native-event', adapter: 'claude-code', nativeType: 'Mystery' }),
@@ -132,6 +137,60 @@ describe('reduceSessionState transitions', () => {
     const rejected = reduceSessionState(measured, invalid);
     expect(rejected.contextWindow).toBe(measured.contextWindow);
     expect(rejected.diagnostics.at(-1)?.code).toBe('context-window-invalid');
+  });
+
+  it('merges sparse environment facts, tracks provenance, and clears stale Git on cwd changes', () => {
+    const [initial, moved, resolved] = stampAll([
+      {
+        type: 'session.environment.updated',
+        currentCwd: '/repo/one',
+        model: { id: 'codex-1', displayName: 'Codex 1', provider: 'openai' },
+        git: { root: '/repo/one', branch: 'main', headSha: 'abc', detached: false },
+      },
+      { type: 'session.environment.updated', currentCwd: '/repo/two' },
+      { type: 'session.environment.updated', git: null },
+    ]);
+    initial.source = 'native-protocol';
+    moved.source = 'native-hook';
+    resolved.source = 'runtime';
+    resolved.confidence = 'derived';
+
+    const first = reduceSessionState(createInitialSessionState(), initial);
+    expect(first.environment.currentCwd).toMatchObject({ value: '/repo/one', source: 'native-protocol' });
+    expect(first.environment.model?.value).toMatchObject({ id: 'codex-1', displayName: 'Codex 1' });
+    expect(first.environment.git?.value).toMatchObject({ branch: 'main' });
+
+    const second = reduceSessionState(first, moved);
+    expect(second.environment.currentCwd).toMatchObject({ value: '/repo/two', source: 'native-hook' });
+    expect(second.environment.model).toBe(first.environment.model);
+    expect(second.environment.git).toBeUndefined();
+
+    const third = reduceSessionState(second, resolved);
+    expect(third.environment.git).toMatchObject({ value: null, source: 'runtime', confidence: 'derived' });
+  });
+
+  it('preserves complementary model-card fields when sources report the same model id', () => {
+    const [catalog, provider] = stampAll([
+      { type: 'session.environment.updated', model: { id: 'grok-4.5', displayName: 'Grok 4.5' } },
+      { type: 'session.environment.updated', model: { id: 'grok-4.5', provider: 'xai' } },
+    ]);
+    const state = replay([catalog, provider]);
+    expect(state.environment.model?.value).toEqual({ id: 'grok-4.5', displayName: 'Grok 4.5', provider: 'xai' });
+  });
+
+  it('rejects blank environment identities without losing previous facts', () => {
+    const [valid, invalid] = stampAll([
+      { type: 'session.environment.updated', currentCwd: '/repo', model: { id: 'model-a' } },
+      { type: 'session.environment.updated', currentCwd: ' ', model: { id: '' } },
+    ]);
+    const first = reduceSessionState(createInitialSessionState(), valid);
+    const second = reduceSessionState(first, invalid);
+    expect(second.environment.currentCwd).toBe(first.environment.currentCwd);
+    expect(second.environment.model).toBe(first.environment.model);
+    expect(second.diagnostics.slice(-2).map((diagnostic) => diagnostic.code)).toEqual([
+      'environment-cwd-invalid',
+      'environment-model-invalid',
+    ]);
   });
 
   it('completed tools leave the active-tool map', () => {

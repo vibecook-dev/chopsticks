@@ -3,6 +3,7 @@ import type {
   ContextWindowRuntimeState,
   ObservationLevel,
   PromptReceipt as CorePromptReceipt,
+  SessionEnvironmentRuntimeState,
   ToolPresentation,
 } from '@vibecook/chopsticks-core';
 import type {
@@ -59,6 +60,7 @@ export interface SerializedSessionState {
   subagents: { subagentId: string; agentType?: string }[];
   tasks: { taskId: string; description?: string }[];
   contextWindow?: ContextWindowRuntimeState;
+  environment: SessionEnvironmentRuntimeState;
   lastAssistantMessage?: string;
   exit?: { exitCode?: number; signal?: string; reason?: string };
   counters: { toolsCompleted: number; toolsFailed: number; unknownEvents: number };

@@ -104,6 +104,16 @@ export class CodexNotificationNormalizer {
   private reasoningSummaries = new Map<string, string>();
   private pendingTurn: { turnId?: string; emitted: boolean } | undefined;
 
+  constructor(private readonly modelDisplayName: (modelId: string) => string | undefined = () => undefined) {}
+
+  private model(
+    modelId: string,
+    provider?: string,
+  ): Extract<AgentEvent, { type: 'session.environment.updated' }>['model'] {
+    const displayName = this.modelDisplayName(modelId);
+    return { id: modelId, ...(displayName ? { displayName } : {}), ...(provider ? { provider } : {}) };
+  }
+
   normalize(notif: CodexServerNotification): NormalizedNotification {
     const method = notif.method;
     const p = notif.params ?? {};
@@ -266,6 +276,23 @@ export class CodexNotificationNormalizer {
           nativeSessionId: str(thread?.id) ?? threadId,
           title: str(thread?.name) ?? (str(thread?.preview) || undefined),
         });
+        const currentCwd = str(thread?.cwd);
+        if (currentCwd) events.push({ type: 'session.environment.updated', currentCwd });
+        break;
+      }
+
+      case 'thread/settings/updated': {
+        const settings = rec(p.threadSettings) ?? p;
+        const currentCwd = str(settings.cwd);
+        const modelId = str(settings.model);
+        const provider = str(settings.modelProvider);
+        if (currentCwd || modelId) {
+          events.push({
+            type: 'session.environment.updated',
+            ...(currentCwd ? { currentCwd } : {}),
+            ...(modelId ? { model: this.model(modelId, provider) } : {}),
+          });
+        }
         break;
       }
 
@@ -348,9 +375,12 @@ export class CodexNotificationNormalizer {
         events.push({ type: 'context-window.invalidated', reason: 'compacted' });
         break;
 
-      case 'model/rerouted':
+      case 'model/rerouted': {
+        const modelId = str(p.toModel);
+        if (modelId) events.push({ type: 'session.environment.updated', model: this.model(modelId) });
         events.push({ type: 'context-window.invalidated', reason: 'model-changed' });
         break;
+      }
 
       case 'error':
         events.push({ type: 'notification', message: str(p.message), notificationType: 'error' });

@@ -310,6 +310,7 @@ describe('createClaudeSession (full loop, test-as-Claude)', () => {
   });
 
   it('keeps the native resume picker and adopts the session selected after launch', async () => {
+    const previewId = '64a61b19-f4d8-4f96-ba56-07024b470898';
     const selectedId = '64a61b19-f4d8-4f96-ba56-07024b470899';
     const prepared = await prepareClaudeTuiSession({
       cwd: '/tmp',
@@ -326,6 +327,34 @@ describe('createClaudeSession (full loop, test-as-Claude)', () => {
       hooks: Record<string, Array<{ hooks: Array<{ url?: string }> }>>;
     };
     const endpoint = settings.hooks.UserPromptSubmit[0].hooks[0].url!;
+    // Claude can start the highlighted picker preview before the user commits
+    // the final selection. A later SessionStart must be allowed to rebind.
+    const previewStart = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${prepared.launch.env.CHOPSTICKS_HOOK_TOKEN}`,
+      },
+      body: JSON.stringify({ session_id: previewId, cwd: '/preview', hook_event_name: 'SessionStart' }),
+    });
+    expect(previewStart.status).toBe(200);
+    expect(session.sessionId).toBe(previewId);
+
+    const preview = await fetch(prepared.launch.env.CHOPSTICKS_STATUSLINE_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${prepared.launch.env.CHOPSTICKS_HOOK_TOKEN}`,
+      },
+      body: JSON.stringify({
+        session_id: previewId,
+        model: { id: 'claude-fable-5', display_name: 'Fable 5' },
+        context_window: { context_window_size: 1_000_000, current_usage: {}, used_percentage: 13 },
+      }),
+    });
+    expect(preview.status).toBe(200);
+    expect(session.sessionId).toBe(previewId);
+
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
@@ -337,6 +366,35 @@ describe('createClaudeSession (full loop, test-as-Claude)', () => {
     expect(response.status).toBe(200);
     expect(session.sessionId).toBe(selectedId);
     expect(session.state().lifecycle).toBe('ready');
+
+    const selectedStatus = await fetch(prepared.launch.env.CHOPSTICKS_STATUSLINE_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${prepared.launch.env.CHOPSTICKS_HOOK_TOKEN}`,
+      },
+      body: JSON.stringify({
+        session_id: selectedId,
+        model: { id: 'claude-haiku-4-5-20251001', display_name: 'Haiku 4.5' },
+        context_window: { context_window_size: 200_000, current_usage: {}, used_percentage: 16 },
+      }),
+    });
+    expect(selectedStatus.status).toBe(200);
+    expect(session.state().environment.model?.value).toMatchObject({
+      id: 'claude-haiku-4-5-20251001',
+      displayName: 'Haiku 4.5',
+    });
+    expect(session.state().contextWindow?.usedPercent).toBe(16);
+
+    const stalePreview = await fetch(prepared.launch.env.CHOPSTICKS_STATUSLINE_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${prepared.launch.env.CHOPSTICKS_HOOK_TOKEN}`,
+      },
+      body: JSON.stringify({ session_id: previewId }),
+    });
+    expect(stalePreview.status).toBe(403);
     await session.dispose();
   });
 });

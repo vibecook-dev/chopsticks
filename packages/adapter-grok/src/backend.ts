@@ -238,6 +238,19 @@ export function createPendingControlSession(
       return undefined;
     }
     control = acp;
+    const controlEnvironment = acp.state().environment;
+    if (controlEnvironment.currentCwd || controlEnvironment.model) {
+      applyObserved({
+        event: {
+          type: 'session.environment.updated',
+          ...(controlEnvironment.currentCwd ? { currentCwd: controlEnvironment.currentCwd.value } : {}),
+          ...(controlEnvironment.model ? { model: controlEnvironment.model.value } : {}),
+        },
+        source: 'native-protocol',
+        confidence: 'authoritative',
+        nativeEvent: { code: 'grok-control-environment-bootstrap' },
+      });
+    }
     applyObserved({
       event: { type: 'session.ready' },
       source: 'runtime',
@@ -252,6 +265,7 @@ export function createPendingControlSession(
         'permission.resolved',
         'context-window.updated',
         'context-window.invalidated',
+        'session.environment.updated',
       ];
       if (observer && !allowedWithObserver.includes(envelope.event.type)) return;
       if (envelope.event.type.startsWith('context-window.')) protocolContextAvailable = true;

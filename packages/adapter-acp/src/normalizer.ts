@@ -38,11 +38,28 @@
  * session.
  */
 
-import type { AgentEvent, ToolActivityKind, ToolPresentation } from '@vibecook/chopsticks-core';
-import type { ContentBlock, SessionNotification, SessionUpdate } from '@agentclientprotocol/sdk';
+import type { AgentEvent, AgentModelIdentity, ToolActivityKind, ToolPresentation } from '@vibecook/chopsticks-core';
+import type { ContentBlock, SessionConfigOption, SessionNotification, SessionUpdate } from '@agentclientprotocol/sdk';
 
 export interface NormalizedUpdate {
   events: AgentEvent[];
+}
+
+/** Resolve the active model from ACP's standard model config selector. */
+export function acpModelIdentity(
+  configOptions: readonly SessionConfigOption[] | null | undefined,
+): AgentModelIdentity | undefined {
+  const config = configOptions?.find(
+    (option) =>
+      option.type === 'select' &&
+      (option.category === 'model' ||
+        option.id.toLowerCase().includes('model') ||
+        option.name.toLowerCase() === 'model'),
+  );
+  if (!config || config.type !== 'select' || !config.currentValue) return undefined;
+  const choices = config.options.flatMap((option) => ('options' in option ? option.options : [option]));
+  const selected = choices.find((option) => option.value === config.currentValue);
+  return { id: config.currentValue, ...(selected?.name ? { displayName: selected.name } : {}) };
 }
 
 /** Text of a single ACP content block (only `text` blocks carry prose). */
@@ -167,9 +184,16 @@ export class AcpNotificationNormalizer {
         });
         break;
 
+      case 'config_option_update': {
+        const model = acpModelIdentity(update.configOptions);
+        if (model) events.push({ type: 'session.environment.updated', model });
+        else events.push({ type: 'adapter.native-event', adapter: 'acp', nativeType: kind });
+        break;
+      }
+
       default:
         // plan / plan_update / plan_removed / available_commands_update /
-        // current_mode_update / config_option_update / session_info_update /
+        // current_mode_update / session_info_update /
         // any future kind — retained, semantics not invented.
         events.push({ type: 'adapter.native-event', adapter: 'acp', nativeType: kind });
         break;

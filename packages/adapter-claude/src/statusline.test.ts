@@ -2,7 +2,23 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { claudeContextWindowEvent, resolveClaudeStatusLine } from './statusline.js';
+import { claudeContextWindowEvent, claudeEnvironmentEvent, resolveClaudeStatusLine } from './statusline.js';
+
+describe('claudeEnvironmentEvent', () => {
+  it('extracts the live workspace cwd and human-facing model card', () => {
+    expect(
+      claudeEnvironmentEvent({
+        cwd: '/old',
+        workspace: { current_dir: '/repo/packages/app' },
+        model: { id: 'claude-opus-4-6', display_name: 'Opus 4.6' },
+      }),
+    ).toEqual({
+      type: 'session.environment.updated',
+      currentCwd: '/repo/packages/app',
+      model: { id: 'claude-opus-4-6', displayName: 'Opus 4.6', provider: 'anthropic' },
+    });
+  });
+});
 
 describe('claudeContextWindowEvent', () => {
   it('uses Claude input + cache usage and excludes output tokens', () => {
@@ -31,6 +47,39 @@ describe('claudeContextWindowEvent', () => {
     expect(claudeContextWindowEvent({ context_window: { context_window_size: 200_000, current_usage: null } })).toEqual(
       { type: 'context-window.invalidated', reason: 'provider-reset' },
     );
+  });
+
+  it("reports an explicit empty context before a fresh session's first API response", () => {
+    expect(
+      claudeContextWindowEvent({
+        model: { id: 'claude-haiku-4-5-20251001' },
+        context_window: {
+          total_input_tokens: 0,
+          context_window_size: 200_000,
+          current_usage: null,
+          used_percentage: null,
+        },
+      }),
+    ).toEqual({
+      type: 'context-window.updated',
+      usedTokens: 0,
+      capacityTokens: 200_000,
+      modelId: 'claude-haiku-4-5-20251001',
+    });
+  });
+
+  it("uses Claude's pre-calculated percentage when the token breakdown is omitted", () => {
+    expect(
+      claudeContextWindowEvent({
+        model: { id: 'claude-fable-5' },
+        context_window: { context_window_size: 1_000_000, current_usage: {}, used_percentage: 13 },
+      }),
+    ).toEqual({
+      type: 'context-window.updated',
+      usedTokens: 130_000,
+      capacityTokens: 1_000_000,
+      modelId: 'claude-fable-5',
+    });
   });
 });
 

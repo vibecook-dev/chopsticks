@@ -44,9 +44,10 @@ import type {
   PromptResponse,
   RequestPermissionRequest,
   RequestPermissionResponse,
+  SessionConfigOption,
   SessionNotification,
 } from '@agentclientprotocol/sdk';
-import { AcpNotificationNormalizer } from './normalizer.js';
+import { AcpNotificationNormalizer, acpModelIdentity } from './normalizer.js';
 import type { AcpConnector } from './connection.js';
 
 export type AcpApprovalDecision = 'approved' | 'denied';
@@ -71,6 +72,8 @@ export interface CreateAcpSessionOptions {
    * that wants the agent to act must supply a policy.
    */
   onApproval?: (req: AcpApprovalRequest) => AcpApprovalDecision | Promise<AcpApprovalDecision>;
+  /** Agent-specific ACP extension notifications that have stable semantics. */
+  onExtensionNotification?: (method: string, params: Record<string, unknown>) => readonly AgentEvent[];
 }
 
 /** No adapter-specific extras yet; the shared contract is the whole surface. */
@@ -144,10 +147,22 @@ export async function createAcpSession(options: CreateAcpSessionOptions): Promis
         // Track the running assistant text so turn.completed can seal
         // lastAssistantMessage (ACP has no per-message `final` marker).
         if (event.type === 'assistant.message') turnAssistantText = event.text;
-        apply(event, event.type === 'context-window.updated' ? 'native-protocol' : 'native-hook', {
-          nativeEvent: params,
-        });
+        apply(
+          event,
+          event.type.startsWith('context-window.') || event.type === 'session.environment.updated'
+            ? 'native-protocol'
+            : 'native-hook',
+          {
+            nativeEvent: params,
+          },
+        );
       }
+    },
+    extNotification(method, params): void {
+      const events = options.onExtensionNotification?.(method, params) ?? [
+        { type: 'adapter.native-event', adapter: 'acp', nativeType: method } as const,
+      ];
+      for (const event of events) apply(event, 'native-protocol', { nativeEvent: { method, params } });
     },
     async requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
       const requestId = params.toolCall.toolCallId;
@@ -200,6 +215,7 @@ export async function createAcpSession(options: CreateAcpSessionOptions): Promis
     clientCapabilities: options.clientCapabilities ?? { fs: { readTextFile: false, writeTextFile: false } },
   });
 
+  let configOptions: readonly SessionConfigOption[] | null | undefined;
   if (options.resume) {
     // `loadSession` is optional in ACP (advertised via capability). Resume works
     // only against agents that support it — surface that plainly rather than
@@ -210,7 +226,8 @@ export async function createAcpSession(options: CreateAcpSessionOptions): Promis
     }
     sessionId = options.resume;
     try {
-      await conn.agent.loadSession({ sessionId: options.resume, cwd: options.cwd, mcpServers: [] });
+      const response = await conn.agent.loadSession({ sessionId: options.resume, cwd: options.cwd, mcpServers: [] });
+      configOptions = response?.configOptions;
     } catch (err) {
       // Close the transport so a caller retrying resume (e.g. attaching to a
       // session another client is still registering) doesn't leak a subprocess.
@@ -220,8 +237,15 @@ export async function createAcpSession(options: CreateAcpSessionOptions): Promis
   } else {
     const res = await conn.agent.newSession({ cwd: options.cwd, mcpServers: [] });
     sessionId = res.sessionId;
+    configOptions = res.configOptions;
   }
 
+  const model = acpModelIdentity(configOptions);
+  apply(
+    { type: 'session.environment.updated', currentCwd: options.cwd, ...(model ? { model } : {}) },
+    'native-protocol',
+    { nativeEvent: { bootstrap: options.resume ? 'session/load' : 'session/new', configOptions } },
+  );
   apply({ type: 'session.started', nativeSessionId: sessionId }, 'native-hook');
 
   return {

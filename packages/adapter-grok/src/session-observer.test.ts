@@ -230,4 +230,33 @@ describe('createGrokSessionObserver', () => {
       { type: 'context-window.invalidated', reason: 'compacted' },
     ]);
   });
+
+  it('reads authoritative cwd and current model from summary.json and deduplicates them', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'chopsticks-grok-summary-'));
+    temporaryDirectories.push(directory);
+    const updatesPath = join(directory, 'updates.jsonl');
+    const summaryPath = join(directory, 'summary.json');
+    await writeFile(updatesPath, '');
+    await writeFile(summaryPath, JSON.stringify({ info: { cwd: '/repo' }, current_model_id: 'grok-4.5' }));
+
+    const observer = createGrokSessionObserver(updatesPath, { pollIntervalMs: 60_000, summaryPath });
+    const received: GrokObservedEvent[] = [];
+    observer.onEvent((event) => received.push(event));
+    await observer.poll();
+    await observer.poll();
+    observer.stop();
+
+    expect(received).toEqual([
+      {
+        event: {
+          type: 'session.environment.updated',
+          currentCwd: '/repo',
+          model: { id: 'grok-4.5', provider: 'xai' },
+        },
+        source: 'native-log',
+        confidence: 'authoritative',
+        nativeEvent: { info: { cwd: '/repo' }, current_model_id: 'grok-4.5' },
+      },
+    ]);
+  });
 });
