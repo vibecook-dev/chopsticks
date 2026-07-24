@@ -304,6 +304,11 @@ const accountUsageMonitor = createAccountUsageMonitor({
   },
   onError: (error) => process.stderr.write(`[main] account usage: ${error.message}\n`),
 });
+agentRuntime.onAccountUsage((agent, result) => {
+  if (quitting) return;
+  if (agent !== 'claude' && agent !== 'codex' && agent !== 'grok') return;
+  accountUsageMonitor.ingest(agent, result);
+});
 agentRuntime.onEvent((runtimeSessionId) => {
   const runtimeInfo = agentRuntime.sessionInfo(runtimeSessionId);
   const record = agentRecords.get(runtimeSessionId);

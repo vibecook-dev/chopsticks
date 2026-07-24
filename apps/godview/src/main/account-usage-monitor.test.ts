@@ -133,4 +133,51 @@ describe('createAccountUsageMonitor', () => {
     await monitor.refresh();
     expect(fetchUsage.mock.calls.map(([agent]) => agent)).toEqual(['claude', 'codex', 'grok']);
   });
+
+  it('ingests status-line Claude usage and defers OAuth polling', async () => {
+    let nowMs = Date.parse('2026-07-23T20:00:00.000Z');
+    const fetchUsage = vi.fn(async (agent: 'claude' | 'codex' | 'grok') => available(agent));
+    const publish = vi.fn();
+    const monitor = createAccountUsageMonitor({
+      fetchUsage,
+      publish,
+      refreshMs: 1_000,
+      now: () => new Date(nowMs),
+    });
+
+    await monitor.refresh();
+    fetchUsage.mockClear();
+    publish.mockClear();
+
+    const statusLine: AccountUsageFetchResult = {
+      status: 'available',
+      snapshot: {
+        provider: 'claude',
+        fetchedAt: '2026-07-23T20:00:30.000Z',
+        scope: 'subscription',
+        source: { kind: 'native-statusline', stability: 'documented' },
+        limits: [
+          {
+            id: 'claude-subscription',
+            windows: [{ id: 'five_hour', label: '5-hour', durationMinutes: 300, usedPercent: 12 }],
+          },
+        ],
+      },
+    };
+
+    nowMs = Date.parse('2026-07-23T20:00:30.000Z');
+    const batch = monitor.ingest('claude', statusLine);
+    expect(batch.entries.find((entry) => entry.agent === 'claude')?.result).toEqual(statusLine);
+    expect(publish).toHaveBeenCalledOnce();
+
+    fetchUsage.mockClear();
+    nowMs = Date.parse('2026-07-23T20:10:00.000Z');
+    await monitor.refresh();
+    expect(fetchUsage.mock.calls.map(([agent]) => agent)).toEqual(['codex', 'grok']);
+
+    fetchUsage.mockClear();
+    nowMs = Date.parse('2026-07-23T20:30:30.000Z');
+    await monitor.refresh();
+    expect(fetchUsage.mock.calls.map(([agent]) => agent)).toEqual(['claude', 'codex', 'grok']);
+  });
 });

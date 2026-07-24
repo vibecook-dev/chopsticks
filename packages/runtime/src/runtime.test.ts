@@ -9,6 +9,7 @@ import {
   createEnvelopeStamper,
   createInitialSessionState,
   reduceSessionState,
+  type AccountUsageFetchResult,
   type AgentEventEnvelope,
   type AgentHost,
   type AgentSession,
@@ -209,6 +210,52 @@ describe('createAgentRuntime', () => {
       retryable: true,
     });
     expect(JSON.stringify(failed)).not.toContain('native secret detail');
+    await runtime.dispose();
+  });
+
+  it('forwards provider push account-usage updates', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'chopsticks-runtime-usage-push-'));
+    const handles = new Map<string, { emit: (event: AgentEventEnvelope) => void }>();
+    const provider = fakeProvider('claude', handles);
+    const pushListeners = new Set<(result: AccountUsageFetchResult) => void>();
+    provider.onAccountUsage = (listener) => {
+      pushListeners.add(listener);
+      return () => pushListeners.delete(listener);
+    };
+    const runtime = createAgentRuntime({ host, defaultCwd: root, providers: [provider] });
+    const seen: Array<{ agent: string; status: string }> = [];
+    const unsubscribe = runtime.onAccountUsage((agent, result) => {
+      seen.push({ agent, status: result.status });
+    });
+
+    for (const listener of pushListeners) {
+      listener({
+        status: 'available',
+        snapshot: {
+          provider: 'claude',
+          fetchedAt: '2026-07-23T12:00:00.000Z',
+          scope: 'subscription',
+          source: { kind: 'native-statusline', stability: 'documented' },
+          limits: [],
+        },
+      });
+    }
+    expect(seen).toEqual([{ agent: 'claude', status: 'available' }]);
+
+    unsubscribe();
+    for (const listener of pushListeners) {
+      listener({
+        status: 'available',
+        snapshot: {
+          provider: 'claude',
+          fetchedAt: '2026-07-23T12:01:00.000Z',
+          scope: 'subscription',
+          source: { kind: 'native-statusline', stability: 'documented' },
+          limits: [],
+        },
+      });
+    }
+    expect(seen).toHaveLength(1);
     await runtime.dispose();
   });
 

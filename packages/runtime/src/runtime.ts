@@ -126,6 +126,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
   const preparationCleanups = new Map<string, Promise<void>>();
   const claims = new Map<string, Map<symbol, 'direct' | 'exclusive'>>();
   const listeners = new Set<(runtimeSessionId: string, envelope: AgentEventEnvelope) => void>();
+  const accountUsageListeners = new Set<(agent: string, result: AccountUsageFetchResult) => void>();
   const accountUsageInflight = new Map<string, Promise<AccountUsageFetchResult>>();
   const preparationTtlMs = options.preparationTtlMs ?? 30_000;
   if (!Number.isFinite(preparationTtlMs) || preparationTtlMs <= 0) {
@@ -134,6 +135,22 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
   let disposed = false;
 
   const report = (err: unknown): void => options.onError?.(err instanceof Error ? err : new Error(String(err)));
+
+  const providerAccountUsageUnsubs = [...providers.values()]
+    .map((provider) => {
+      if (!provider.onAccountUsage) return undefined;
+      return provider.onAccountUsage((result) => {
+        if (disposed) return;
+        for (const listener of accountUsageListeners) {
+          try {
+            listener(provider.kind, result);
+          } catch (error) {
+            report(error);
+          }
+        }
+      });
+    })
+    .filter((unsubscribe): unsubscribe is () => void => unsubscribe !== undefined);
 
   function rememberTombstone(preparationId: string, tombstone: PreparationTombstone): void {
     preparationTombstones.set(preparationId, tombstone);
@@ -678,6 +695,11 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       return () => listeners.delete(listener);
     },
 
+    onAccountUsage(listener) {
+      accountUsageListeners.add(listener);
+      return () => accountUsageListeners.delete(listener);
+    },
+
     async submitPrompt(runtimeSessionId, submission): Promise<PromptReceipt> {
       const managed = sessions.get(runtimeSessionId);
       if (!managed) return { status: 'rejected', reason: 'agent session not found' };
@@ -716,8 +738,16 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
           .map((preparation) => destroyUnusedPreparation(preparation, 'cancelled')),
       );
       const finals = await Promise.all([...sessions.values()].map((managed) => closeManaged(managed)));
+      for (const unsubscribe of providerAccountUsageUnsubs) {
+        try {
+          unsubscribe();
+        } catch (error) {
+          report(error);
+        }
+      }
       await Promise.all([...providers.values()].map((provider) => Promise.resolve(provider.dispose?.()).catch(report)));
       listeners.clear();
+      accountUsageListeners.clear();
       return finals.filter((value): value is AgentWorkspaceFinal => value !== undefined);
     },
   };

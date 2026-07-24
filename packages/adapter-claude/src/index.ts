@@ -15,9 +15,15 @@ export * from './transcript-observer.js';
 export * from './statusline.js';
 export {
   CLAUDE_OAUTH_BETA,
+  CLAUDE_OAUTH_CLIENT_ID,
+  CLAUDE_OAUTH_TOKEN_ENDPOINT,
   CLAUDE_USAGE_ENDPOINT,
+  claudeAccountUsageFromStatusLine,
   fetchClaudeAccountUsage,
+  getClaudeStatusLineAccountUsage,
   normalizeClaudeAccountUsage,
+  observeClaudeStatusLineAccountUsage,
+  onClaudeAccountUsage,
   type FetchClaudeAccountUsageOptions,
 } from './account-usage.js';
 export * from './prompt.js';

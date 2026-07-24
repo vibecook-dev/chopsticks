@@ -2,6 +2,7 @@ import { createAcpSession, type AcpConnector } from '@vibecook/chopsticks-adapte
 import {
   createClaudeSession,
   fetchClaudeAccountUsage,
+  onClaudeAccountUsage,
   prepareClaudeTuiSession,
 } from '@vibecook/chopsticks-adapter-claude';
 import {
@@ -42,6 +43,7 @@ export function createBuiltinProviders(options: BuiltinProviderOptions = {}): Ag
     {
       kind: 'claude',
       fetchAccountUsage: () => fetchClaudeAccountUsage(),
+      onAccountUsage: (listener) => onClaudeAccountUsage(listener),
       createSession: ({ cwd, resume, title, host, agentOptions }) => {
         const launch = agentOptions as ClaudeAgentOptions | undefined;
         return createClaudeSession({

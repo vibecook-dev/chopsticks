@@ -69,6 +69,11 @@ export interface AgentProvider {
   createSession(options: AgentProviderSessionOptions): Promise<AgentSession>;
   /** Fetch account-wide subscription/API quota state, independent of any session. */
   fetchAccountUsage?(): Promise<AccountUsageFetchResult>;
+  /**
+   * Optional push channel for live account-usage updates that do not require polling
+   * (e.g. Claude status-line rate_limits). Returns an unsubscribe function.
+   */
+  onAccountUsage?(listener: (result: AccountUsageFetchResult) => void): () => void;
   /** Optional split-phase launch for caller-owned terminals. Generic ACP intentionally omits this capability. */
   prepareSession?(options: AgentProviderSessionOptions): Promise<PreparedProviderSession>;
   dispose?(): void | Promise<void>;
@@ -203,6 +208,11 @@ export interface AgentRuntime {
   observationLevel(runtimeSessionId: string): ObservationLevel | undefined;
   conversationSnapshot(runtimeSessionId: string): AgentConversationSnapshot | undefined;
   onEvent(listener: (runtimeSessionId: string, envelope: AgentEventEnvelope) => void): () => void;
+  /**
+   * Subscribe to push-style account-usage updates from providers that support them.
+   * Independent of session events; account quotas are usually process-global.
+   */
+  onAccountUsage(listener: (agent: string, result: AccountUsageFetchResult) => void): () => void;
   submitPrompt(runtimeSessionId: string, submission: PromptSubmission): Promise<PromptReceipt>;
   workspaceDiff(runtimeSessionId: string): Promise<WorkspaceDiff | null>;
   handleProcessExit(runtimeSessionId: string, exit: AgentProcessExit): Promise<AgentWorkspaceFinal | undefined>;

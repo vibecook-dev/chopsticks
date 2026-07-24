@@ -6,6 +6,7 @@ const adapters = vi.hoisted(() => ({
   createAcpSession: vi.fn(),
   createClaudeSession: vi.fn(),
   fetchClaudeAccountUsage: vi.fn(),
+  onClaudeAccountUsage: vi.fn(() => () => undefined),
   prepareClaudeTuiSession: vi.fn(),
   createCodexTuiSession: vi.fn(),
   fetchCodexAccountUsage: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock('@vibecook/chopsticks-adapter-acp', () => ({
 vi.mock('@vibecook/chopsticks-adapter-claude', () => ({
   createClaudeSession: adapters.createClaudeSession,
   fetchClaudeAccountUsage: adapters.fetchClaudeAccountUsage,
+  onClaudeAccountUsage: adapters.onClaudeAccountUsage,
   prepareClaudeTuiSession: adapters.prepareClaudeTuiSession,
 }));
 
@@ -148,6 +150,9 @@ describe('createBuiltinProviders launch options', () => {
     expect(adapters.fetchCodexAccountUsage).toHaveBeenCalledWith({ executable: '/opt/codex' });
     expect(adapters.fetchGrokAccountUsage).toHaveBeenCalledWith();
     expect(acp.fetchAccountUsage).toBeUndefined();
+    expect(claude.onAccountUsage).toEqual(expect.any(Function));
+    expect(codex.onAccountUsage).toBeUndefined();
+    expect(acp.onAccountUsage).toBeUndefined();
   });
 
   it('forwards Codex safety posture to the native-TUI thread bootstrap', async () => {

@@ -1,18 +1,26 @@
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   CLAUDE_OAUTH_BETA,
   CLAUDE_USAGE_ENDPOINT,
+  claudeAccountUsageFromStatusLine,
   fetchClaudeAccountUsageWithDependencies,
   findClaudeAccessToken,
+  getClaudeStatusLineAccountUsage,
   normalizeClaudeAccountUsage,
+  observeClaudeStatusLineAccountUsage,
+  onClaudeAccountUsage,
+  resetClaudeAccountUsageObserversForTests,
   resolveClaudeAccessToken,
 } from './account-usage.js';
 import * as publicApi from './index.js';
 
 describe('Claude account usage', () => {
+  afterEach(() => {
+    resetClaudeAccountUsageObserversForTests();
+  });
   it('finds tokens in current and fallback credential layouts', () => {
     expect(findClaudeAccessToken({ claudeAiOauth: { accessToken: ' current-token ' } })).toBe('current-token');
     expect(findClaudeAccessToken({ nested: { access_token: 'fallback-token' } })).toBe('fallback-token');
@@ -267,5 +275,143 @@ describe('Claude account usage', () => {
       message: 'Claude returned no recognized account usage limits',
       retryable: true,
     });
+  });
+
+  it('parses official status-line rate_limits without OAuth', () => {
+    const result = claudeAccountUsageFromStatusLine(
+      {
+        model: { id: 'claude-opus-4-8' },
+        rate_limits: {
+          five_hour: { used_percentage: 23.5, resets_at: 1_800_000_000 },
+          seven_day: { used_percentage: 41.2, resets_at: '2027-01-22T08:00:00Z' },
+        },
+      },
+      '2026-07-23T18:00:00.000Z',
+    );
+
+    expect(result).toMatchObject({
+      status: 'available',
+      snapshot: {
+        provider: 'claude',
+        fetchedAt: '2026-07-23T18:00:00.000Z',
+        scope: 'subscription',
+        source: { kind: 'native-statusline', stability: 'documented' },
+        limits: [
+          {
+            id: 'claude-subscription',
+            windows: [
+              {
+                id: 'five_hour',
+                label: '5-hour',
+                durationMinutes: 300,
+                usedPercent: 23.5,
+                resetsAt: '2027-01-15T08:00:00.000Z',
+              },
+              {
+                id: 'seven_day',
+                label: '7-day',
+                durationMinutes: 10_080,
+                usedPercent: 41.2,
+                resetsAt: '2027-01-22T08:00:00.000Z',
+              },
+            ],
+          },
+        ],
+      },
+    });
+    expect(claudeAccountUsageFromStatusLine({ context_window: { used_percentage: 10 } })).toBeUndefined();
+  });
+
+  it('notifies process-global status-line usage observers', () => {
+    const listener = vi.fn();
+    const unsubscribe = onClaudeAccountUsage(listener);
+
+    const first = observeClaudeStatusLineAccountUsage(
+      {
+        rate_limits: {
+          five_hour: { used_percentage: 10, resets_at: 1_800_000_000 },
+        },
+      },
+      '2026-07-23T18:00:00.000Z',
+    );
+    expect(first?.status).toBe('available');
+    expect(listener).toHaveBeenCalledOnce();
+    expect(getClaudeStatusLineAccountUsage()).toBe(first);
+
+    unsubscribe();
+    observeClaudeStatusLineAccountUsage(
+      {
+        rate_limits: {
+          five_hour: { used_percentage: 20, resets_at: 1_800_000_000 },
+        },
+      },
+      '2026-07-23T18:01:00.000Z',
+    );
+    expect(listener).toHaveBeenCalledOnce();
+    expect(getClaudeStatusLineAccountUsage()?.snapshot.limits[0]?.windows[0]?.usedPercent).toBe(20);
+  });
+
+  it('refreshes an expired OAuth access token and persists the rotated credentials', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'chopsticks-claude-refresh-'));
+    const credentialsPath = join(directory, '.credentials.json');
+    const writes: string[] = [];
+    await writeFile(
+      credentialsPath,
+      JSON.stringify({
+        claudeAiOauth: {
+          accessToken: 'expired-access',
+          refreshToken: 'refresh-token',
+          expiresAt: Date.parse('2026-07-01T00:00:00.000Z'),
+        },
+      }),
+      'utf8',
+    );
+
+    const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const href = String(url);
+      if (href.includes('/v1/oauth/token')) {
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          grant_type: 'refresh_token',
+          client_id: '9d1c250a-e61b-44d9-88ed-5944d1962f5e',
+          refresh_token: 'refresh-token',
+        });
+        return new Response(
+          JSON.stringify({
+            access_token: 'fresh-access',
+            refresh_token: 'fresh-refresh',
+            expires_in: 3_600,
+            refresh_token_expires_in: 86_400,
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      expect(href).toContain('/api/oauth/usage');
+      expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer fresh-access');
+      return new Response(
+        JSON.stringify({
+          five_hour: { utilization: 11, resets_at: 1_800_000_000 },
+          seven_day: { utilization: 22, resets_at: 1_800_604_800 },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }) as typeof fetch;
+
+    const result = await fetchClaudeAccountUsageWithDependencies({
+      credentialsPath,
+      useKeychain: false,
+      fetchImpl,
+      now: () => new Date('2026-07-23T20:00:00.000Z'),
+      writeCredentialsFile: async (_path, payload) => {
+        writes.push(payload);
+        await writeFile(credentialsPath, payload, 'utf8');
+      },
+    });
+
+    expect(result.status).toBe('available');
+    expect(writes).toHaveLength(1);
+    const persisted = JSON.parse(writes[0]!);
+    expect(persisted.claudeAiOauth.accessToken).toBe('fresh-access');
+    expect(persisted.claudeAiOauth.refreshToken).toBe('fresh-refresh');
+    expect(persisted.claudeAiOauth.expiresAt).toBe(Date.parse('2026-07-23T21:00:00.000Z'));
   });
 });

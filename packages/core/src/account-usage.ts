@@ -10,7 +10,7 @@ export type AccountUsageScope = 'subscription' | 'api' | 'workspace' | 'unknown'
 
 export interface AccountUsageSource {
   /** How the adapter obtained the snapshot without exposing credentials. */
-  kind: 'native-protocol' | 'oauth-endpoint';
+  kind: 'native-protocol' | 'native-statusline' | 'oauth-endpoint';
   /** Whether the provider publicly documents this integration surface. */
   stability: 'documented' | 'experimental';
 }

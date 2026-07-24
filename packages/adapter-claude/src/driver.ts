@@ -43,6 +43,7 @@ import {
   type TranscriptObserver,
   type TranscriptRecordEvent,
 } from './transcript-observer.js';
+import { observeClaudeStatusLineAccountUsage } from './account-usage.js';
 import { claudeContextWindowEvent, claudeEnvironmentEvent } from './statusline.js';
 
 const TOKEN_ENV_VAR = 'CHOPSTICKS_HOOK_TOKEN';
@@ -333,6 +334,9 @@ function createPreparedClaudeSession(
   });
 
   bridge.onStatusLine((statusEnvelope) => {
+    // Account usage is process-global (subscription quota), not session state.
+    observeClaudeStatusLineAccountUsage(statusEnvelope.body, statusEnvelope.receivedAt);
+
     const environment = claudeEnvironmentEvent(statusEnvelope.body);
     if (environment) {
       const current = state.environment;
