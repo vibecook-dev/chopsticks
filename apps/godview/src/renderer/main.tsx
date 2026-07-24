@@ -239,6 +239,24 @@ function Godview() {
     () => new Map(agents.map((agent) => [agent.info.session.id, agent] as const)),
     [agents],
   );
+  useEffect(() => {
+    if (agentsBySession.size === 0) return;
+    setUnassignedAgents((current) => {
+      const next = current.filter((agent) => !agentsBySession.has(agent.session.id));
+      return next.length === current.length ? current : next;
+    });
+  }, [agentsBySession]);
+  useEffect(() => {
+    const forgetExitedSession = (event: Event): void => {
+      const sessionId = (event as CustomEvent<{ sessionId: string }>).detail.sessionId;
+      setUnassignedAgents((current) => {
+        const next = current.filter((agent) => agent.session.id !== sessionId);
+        return next.length === current.length ? current : next;
+      });
+    };
+    terminalRuntime.addEventListener('session-exited', forgetExitedSession);
+    return () => terminalRuntime.removeEventListener('session-exited', forgetExitedSession);
+  }, []);
   const workspaceSessionsById = useMemo(
     () => new Map((workspace?.sessions ?? []).map((session) => [session.id, session] as const)),
     [workspace?.sessions],
