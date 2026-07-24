@@ -1,7 +1,9 @@
+import type { SessionActivity } from '@vibecook/ghosttea-protocol';
 import type { AgentSessionInfo, AgentStateMessage } from '../protocol.js';
 import { folderName } from './folder-name.js';
 
 export type AgentVisualStatus = 'idle' | 'working' | 'waiting';
+export type AgentBubbleVisualState = AgentVisualStatus | 'ignited';
 
 export interface LiveAgentView {
   id: string;
@@ -33,6 +35,23 @@ export function classifyAgentStatus(message?: AgentStateMessage): AgentVisualSta
     return 'working';
   }
   return 'idle';
+}
+
+export function classifyTerminalStatus(
+  activity: Pick<SessionActivity, 'kind'> | undefined,
+): Exclude<AgentVisualStatus, 'waiting'> {
+  return activity?.kind === 'foreground-job' ? 'working' : 'idle';
+}
+
+export function agentBubbleVisualState(status: AgentVisualStatus): AgentBubbleVisualState {
+  switch (status) {
+    case 'idle':
+      return 'working';
+    case 'working':
+      return 'ignited';
+    case 'waiting':
+      return 'waiting';
+  }
 }
 
 export function projectLabel(info: AgentSessionInfo, currentCwd?: string): string {

@@ -24,7 +24,7 @@ import {
 } from '@vibecook/ghosttea-react/workspace';
 import { AgentSwarm, useLiveAgentViews, type AgentBubbleView, type UnassignedAgentView } from './AgentSwarm.js';
 import { TweakPanel } from './TweakPanel.js';
-import { agentColor, nextAgentForStatus, type AgentVisualStatus } from './agent-status.js';
+import { agentColor, classifyTerminalStatus, nextAgentForStatus, type AgentVisualStatus } from './agent-status.js';
 import { folderName } from './folder-name.js';
 import { buildPaneAttachments } from './pane-attachments.js';
 import { paneBadgeLabel, paneSessionLaunchSource } from './pane-session.js';
@@ -239,9 +239,19 @@ function Godview() {
     () => new Map(agents.map((agent) => [agent.info.session.id, agent] as const)),
     [agents],
   );
+  const workspaceSessionsById = useMemo(
+    () => new Map((workspace?.sessions ?? []).map((session) => [session.id, session] as const)),
+    [workspace?.sessions],
+  );
   const agentBubbles = useMemo<readonly AgentBubbleView[]>(() => {
-    return [...agents, ...unassignedAgents.filter((agent) => !agentsBySession.has(agent.session.id))];
-  }, [agents, agentsBySession, unassignedAgents]);
+    const unassigned = unassignedAgents
+      .filter((agent) => !agentsBySession.has(agent.session.id))
+      .map((agent) => {
+        const session = workspaceSessionsById.get(agent.session.id) ?? agent.session;
+        return { ...agent, session, status: classifyTerminalStatus(session.activity) };
+      });
+    return [...agents, ...unassigned];
+  }, [agents, agentsBySession, unassignedAgents, workspaceSessionsById]);
   const paneAttachments = useMemo(
     () => buildPaneAttachments(workspace?.panes ?? [], paneColors, workspace?.activePaneId),
     [paneColors, workspace?.activePaneId, workspace?.panes],
@@ -271,6 +281,7 @@ function Godview() {
         cols: source.session.cols,
         rows: source.session.rows,
         persistence: 'terminate-with-app',
+        programKind: 'interactive-shell',
       });
     },
     [agentsBySession, platform.defaultShell, unassignedAgents],

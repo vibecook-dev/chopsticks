@@ -11,7 +11,13 @@ import type { SessionSummary } from '@vibecook/ghosttea-protocol';
 import type { AgentSessionInfo, AgentStateMessage } from '../protocol.js';
 import { AccountUsagePanel } from './AccountUsagePanel.js';
 import { AgentIcon } from './AgentIcon.js';
-import { liveAgentView, type LiveAgentView } from './agent-status.js';
+import {
+  agentBubbleVisualState,
+  liveAgentView,
+  type AgentBubbleVisualState,
+  type AgentVisualStatus,
+  type LiveAgentView,
+} from './agent-status.js';
 import type { PaneAttachment } from './pane-attachments.js';
 import { radiusForStatus, type SwarmParameters } from './swarm-parameters.js';
 
@@ -24,7 +30,7 @@ export interface UnassignedAgentView {
   id: string;
   session: SessionSummary;
   cwd?: string;
-  status: 'idle';
+  status: Exclude<AgentVisualStatus, 'waiting'>;
   project: string;
   provider: '';
   detail: string;
@@ -33,6 +39,27 @@ export interface UnassignedAgentView {
 }
 
 export type AgentBubbleView = LiveAgentView | UnassignedAgentView;
+
+interface IgnitionParticleStyle extends CSSProperties {
+  '--ignition-angle': string;
+  '--ignition-delay': string;
+  '--ignition-distance': string;
+  '--ignition-duration': string;
+  '--ignition-size': string;
+}
+
+function particleNoise(index: number, channel: number): number {
+  const value = Math.sin((index + 1) * 12.9898 + (channel + 1) * 78.233) * 43758.5453;
+  return value - Math.floor(value);
+}
+
+const IGNITION_PARTICLES: readonly IgnitionParticleStyle[] = Array.from({ length: 24 }, (_, index) => ({
+  '--ignition-angle': `${(particleNoise(index, 0) * 360).toFixed(2)}deg`,
+  '--ignition-delay': `${(-particleNoise(index, 1) * 2.2).toFixed(2)}s`,
+  '--ignition-distance': `${(24 + particleNoise(index, 2) * 34).toFixed(2)}px`,
+  '--ignition-duration': `${(1.05 + particleNoise(index, 3) * 1.35).toFixed(2)}s`,
+  '--ignition-size': `${(2 + particleNoise(index, 4) * 1.5).toFixed(2)}px`,
+}));
 
 export function useLiveAgentViews(): readonly LiveAgentView[] {
   const [records, setRecords] = useState(() => new Map<string, AgentRecord>());
@@ -207,6 +234,14 @@ function findSpawnPosition(
 
 function isLiveAgent(agent: AgentBubbleView): agent is LiveAgentView {
   return 'info' in agent;
+}
+
+function visualStateForBubble(agent: AgentBubbleView): AgentBubbleVisualState {
+  return isLiveAgent(agent) ? agentBubbleVisualState(agent.status) : agent.status;
+}
+
+function appearanceForVisualState(state: AgentBubbleVisualState): AgentVisualStatus {
+  return state === 'ignited' ? 'working' : state;
 }
 
 function clampSpawnPosition(width: number, height: number, radius: number, position: Matter.Vector): Matter.Vector {
@@ -393,7 +428,7 @@ export function AgentSwarm({
       spawnedIdsRef.current.delete(id);
     }
     for (const agent of agents) {
-      const targetRadius = radiusForStatus(parameters, agent.status);
+      const targetRadius = radiusForStatus(parameters, appearanceForVisualState(visualStateForBubble(agent)));
       const existing = bodiesRef.current.get(agent.id);
       if (existing) {
         existing.targetRadius = targetRadius;
@@ -491,6 +526,9 @@ export function AgentSwarm({
       ) : null}
       {agents.map((agent) => {
         const liveAgent = isLiveAgent(agent);
+        const visualState = visualStateForBubble(agent);
+        const appearance = appearanceForVisualState(visualState);
+        const ignited = visualState === 'ignited';
         const sessionId = liveAgent ? agent.info.session.id : agent.session.id;
         const attachment = paneAttachments.get(sessionId);
         const linkedColor = attachment?.primary;
@@ -503,7 +541,7 @@ export function AgentSwarm({
         return (
           <div
             key={agent.id}
-            className={`agent-bubble-positioner is-${agent.status}`}
+            className={`agent-bubble-positioner is-${appearance}`}
             ref={(element) => {
               if (element) {
                 elementRefs.current.set(agent.id, element);
@@ -519,13 +557,13 @@ export function AgentSwarm({
                 else bubbleRefs.current.delete(agent.id);
               }}
               type="button"
-              className={`agent-bubble is-${agent.status}${liveAgent ? '' : ' is-unassigned'}${linkedColor ? ' is-linked' : ''}${active ? ' is-active' : ''}`}
+              className={`agent-bubble is-${appearance}${ignited ? ' is-ignited' : ''}${liveAgent ? '' : ' is-unassigned'}${linkedColor ? ' is-linked' : ''}${active ? ' is-active' : ''}`}
               style={style}
               aria-current={active ? 'true' : undefined}
               aria-label={
                 liveAgent
                   ? `${agent.project}, ${agent.model ?? agent.provider}, ${agent.status}: ${agent.detail}, ${contextLabel}`
-                  : `${agent.project}, unassigned terminal`
+                  : `${agent.project}, unassigned terminal, ${agent.status}`
               }
               title={liveAgent ? `${agent.project} · ${agent.model ?? agent.provider} · ${agent.detail}` : agent.detail}
               onPointerDown={(event) => {
@@ -595,6 +633,16 @@ export function AgentSwarm({
                   style={{ height: `${contextWindow.usedPercent}%` }}
                   aria-hidden="true"
                 />
+              ) : null}
+              {ignited ? (
+                <span className="agent-bubble-ignition" aria-hidden="true">
+                  <i className="agent-bubble-core-glow" />
+                  <span className="agent-bubble-particles">
+                    {IGNITION_PARTICLES.map((particleStyle, index) => (
+                      <i className="agent-bubble-particle" key={index} style={particleStyle} />
+                    ))}
+                  </span>
+                </span>
               ) : null}
               {attachment?.mirrors.length ? (
                 <span className="agent-bubble-mirror-rings" aria-hidden="true">

@@ -780,8 +780,53 @@ kbd {
   transition: height 420ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+.agent-bubble-ignition,
+.agent-bubble-particles {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.agent-bubble-ignition {
+  z-index: 1;
+  overflow: hidden;
+}
+
+.agent-bubble-core-glow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 72%;
+  height: 72%;
+  border-radius: 50%;
+  background: var(--agent-color);
+  filter: blur(13px);
+  opacity: 0.12;
+  transform: translate(-50%, -50%) scale(0.35);
+  animation: agent-ignition-core 1.5s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.agent-bubble-particle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--ignition-size);
+  height: var(--ignition-size);
+  margin: -1.5px 0 0 -1.5px;
+  border-radius: 50%;
+  background: var(--agent-color);
+  box-shadow: 0 0 7px var(--agent-color);
+  opacity: 0;
+  animation: agent-ignition-particle var(--ignition-duration) cubic-bezier(0.2, 0.8, 0.2, 1) infinite
+    var(--ignition-delay);
+  will-change: transform, opacity;
+}
+
 .agent-bubble-glyph {
   position: absolute;
+  z-index: 1;
   top: 42%;
   left: 50%;
   color: currentColor;
@@ -800,6 +845,11 @@ kbd {
 .agent-bubble.is-working .agent-bubble-glyph,
 .agent-bubble.is-waiting .agent-bubble-glyph {
   opacity: 0.12;
+}
+
+.agent-bubble.is-ignited .agent-bubble-glyph {
+  animation: agent-ignition-glyph 1.5s ease-out infinite;
+  will-change: transform, opacity;
 }
 
 .agent-bubble-copy {
@@ -880,6 +930,44 @@ kbd {
   letter-spacing: 0.05em;
   opacity: 0.62;
   pointer-events: none;
+}
+
+@keyframes agent-ignition-core {
+  0%,
+  100% {
+    opacity: 0.1;
+    transform: translate(-50%, -50%) scale(0.35);
+  }
+  50% {
+    opacity: 0.44;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes agent-ignition-particle {
+  0% {
+    opacity: 0;
+    transform: rotate(var(--ignition-angle)) translateY(0) scale(0.65);
+  }
+  12% {
+    opacity: 0.95;
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(calc(var(--ignition-angle) + 20deg)) translateY(calc(0px - var(--ignition-distance))) scale(0);
+  }
+}
+
+@keyframes agent-ignition-glyph {
+  0%,
+  100% {
+    opacity: 0.08;
+    transform: translate(-50%, -50%) scale(0.92);
+  }
+  50% {
+    opacity: 0.24;
+    transform: translate(-50%, -50%) scale(1.08);
+  }
 }
 
 @keyframes agent-breathe {
@@ -1029,7 +1117,15 @@ kbd {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .agent-bubble {
+  .agent-bubble,
+  .agent-bubble-core-glow,
+  .agent-bubble-particle,
+  .agent-bubble.is-ignited .agent-bubble-glyph {
     animation: none !important;
+  }
+
+  .agent-bubble-core-glow {
+    opacity: 0.18;
+    transform: translate(-50%, -50%) scale(0.72);
   }
 }

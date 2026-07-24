@@ -266,6 +266,7 @@ const host: AgentHost = {
       cols: spec.cols ?? DEFAULT_COLS,
       rows: spec.rows ?? DEFAULT_ROWS,
       persistence: 'terminate-with-app',
+      programKind: 'application',
     });
     managedTerminalIds.add(session.id);
     return { runtimeSessionId: session.id };
@@ -858,6 +859,7 @@ async function runSmoke(): Promise<void> {
     cols: 80,
     rows: 24,
     persistence: 'terminate-with-app',
+    programKind: 'application',
   });
   const exited = await backend!.automation.waitForExit(session.id, 20_000);
   if (exited.exitCode !== 0) throw new Error(`smoke session exited ${exited.exitCode ?? exited.exitSignal}`);
@@ -876,6 +878,7 @@ async function runSpawnThroughSmoke(agent: BuiltinExecutableAgentKind): Promise<
     cols: 100,
     rows: 30,
     persistence: 'terminate-with-app',
+    programKind: 'interactive-shell',
   });
   const launchCommand = process.env.CHOPSTICKS_SPAWN_SMOKE_COMMAND ?? agent;
   const submitted = await backend!.automation.pasteAndSubmit(session.id, launchCommand);

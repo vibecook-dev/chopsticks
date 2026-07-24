@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { SessionSummary } from '@vibecook/ghosttea-protocol';
+import { unknownSessionActivity, type SessionSummary } from '@vibecook/ghosttea-protocol';
 import { matchingTerminalSession, parseSpawnThroughInvocation, prepareSpawnThroughLaunch } from './spawn-through.js';
 
 const shellSession = {
@@ -20,6 +20,7 @@ const shellSession = {
   requestedTermination: null,
   exitOutcome: null,
   ownerId: null,
+  activity: unknownSessionActivity(),
 } satisfies SessionSummary;
 
 describe('Workbench spawn-through', () => {

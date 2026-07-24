@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentSessionInfo, AgentStateMessage } from '../protocol.js';
 import {
+  agentBubbleVisualState,
   agentColor,
   bubbleRadius,
   classifyAgentStatus,
+  classifyTerminalStatus,
   liveAgentView,
   nextAgentForStatus,
   projectLabel,
@@ -43,6 +45,19 @@ describe('Godview agent presentation', () => {
     expect(classifyAgentStatus(state({ permissions: [{ requestId: 'approval' }] }))).toBe('waiting');
     expect(bubbleRadius('idle')).toBeLessThan(bubbleRadius('working'));
     expect(bubbleRadius('working')).toBeLessThan(bubbleRadius('waiting'));
+  });
+
+  it('uses foreground activity for unassigned terminals and keeps unknown activity on the idle fallback', () => {
+    expect(classifyTerminalStatus({ kind: 'shell-idle' })).toBe('idle');
+    expect(classifyTerminalStatus({ kind: 'foreground-job' })).toBe('working');
+    expect(classifyTerminalStatus({ kind: 'unknown' })).toBe('idle');
+    expect(classifyTerminalStatus(undefined)).toBe('idle');
+  });
+
+  it('presents idle agents with the working treatment and ignites agents that are actually working', () => {
+    expect(agentBubbleVisualState('idle')).toBe('working');
+    expect(agentBubbleVisualState('working')).toBe('ignited');
+    expect(agentBubbleVisualState('waiting')).toBe('waiting');
   });
 
   it('excludes exited sessions and labels live sessions from their workspace', () => {
