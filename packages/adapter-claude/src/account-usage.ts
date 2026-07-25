@@ -172,11 +172,7 @@ async function defaultKeychainPayload(
     }
     if (!document || !findClaudeAccessToken(document)) return;
     const expiresAt = findClaudeAccessTokenExpiresAt(document) ?? Number.NEGATIVE_INFINITY;
-    if (
-      !best ||
-      expiresAt > best.expiresAt ||
-      (expiresAt === best.expiresAt && rank < best.rank)
-    ) {
+    if (!best || expiresAt > best.expiresAt || (expiresAt === best.expiresAt && rank < best.rank)) {
       best = { payload, ...(account ? { account } : {}), expiresAt, rank };
     }
   };
@@ -252,9 +248,7 @@ function applyRefreshedTokens(
     accessToken: tokens.accessToken,
     expiresAt: tokens.expiresAt,
     ...(tokens.refreshToken ? { refreshToken: tokens.refreshToken } : {}),
-    ...(tokens.refreshTokenExpiresAt !== undefined
-      ? { refreshTokenExpiresAt: tokens.refreshTokenExpiresAt }
-      : {}),
+    ...(tokens.refreshTokenExpiresAt !== undefined ? { refreshTokenExpiresAt: tokens.refreshTokenExpiresAt } : {}),
   };
   if (rec(next.claudeAiOauth) || !rec(next.oauth)) next.claudeAiOauth = updated;
   else next.oauth = updated;
@@ -274,9 +268,11 @@ async function loadClaudeCredentialStore(options: ClaudeCredentialOptions): Prom
 
   if (!(options.useKeychain ?? process.platform === 'darwin')) return undefined;
   try {
-    const read = options.readKeychainPayload ?? ((() => defaultKeychainPayload(options.env ?? process.env)) as () => Promise<
-      string | { payload: string; account?: string }
-    >);
+    const read =
+      options.readKeychainPayload ??
+      ((() => defaultKeychainPayload(options.env ?? process.env)) as () => Promise<
+        string | { payload: string; account?: string }
+      >);
     const loaded = await read();
     const payload = typeof loaded === 'string' ? loaded : loaded.payload;
     const account = typeof loaded === 'string' ? undefined : loaded.account;
@@ -307,7 +303,10 @@ async function persistClaudeCredentialStore(
   if (options.writeKeychainPayload) {
     await options.writeKeychainPayload(payload, store.account);
   } else {
-    await defaultWriteKeychainPayload(payload, store.account ?? keychainAccountCandidates(options.env ?? process.env)[0] ?? 'unknown');
+    await defaultWriteKeychainPayload(
+      payload,
+      store.account ?? keychainAccountCandidates(options.env ?? process.env)[0] ?? 'unknown',
+    );
   }
 }
 
@@ -357,9 +356,7 @@ async function refreshClaudeOAuthTokens(
     accessToken,
     ...(nextRefresh ? { refreshToken: nextRefresh } : {}),
     expiresAt: nowMs + Math.max(0, expiresIn) * 1_000,
-    ...(refreshExpiresIn !== undefined
-      ? { refreshTokenExpiresAt: nowMs + Math.max(0, refreshExpiresIn) * 1_000 }
-      : {}),
+    ...(refreshExpiresIn !== undefined ? { refreshTokenExpiresAt: nowMs + Math.max(0, refreshExpiresIn) * 1_000 } : {}),
   };
 }
 
@@ -423,8 +420,7 @@ function retryAtFromHeader(value: string | null, now: Date): string | undefined 
   const header = value?.trim();
   if (!header) return undefined;
   const seconds = Number(header);
-  const millis =
-    Number.isFinite(seconds) && seconds >= 0 ? now.valueOf() + seconds * 1_000 : Date.parse(header);
+  const millis = Number.isFinite(seconds) && seconds >= 0 ? now.valueOf() + seconds * 1_000 : Date.parse(header);
   if (!Number.isFinite(millis)) return undefined;
   return new Date(millis).toISOString();
 }
