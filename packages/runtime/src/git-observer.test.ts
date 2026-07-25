@@ -99,4 +99,29 @@ describe('createGitStateObserver', () => {
       observer.stop();
     }
   });
+
+  it('delivers a branch change made the instant the first state is announced', async () => {
+    const cwd = await repo();
+    const branches: Array<string | null> = [];
+    let wake: (() => void) | undefined;
+    const settled = new Promise<void>((resolve) => (wake = resolve));
+    // The strict form of the attach race: the consumer moves HEAD from inside
+    // onChange, so any window between observing and watching loses the event
+    // until the (disabled) poller would have caught it.
+    const observer = createGitStateObserver({
+      cwd,
+      pollIntervalMs: 60_000,
+      onChange: (state) => {
+        branches.push(state?.branch ?? null);
+        if (branches.length === 1) void run(cwd, 'checkout', '-b', 'reactive');
+        else wake?.();
+      },
+    });
+    try {
+      await settled;
+      expect(branches).toEqual(['main', 'reactive']);
+    } finally {
+      observer.stop();
+    }
+  });
 });

@@ -8,6 +8,8 @@ import type { AgentGitState } from '@vibecook/chopsticks-core';
 const execFileAsync = promisify(execFile);
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
 const WATCHER_TOPOLOGY_REFRESH_MS = 5 * 60_000;
+/** Bound on the attach → verify → re-attach loop when refs keep moving underneath it. */
+const WATCHER_ATTACH_ATTEMPTS = 3;
 
 async function git(cwd: string, args: readonly string[]): Promise<string | undefined> {
   try {
@@ -29,12 +31,7 @@ function fromGitPath(cwd: string, value: string | undefined): string | undefined
 
 /** Resolve branch/head facts for any directory, including worktrees, unborn branches, and detached HEADs. */
 export async function resolveGitState(cwd: string): Promise<AgentGitState | null> {
-  const metadata = await git(cwd, [
-    'rev-parse',
-    '--show-toplevel',
-    '--absolute-git-dir',
-    '--git-common-dir',
-  ]);
+  const metadata = await git(cwd, ['rev-parse', '--show-toplevel', '--absolute-git-dir', '--git-common-dir']);
   const [root, gitDir, commonDir] = metadata?.split(/\r?\n/) ?? [];
   if (!root) return null;
 
@@ -148,25 +145,36 @@ export function createGitStateObserver(options: GitStateObserverOptions): GitSta
     const observedGeneration = generation;
     const observedCwd = cwd;
     try {
-      const state = await resolveGitState(observedCwd);
+      let state = await resolveGitState(observedCwd);
       if (stopped || generation !== observedGeneration) return;
+      // A new branch means a different ref file to watch.
+      if (stableState(state) !== last) watcherTopologyDirty = true;
+
+      // Attach before announcing. A consumer that reacts to onChange by moving
+      // HEAD would otherwise land its change in the gap between "observed" and
+      // "watching" and stay invisible until the next poll. Re-resolving after
+      // each attach closes the same gap for refs that move mid-attach.
+      for (let attempt = 0; attempt < WATCHER_ATTACH_ATTEMPTS; attempt += 1) {
+        const topologyStale = Date.now() - watcherTopologyRefreshedAt >= WATCHER_TOPOLOGY_REFRESH_MS;
+        if (watchersInitialized && !watcherTopologyDirty && !topologyStale) break;
+        watcherTopologyDirty = false;
+        if (!(await rebuildWatchers(observedCwd, observedGeneration))) return;
+        watchersInitialized = true;
+        watcherTopologyRefreshedAt = Date.now();
+
+        const attached = await resolveGitState(observedCwd);
+        if (stopped || generation !== observedGeneration) return;
+        if (stableState(attached) === stableState(state)) break;
+        // The ref moved while we were attaching to it; the watchers may be on
+        // replaced inodes, so rebuild against the state we are about to report.
+        state = attached;
+        watcherTopologyDirty = true;
+      }
+
       const serialized = stableState(state);
       if (serialized !== last) {
         last = serialized;
-        watcherTopologyDirty = true;
         options.onChange(state);
-      }
-      const now = Date.now();
-      if (
-        watcherTopologyDirty ||
-        !watchersInitialized ||
-        now - watcherTopologyRefreshedAt >= WATCHER_TOPOLOGY_REFRESH_MS
-      ) {
-        watcherTopologyDirty = false;
-        if (await rebuildWatchers(observedCwd, observedGeneration)) {
-          watchersInitialized = true;
-          watcherTopologyRefreshedAt = Date.now();
-        }
       }
     } catch (error) {
       options.onError?.(error instanceof Error ? error : new Error(String(error)));
