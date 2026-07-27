@@ -7,7 +7,7 @@
   "author": "James Yong",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jamesyong-42/chopsticks.git",
+    "url": "git+https://github.com/vibecook-dev/chopsticks.git",
     "directory": "packages/runtime"
   },
   "main": "./src/index.ts",

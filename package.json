@@ -8,11 +8,11 @@
   "author": "James Yong",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jamesyong-42/chopsticks.git"
+    "url": "git+https://github.com/vibecook-dev/chopsticks.git"
   },
-  "homepage": "https://github.com/jamesyong-42/chopsticks#readme",
+  "homepage": "https://github.com/vibecook-dev/chopsticks#readme",
   "bugs": {
-    "url": "https://github.com/jamesyong-42/chopsticks/issues"
+    "url": "https://github.com/vibecook-dev/chopsticks/issues"
   },
   "scripts": {
     "build": "pnpm -r build",
