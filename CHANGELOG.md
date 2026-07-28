@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.1.4](https://github.com/vibecook-dev/chopsticks/compare/v0.1.3...v0.1.4) (2026-07-28)
+
+
+### Features
+
+* add agent environment telemetry ([daeab4b](https://github.com/vibecook-dev/chopsticks/commit/daeab4b8735b65c4db5d282adb8baa398d201abc))
+* add caller-owned terminal adoption ([a3aff40](https://github.com/vibecook-dev/chopsticks/commit/a3aff40cc18a9fe7e617fced1356399eddbb2b38))
+* add cross-agent context telemetry ([ba28611](https://github.com/vibecook-dev/chopsticks/commit/ba28611b7dda14d545548c94448c2666dae99fda))
+* add provider account usage limits ([808402e](https://github.com/vibecook-dev/chopsticks/commit/808402e59c6ae1d75b82475dc6e3f33a2e86485f))
+* add truffle-enabled godview app ([5e92b55](https://github.com/vibecook-dev/chopsticks/commit/5e92b556aafb07b1f7d2866d98321ee43d9e0e2a))
+* **apps:** surface terminal and agent activity ([41fc563](https://github.com/vibecook-dev/chopsticks/commit/41fc56381dec72e10956629fb291e04fdcfa74b4))
+* **godview:** add agent mounting interactions ([45ac4f3](https://github.com/vibecook-dev/chopsticks/commit/45ac4f31645fee053309026080a9f224a52994a9))
+* **godview:** add centered bubble spawn motion ([bd53215](https://github.com/vibecook-dev/chopsticks/commit/bd53215a34bd88d37bbcabfeeaa1f7cd730938fd))
+* **godview:** add themes and pane color links ([c5985e2](https://github.com/vibecook-dev/chopsticks/commit/c5985e208eb4dda46d38d63563fa4826aed8e1f0))
+* **godview:** match prototype physics and add tuning controls ([148e17d](https://github.com/vibecook-dev/chopsticks/commit/148e17db7fbd370ccede0e9639e5a47785c50682))
+* **godview:** show agent usage limits ([7ce35df](https://github.com/vibecook-dev/chopsticks/commit/7ce35dfbe282a955b0135e938286c3a64b7805ea))
+
+
+### Bug Fixes
+
+* **apps:** bound agent state delivery ([1c44d00](https://github.com/vibecook-dev/chopsticks/commit/1c44d00a89e6c16e5a65d1006c6cb1fae1ca80fa))
+* **apps:** preserve pane cwd and restore clipboard ([8aef161](https://github.com/vibecook-dev/chopsticks/commit/8aef161fcceaf14ba910b4e65105c6b9df202b92))
+* **claude:** prefer statusline usage and refresh OAuth tokens ([3e494ce](https://github.com/vibecook-dev/chopsticks/commit/3e494ce35eaaa285417e64ce259cda5b186e638e))
+* **godview:** finalize terminal activity cleanup ([1353bc9](https://github.com/vibecook-dev/chopsticks/commit/1353bc9fccc407e073e5ddbc67b40dd14173c66a))
+* **godview:** show folder names in pane badges ([9024913](https://github.com/vibecook-dev/chopsticks/commit/9024913da6e50e44d713fd54feb8e3e3c1500692))
+* harden runtime telemetry observers ([d30bc07](https://github.com/vibecook-dev/chopsticks/commit/d30bc07393fe210a886baa541e1e2c1d4596527b))
+* harden session replay and terminal lifecycle ([7df3dfe](https://github.com/vibecook-dev/chopsticks/commit/7df3dfee32ad887bbe3b0fcad88de0dd7323a13d))
+* project Grok terminal turns ([77b4279](https://github.com/vibecook-dev/chopsticks/commit/77b42792eeafb249774103ac12c5fa222550b2db))
+* **runtime:** attach Git watchers before announcing state ([d28ec79](https://github.com/vibecook-dev/chopsticks/commit/d28ec7967b9bd7608da601a6361ee6a073f5a56f))
+* stage transitive ghosttea bridge runtime ([c55749a](https://github.com/vibecook-dev/chopsticks/commit/c55749a598de72167548902b35e92235b8f0ab2e))
+
 ## [0.1.3](https://github.com/jamesyong-42/chopsticks/compare/v0.1.2...v0.1.3) (2026-07-19)
 
 
