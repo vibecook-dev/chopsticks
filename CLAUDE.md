@@ -14,7 +14,7 @@ it). `draft/IMPLEMENTATION-PLAN.md` records what was scoped, deferred, and rejec
 |---|---|---|
 | `p008/spaghetti` | Static agent-data plane: SQLite/FTS index of transcripts, settings, todos | Bytes left on disk |
 | **chopsticks** | Live lifecycle: spawn, observe, control, isolate | A live handle to an agent process |
-| `project100/electron-ghostty` | Ghosttea terminal stack (the PTY spine) | Terminal rendering and PTY ownership |
+| `project100/electron-ghostty` | Ghosttea terminal stack (the PTY spine) — repo is `vibecook-dev/ghosttea` | Terminal rendering and PTY ownership |
 
 Chopsticks persists **operational state only**. It never grows browse or search features — if its
 records become worth searching, spaghetti indexes them as one more file source.
@@ -63,7 +63,7 @@ gitignored `dist/`+`node_modules/` husks may linger on disk.
 
 ```sh
 pnpm test           # typecheck + script tests + every package and app suite
-pnpm godview        # bundle + launch the Electron swarm app (needs electron-ghostty sibling)
+pnpm godview        # bundle + launch the Electron swarm app (needs the sibling for native artifacts)
 pnpm workbench      # bundle + launch the original workbench
 pnpm format         # prettier --write over packages/*/src (CI runs format:check FIRST)
 pnpm pack:check     # build + pack every public package into tarballs
@@ -72,8 +72,11 @@ pnpm pack:check     # build + pack every public package into tarballs
 Live adapter probes are opt-in and skipped by default: `CODEX_LIVE=1`, `GROK_LIVE=1`,
 `CHOPSTICKS_REAL_CLAUDE=1`. Agent binaries resolve from PATH or `CHOPSTICKS_{CLAUDE,CODEX,GROK}_BIN`.
 
-**CI only covers `packages/**`.** The apps are excluded because they path-link the electron-ghostty
-sibling, so app regressions are caught only by running their suites locally.
+**CI only covers `packages/**`.** The apps consume the Ghosttea JS packages from npm at an exact
+pinned version, but still need the `electron-ghostty` sibling checkout for two unpublished native
+artifacts — the `ghosttea_native_tabs.node` addon and the cargo-built `ghosttead` daemon (override
+the latter with `GHOSTTEAD_BIN`). That keeps the apps out of CI, so app regressions are caught only
+by running their suites locally.
 
 ## Conventions
 

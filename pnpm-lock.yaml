@@ -4,13 +4,6 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-overrides:
-  '@vibecook/ghosttea': link:../../electron-ghostty/packages/terminal-client
-  '@vibecook/ghosttea-electron': link:../../electron-ghostty/packages/terminal-electron
-  '@vibecook/ghosttea-frame': link:../../electron-ghostty/packages/terminal-frame
-  '@vibecook/ghosttea-protocol': link:../../electron-ghostty/packages/terminal-protocol
-  '@vibecook/ghosttea-react': link:../../electron-ghostty/packages/terminal-react
-
 importers:
 
   .:
@@ -46,20 +39,20 @@ importers:
         specifier: workspace:*
         version: link:../../packages/workspaces
       '@vibecook/ghosttea':
-        specifier: link:../../../../electron-ghostty/packages/terminal-client
-        version: link:../../../../electron-ghostty/packages/terminal-client
+        specifier: 0.4.0
+        version: 0.4.0
       '@vibecook/ghosttea-electron':
-        specifier: link:../../../../electron-ghostty/packages/terminal-electron
-        version: link:../../../../electron-ghostty/packages/terminal-electron
+        specifier: 0.4.0
+        version: 0.4.0(electron@43.1.0)
       '@vibecook/ghosttea-frame':
-        specifier: link:../../../../electron-ghostty/packages/terminal-frame
-        version: link:../../../../electron-ghostty/packages/terminal-frame
+        specifier: 0.4.0
+        version: 0.4.0
       '@vibecook/ghosttea-protocol':
-        specifier: link:../../../../electron-ghostty/packages/terminal-protocol
-        version: link:../../../../electron-ghostty/packages/terminal-protocol
+        specifier: 0.4.0
+        version: 0.4.0
       '@vibecook/ghosttea-react':
-        specifier: link:../../../../electron-ghostty/packages/terminal-react
-        version: link:../../../../electron-ghostty/packages/terminal-react
+        specifier: 0.4.0
+        version: 0.4.0(react@19.2.7)
       matter-js:
         specifier: 0.19.0
         version: 0.19.0
@@ -113,20 +106,20 @@ importers:
         specifier: workspace:*
         version: link:../../packages/workspaces
       '@vibecook/ghosttea':
-        specifier: link:../../../../electron-ghostty/packages/terminal-client
-        version: link:../../../../electron-ghostty/packages/terminal-client
+        specifier: 0.4.0
+        version: 0.4.0
       '@vibecook/ghosttea-electron':
-        specifier: link:../../../../electron-ghostty/packages/terminal-electron
-        version: link:../../../../electron-ghostty/packages/terminal-electron
+        specifier: 0.4.0
+        version: 0.4.0(electron@43.1.0)
       '@vibecook/ghosttea-frame':
-        specifier: link:../../../../electron-ghostty/packages/terminal-frame
-        version: link:../../../../electron-ghostty/packages/terminal-frame
+        specifier: 0.4.0
+        version: 0.4.0
       '@vibecook/ghosttea-protocol':
-        specifier: link:../../../../electron-ghostty/packages/terminal-protocol
-        version: link:../../../../electron-ghostty/packages/terminal-protocol
+        specifier: 0.4.0
+        version: 0.4.0
       '@vibecook/ghosttea-react':
-        specifier: link:../../../../electron-ghostty/packages/terminal-react
-        version: link:../../../../electron-ghostty/packages/terminal-react
+        specifier: 0.4.0
+        version: 0.4.0(react@19.2.7)
       react:
         specifier: ^19.2.7
         version: 19.2.7
@@ -854,6 +847,29 @@ packages:
 
   '@ungap/structured-clone@1.3.3':
     resolution: {integrity: sha512-60YRaenCQcVjYEKOcG824+DRGGIQ3VKErcBoAEDJZz5bKIs2ZG+X/H9Nk+Q6EVkwJk5QNApxbrc5QtBSwtrXAg==}
+
+  '@vibecook/ghosttea-client@0.4.0':
+    resolution: {integrity: sha512-fceQtJw4a8wOzQOMivSc6PWnPsXjcy99fqfdqVYIggqpa25+I6pikT3wBX5sQvjgXnJrWB+hpZXx1ifTlegavg==}
+    engines: {node: '>=22'}
+
+  '@vibecook/ghosttea-electron@0.4.0':
+    resolution: {integrity: sha512-k09GuSfeCirxouqwf2l+tHTIgj5QDlFAPgyxiC2ft+E455jx6LcAcfWiwZaR0joaGn8XW+U2u1DcMmv0Ac9RWA==}
+    peerDependencies:
+      electron: '>=35'
+
+  '@vibecook/ghosttea-frame@0.4.0':
+    resolution: {integrity: sha512-+NdqQRLsV4JSE2pOnJTPHkutgkkoHGwudu8+EUKjfKhd1TtKOpstwFK/fDUX54HmLdqVstPBF/w/xnb5bZW9rA==}
+
+  '@vibecook/ghosttea-protocol@0.4.0':
+    resolution: {integrity: sha512-t1SqmMcSAV2E9r9xrD2r4AdEJ1FDTMiWVZW5IPf2CEJhswxPn0Ti6GC5pRIX9k3eiaeriFRd6qc3kyvPgIu15g==}
+
+  '@vibecook/ghosttea-react@0.4.0':
+    resolution: {integrity: sha512-ozzDQv3cOi8yegRWW/aa51TIXbnrgRDG1x1P9FgAtKAo2Ul61N5n0Kf4Jjbq4rkS0WjJTKwC1Iix3gLU0nOpvw==}
+    peerDependencies:
+      react: '>=19'
+
+  '@vibecook/ghosttea@0.4.0':
+    resolution: {integrity: sha512-Uywo84t/VlaBiFvw7GVIVpnSOMxks3RyV1NPPU4TTL2n+DVDOCUyQ0wBipq6it8ox0SQ1e1FMKWCLyqwSHtmNQ==}
 
   '@vibecook/spaghetti-sdk-native@0.5.16':
     resolution: {integrity: sha512-UREgXUUnxWv2KL09q7fvAaf0WAKO8ldyW+mq+Z5kNBQ7l9vxDnBkNmS+mibV7PvnVfHWGAqcEhMSPAIxUSjtCA==}
@@ -1987,6 +2003,30 @@ snapshots:
   '@types/unist@3.0.3': {}
 
   '@ungap/structured-clone@1.3.3': {}
+
+  '@vibecook/ghosttea-client@0.4.0':
+    dependencies:
+      '@vibecook/ghosttea-protocol': 0.4.0
+
+  '@vibecook/ghosttea-electron@0.4.0(electron@43.1.0)':
+    dependencies:
+      '@vibecook/ghosttea-client': 0.4.0
+      electron: 43.1.0
+
+  '@vibecook/ghosttea-frame@0.4.0': {}
+
+  '@vibecook/ghosttea-protocol@0.4.0': {}
+
+  '@vibecook/ghosttea-react@0.4.0(react@19.2.7)':
+    dependencies:
+      '@vibecook/ghosttea': 0.4.0
+      '@vibecook/ghosttea-frame': 0.4.0
+      '@vibecook/ghosttea-protocol': 0.4.0
+      react: 19.2.7
+
+  '@vibecook/ghosttea@0.4.0':
+    dependencies:
+      '@vibecook/ghosttea-protocol': 0.4.0
 
   '@vibecook/spaghetti-sdk-native@0.5.16': {}
 

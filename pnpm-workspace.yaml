@@ -6,14 +6,10 @@ allowBuilds:
   better-sqlite3: true
   electron: true
   esbuild: true
-overrides:
-  '@vibecook/ghosttea': link:../../electron-ghostty/packages/terminal-client
-  '@vibecook/ghosttea-electron': link:../../electron-ghostty/packages/terminal-electron
-  '@vibecook/ghosttea-frame': link:../../electron-ghostty/packages/terminal-frame
-  '@vibecook/ghosttea-protocol': link:../../electron-ghostty/packages/terminal-protocol
-  '@vibecook/ghosttea-react': link:../../electron-ghostty/packages/terminal-react
 minimumReleaseAgeExclude:
-  - '@vibecook/ghosttea-frame@0.1.0'
-  - '@vibecook/ghosttea-protocol@0.1.0'
-  - '@vibecook/ghosttea@0.1.0'
+  - '@vibecook/ghosttea@0.4.0'
+  - '@vibecook/ghosttea-electron@0.4.0'
+  - '@vibecook/ghosttea-frame@0.4.0'
+  - '@vibecook/ghosttea-protocol@0.4.0'
+  - '@vibecook/ghosttea-react@0.4.0'
 verifyDepsBeforeRun: false

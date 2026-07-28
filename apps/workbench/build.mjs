@@ -10,6 +10,8 @@ import { stageEsmRuntime } from '../../scripts/stage-esm-runtime.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const dist = join(root, 'dist');
+// The Ghosttea JS packages come from npm. The native tabs addon does not — it is
+// built inside the sibling checkout's desktop app, so this path stays local-only.
 const ghostteaRoot = join(root, '..', '..', '..', '..', 'electron-ghostty');
 const nativeTabAddon = join(
   ghostteaRoot,
@@ -79,7 +81,7 @@ await Promise.all([
 
 await Promise.all([
   cp(join(root, 'src/renderer/index.html'), join(dist, 'index.html')),
-  stageEsmRuntime(join(ghostteaRoot, 'packages', 'terminal-electron', 'dist', 'bridge-entry.js'), dist),
+  stageEsmRuntime(requireFromWorkbench.resolve('@vibecook/ghosttea-electron/bridge-entry'), dist),
   cp(
     requireFromWorkbench.resolve('@vibecook/ghosttea-react/terminal-render.worker.js'),
     join(dist, 'terminal-render.worker.js'),

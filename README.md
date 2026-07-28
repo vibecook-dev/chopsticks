@@ -144,7 +144,7 @@ pnpm release:trust
 
 `release:publish` verifies, builds, and publishes the public packages in
 dependency order, skipping versions already present in the registry.
-`release:trust` configures each package to trust `jamesyong-42/chopsticks`'s
+`release:trust` configures each package to trust `vibecook-dev/chopsticks`'s
 `release.yml` GitHub Actions workflow for `npm publish`; it requires npm 11.15
 or newer, npm account 2FA, and an authenticated interactive npm session.
 

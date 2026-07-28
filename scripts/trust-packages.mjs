@@ -23,7 +23,7 @@ for (const [, packageName] of publicPackages) {
       '--file',
       'release.yml',
       '--repo',
-      'jamesyong-42/chopsticks',
+      'vibecook-dev/chopsticks',
       '--allow-publish',
       '--yes',
     ],
