@@ -37,3 +37,32 @@ jobs:
       - run: pnpm -r --filter './packages/**' test
       - run: pnpm -r --filter './packages/**' build
       - run: node scripts/pack-check.mjs
+
+  apps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.34.5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # The apps became registry-only consumers when Ghosttea started publishing
+      # the daemon and the native tabs addon, so they can finally be built here.
+      # Electron itself is never launched — no smoke run — so skip its download.
+      - run: pnpm install --frozen-lockfile
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
+      - run: pnpm -r --filter './apps/**' typecheck
+      - run: pnpm -r --filter './apps/**' test
+
+      # Linux has neither a native tabs prebuild nor a ghosttead one, so both
+      # stages are skipped and this gates the bundle graph, not what ships.
+      - run: pnpm godview:bundle
+      - run: pnpm workbench:bundle

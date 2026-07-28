@@ -12,7 +12,6 @@ import {
   type SessionExitedEvent,
 } from '@vibecook/ghosttea-electron/main';
 import type { SessionSummary } from '@vibecook/ghosttea-protocol';
-import { ghostteadPath } from '@vibecook/ghosttead';
 import type { AgentHost, SessionRuntimeState } from '@vibecook/chopsticks-core';
 import { createActionRecorder } from '@vibecook/chopsticks-record';
 import {
@@ -59,6 +58,7 @@ const SPAWN_THROUGH_SMOKE = process.argv
   ?.slice('--spawn-through-smoke='.length) as BuiltinExecutableAgentKind | undefined;
 const appRoot = resolve(__dirname, '..');
 const repoRoot = resolve(appRoot, '../..');
+const ghostteadBinaryName = process.platform === 'win32' ? 'ghosttead.exe' : 'ghosttead';
 const nativeTabAddonPaths = [
   join(app.getAppPath(), 'dist', 'native', 'ghosttea_native_tabs.node'),
   join(process.resourcesPath, 'native', 'ghosttea_native_tabs.node'),
@@ -220,9 +220,10 @@ function backendOptions(): GhostteaElectronBackendOptions {
     };
   }
 
-  // The daemon comes prebuilt from @vibecook/ghosttead; the env overrides
-  // remain the way to run one built from source, and a packaged app carries
-  // its own copy in resources.
+  // The daemon comes prebuilt from @vibecook/ghosttead, staged next to this
+  // bundle by build.mjs — that package is ESM-only, so requiring it from here
+  // fails under Electron's Node. The env overrides remain the way to run one
+  // built from source, and a packaged app carries its own copy in resources.
   const configuredBinary =
     process.env.GHOSTTEAD_BIN ??
     process.env.TERMINALD_BIN ??
@@ -244,7 +245,7 @@ function backendOptions(): GhostteaElectronBackendOptions {
   return {
     mode: 'managed',
     daemon: {
-      binary: { kind: 'executable', path: configuredBinary ?? ghostteadPath() },
+      binary: { kind: 'executable', path: configuredBinary ?? join(__dirname, 'bin', ghostteadBinaryName) },
       environment,
     },
     bridge: { entryPoint: join(__dirname, 'bridge-entry.js') },
