@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { addonPath as nativeTabAddonPath } from '@vibecook/ghosttea-native-tabs';
 import { build } from 'esbuild';
 import { cp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -10,18 +11,6 @@ import { stageEsmRuntime } from '../../scripts/stage-esm-runtime.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const dist = join(root, 'dist');
-// The Ghosttea JS packages come from npm. The native tabs addon does not — it is
-// built inside the sibling checkout's desktop app, so this path stays local-only.
-const ghostteaRoot = join(root, '..', '..', '..', '..', 'electron-ghostty');
-const nativeTabAddon = join(
-  ghostteaRoot,
-  'apps',
-  'desktop-experiment',
-  'native',
-  'build',
-  'Release',
-  'ghosttea_native_tabs.node',
-);
 const shared = { bundle: true, sourcemap: true, logLevel: 'info' };
 const requireFromWorkbench = createRequire(import.meta.url);
 const reactSingletonPlugin = {
@@ -44,7 +33,9 @@ await Promise.all([
     platform: 'node',
     format: 'cjs',
     target: 'node22',
-    external: ['electron', '@parcel/watcher'],
+    // The daemon resolver stays external: it walks node_modules at runtime to
+    // find the platform binary package, which a bundle cannot carry.
+    external: ['electron', '@parcel/watcher', '@vibecook/ghosttead'],
     define: { 'import.meta.url': JSON.stringify(pathToFileURL(join(dist, 'main.cjs')).href) },
   }),
   build({
@@ -89,7 +80,7 @@ await Promise.all([
   ...(process.platform === 'darwin'
     ? [
         mkdir(join(dist, 'native'), { recursive: true }).then(() =>
-          cp(nativeTabAddon, join(dist, 'native', 'ghosttea_native_tabs.node')),
+          cp(nativeTabAddonPath(), join(dist, 'native', 'ghosttea_native_tabs.node')),
         ),
       ]
     : []),
