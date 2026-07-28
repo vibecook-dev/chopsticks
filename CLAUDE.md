@@ -72,13 +72,18 @@ pnpm pack:check     # build + pack every public package into tarballs
 Live adapter probes are opt-in and skipped by default: `CODEX_LIVE=1`, `GROK_LIVE=1`,
 `CHOPSTICKS_REAL_CLAUDE=1`. Agent binaries resolve from PATH or `CHOPSTICKS_{CLAUDE,CODEX,GROK}_BIN`.
 
-**CI only covers `packages/**`.** The apps consume everything Ghosttea from npm at an exact pinned
-version, including the two native artifacts that used to require the sibling checkout: the daemon
-arrives prebuilt through `@vibecook/ghosttead` (override with `GHOSTTEAD_BIN` to run one built from
-source) and the tab-ordering addon through `@vibecook/ghosttea-native-tabs`. No sibling checkout or
-Rust toolchain is needed to run the apps anymore; their CI exclusion is now historical rather than
-forced, and app regressions are still caught only by running their suites locally until CI picks
-them up.
+**CI covers `packages/**` and `apps/**` in separate jobs.** The apps consume everything Ghosttea
+from npm at an exact pinned version, including the two native artifacts that used to require the
+sibling checkout: the daemon prebuilt through `@vibecook/ghosttead` (override with `GHOSTTEAD_BIN`
+to run one built from source) and the tab-ordering addon through `@vibecook/ghosttea-native-tabs`.
+No sibling checkout or Rust toolchain is needed anymore.
+
+**Never import `@vibecook/ghosttead` from app `main`.** It is ESM-only, and Electron's bundled Node
+cannot `require` it from a CJS bundle — bundled *or* external. `build.mjs` calls `ghostteadPath()`
+at build time and stages the binary into `dist/bin/`, the same shape as the native tabs addon;
+where no prebuild exists the staging is skipped and `GHOSTTEAD_BIN` is required. This fails only at
+launch, so **verify app changes with `pnpm godview:smoke`, not just the suite.** Pass
+`GHOSTTEA_TRUFFLE_ENABLED=false` to smoke without a Tailscale login.
 
 ## Conventions
 
