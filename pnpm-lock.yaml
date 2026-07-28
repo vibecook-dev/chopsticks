@@ -81,6 +81,9 @@ importers:
       '@types/react-dom':
         specifier: ^19.2.3
         version: 19.2.3(@types/react@19.2.17)
+      '@vibecook/truffle':
+        specifier: 0.7.11
+        version: 0.7.11(ws@8.21.0)
       electron:
         specifier: ^43.1.0
         version: 43.1.0
@@ -154,6 +157,9 @@ importers:
       '@types/react-dom':
         specifier: ^19.2.3
         version: 19.2.3(@types/react@19.2.17)
+      '@vibecook/truffle':
+        specifier: 0.7.11
+        version: 0.7.11(ws@8.21.0)
       electron:
         specifier: ^43.1.0
         version: 43.1.0
@@ -913,6 +919,49 @@ packages:
       react:
         optional: true
       react-dom:
+        optional: true
+
+  '@vibecook/truffle-native@0.7.11':
+    resolution: {integrity: sha512-kBqgSclQ4XJ0aiG6fyD0qWnGcGSm+bCwev2aMK6R9lUJn5i2PfRWZniOBzh4k+O5iSrkcl4vp/xKafO47bmMhg==}
+    engines: {node: '>=18'}
+
+  '@vibecook/truffle-sidecar-darwin-arm64@0.7.11':
+    resolution: {integrity: sha512-3etVEGZ73Of+Ypkdkh/EfaNAO8lJvIF26XLDcnankSVob3aZiZHYYG1+fnzqo8q8h84XBWny6tJliIj0yz+Bgg==}
+    engines: {node: '>=18'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@vibecook/truffle-sidecar-darwin-x64@0.7.11':
+    resolution: {integrity: sha512-WsIMLxNJXdvHxcPShfWEbU2klLe8sK8xpIPfxXtCekBWM+Z8OiN4yn0TLffgaYt7Gxzz149z35ZutD/Dbs56lg==}
+    engines: {node: '>=18'}
+    cpu: [x64]
+    os: [darwin]
+
+  '@vibecook/truffle-sidecar-linux-arm64@0.7.11':
+    resolution: {integrity: sha512-RbeFCfzRdo/ztXnvPj/Fua/9dft2g4j3avAASYvZZk5ryMZPF3nH5OlA9dtH+dtPwUOh0pKC0kzy92a+EaUfAQ==}
+    engines: {node: '>=18'}
+    cpu: [arm64]
+    os: [linux]
+
+  '@vibecook/truffle-sidecar-linux-x64@0.7.11':
+    resolution: {integrity: sha512-xkI2E6h1LcbqSLWVMIxgDeaKC7aPD5igPOYEDDwXVQ0NTu35BsUYlbMMXoH+AHBWKNe3/hyNOAlM7Nsccb7TPg==}
+    engines: {node: '>=18'}
+    cpu: [x64]
+    os: [linux]
+
+  '@vibecook/truffle-sidecar-win32-x64@0.7.11':
+    resolution: {integrity: sha512-b2Q/SmXwfxZdhqxUNxlUurPOFKEfCbUBHEqhm5uIEOtnrupJ/h9EeRQ3fITpHPMtl2d37iO1E49FZVTkZVeXBw==}
+    engines: {node: '>=18'}
+    cpu: [x64]
+    os: [win32]
+
+  '@vibecook/truffle@0.7.11':
+    resolution: {integrity: sha512-k99WMz+14ozoEocK6Cx3/QfSkz+EfNkL+5q08O18omgd7cHkmJNi1/Ol/dAT6UzLufkZNvCc03g/7cq9ao7ZLQ==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      ws: '>=8'
+    peerDependenciesMeta:
+      ws:
         optional: true
 
   '@vitest/expect@3.2.7':
@@ -2084,6 +2133,34 @@ snapshots:
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
+
+  '@vibecook/truffle-native@0.7.11': {}
+
+  '@vibecook/truffle-sidecar-darwin-arm64@0.7.11':
+    optional: true
+
+  '@vibecook/truffle-sidecar-darwin-x64@0.7.11':
+    optional: true
+
+  '@vibecook/truffle-sidecar-linux-arm64@0.7.11':
+    optional: true
+
+  '@vibecook/truffle-sidecar-linux-x64@0.7.11':
+    optional: true
+
+  '@vibecook/truffle-sidecar-win32-x64@0.7.11':
+    optional: true
+
+  '@vibecook/truffle@0.7.11(ws@8.21.0)':
+    dependencies:
+      '@vibecook/truffle-native': 0.7.11
+    optionalDependencies:
+      '@vibecook/truffle-sidecar-darwin-arm64': 0.7.11
+      '@vibecook/truffle-sidecar-darwin-x64': 0.7.11
+      '@vibecook/truffle-sidecar-linux-arm64': 0.7.11
+      '@vibecook/truffle-sidecar-linux-x64': 0.7.11
+      '@vibecook/truffle-sidecar-win32-x64': 0.7.11
+      ws: 8.21.0
 
   '@vitest/expect@3.2.7':
     dependencies:

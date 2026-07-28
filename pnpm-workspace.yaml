@@ -3,6 +3,7 @@ packages:
   - apps/*
 allowBuilds:
   '@parcel/watcher': true
+  '@vibecook/truffle': set this to true or false
   better-sqlite3: true
   electron: true
   esbuild: true
@@ -19,4 +20,11 @@ minimumReleaseAgeExclude:
   - '@vibecook/ghosttead-darwin-arm64@0.5.1'
   - '@vibecook/ghosttead-win32-x64@0.5.1'
   - '@vibecook/ghosttea-client@0.5.1'
+  - '@vibecook/truffle-native@0.7.11'
+  - '@vibecook/truffle-sidecar-darwin-arm64@0.7.11'
+  - '@vibecook/truffle-sidecar-darwin-x64@0.7.11'
+  - '@vibecook/truffle-sidecar-linux-arm64@0.7.11'
+  - '@vibecook/truffle-sidecar-linux-x64@0.7.11'
+  - '@vibecook/truffle-sidecar-win32-x64@0.7.11'
+  - '@vibecook/truffle@0.7.11'
 verifyDepsBeforeRun: false
