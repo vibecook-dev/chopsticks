@@ -63,7 +63,7 @@ gitignored `dist/`+`node_modules/` husks may linger on disk.
 
 ```sh
 pnpm test           # typecheck + script tests + every package and app suite
-pnpm godview        # bundle + launch the Electron swarm app (needs the sibling for native artifacts)
+pnpm godview        # bundle + launch the Electron swarm app
 pnpm workbench      # bundle + launch the original workbench
 pnpm format         # prettier --write over packages/*/src (CI runs format:check FIRST)
 pnpm pack:check     # build + pack every public package into tarballs
@@ -72,11 +72,13 @@ pnpm pack:check     # build + pack every public package into tarballs
 Live adapter probes are opt-in and skipped by default: `CODEX_LIVE=1`, `GROK_LIVE=1`,
 `CHOPSTICKS_REAL_CLAUDE=1`. Agent binaries resolve from PATH or `CHOPSTICKS_{CLAUDE,CODEX,GROK}_BIN`.
 
-**CI only covers `packages/**`.** The apps consume the Ghosttea JS packages from npm at an exact
-pinned version, but still need the `electron-ghostty` sibling checkout for two unpublished native
-artifacts — the `ghosttea_native_tabs.node` addon and the cargo-built `ghosttead` daemon (override
-the latter with `GHOSTTEAD_BIN`). That keeps the apps out of CI, so app regressions are caught only
-by running their suites locally.
+**CI only covers `packages/**`.** The apps consume everything Ghosttea from npm at an exact pinned
+version, including the two native artifacts that used to require the sibling checkout: the daemon
+arrives prebuilt through `@vibecook/ghosttead` (override with `GHOSTTEAD_BIN` to run one built from
+source) and the tab-ordering addon through `@vibecook/ghosttea-native-tabs`. No sibling checkout or
+Rust toolchain is needed to run the apps anymore; their CI exclusion is now historical rather than
+forced, and app regressions are still caught only by running their suites locally until CI picks
+them up.
 
 ## Conventions
 

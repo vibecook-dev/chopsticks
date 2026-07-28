@@ -7,9 +7,16 @@ allowBuilds:
   electron: true
   esbuild: true
 minimumReleaseAgeExclude:
-  - '@vibecook/ghosttea@0.4.0'
-  - '@vibecook/ghosttea-electron@0.4.0'
-  - '@vibecook/ghosttea-frame@0.4.0'
-  - '@vibecook/ghosttea-protocol@0.4.0'
-  - '@vibecook/ghosttea-react@0.4.0'
+  - '@vibecook/ghosttea@0.5.0'
+  - '@vibecook/ghosttea-electron@0.5.0'
+  - '@vibecook/ghosttea-frame@0.5.0'
+  - '@vibecook/ghosttea-native-tabs@0.5.0'
+  - '@vibecook/ghosttea-protocol@0.5.0'
+  - '@vibecook/ghosttea-react@0.5.0'
+  - '@vibecook/ghosttead@0.5.0'
+  # The daemon platform packages arrive as optional dependencies of
+  # @vibecook/ghosttead, and the release-age quarantine applies to them too.
+  - '@vibecook/ghosttead-darwin-arm64@0.5.0'
+  - '@vibecook/ghosttead-win32-x64@0.5.0'
+  - '@vibecook/ghosttea-client@0.5.0'
 verifyDepsBeforeRun: false
