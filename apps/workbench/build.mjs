@@ -2,6 +2,7 @@
 
 import { addonPath as nativeTabAddonPath } from '@vibecook/ghosttea-native-tabs';
 import { ghostteadPath } from '@vibecook/ghosttead';
+import { resolveSidecarPath } from '@vibecook/truffle';
 import { build } from 'esbuild';
 import { chmod, cp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -25,6 +26,16 @@ try {
   stagedGhosttead = ghostteadPath();
 } catch (error) {
   console.warn(`ghosttead not staged: ${error.message}`);
+}
+// Truffle's sidecar is staged the same way, so remote sessions need no Truffle
+// checkout beside this repo either. Absent on platforms with no prebuild, which
+// truffle-config reports as a missing sidecar when Truffle is enabled.
+const sidecarBinary = process.platform === 'win32' ? 'sidecar-slim.exe' : 'sidecar-slim';
+let stagedSidecar;
+try {
+  stagedSidecar = resolveSidecarPath();
+} catch (error) {
+  console.warn(`truffle sidecar not staged: ${error.message}`);
 }
 const reactSingletonPlugin = {
   name: 'workbench-react-singleton',
@@ -101,6 +112,13 @@ await Promise.all([
           .then(() => cp(stagedGhosttead, join(dist, 'bin', ghostteadBinary)))
           // cp drops the executable bit when it creates the destination.
           .then(() => chmod(join(dist, 'bin', ghostteadBinary), 0o755)),
+      ]
+    : []),
+  ...(stagedSidecar
+    ? [
+        mkdir(join(dist, 'bin'), { recursive: true })
+          .then(() => cp(stagedSidecar, join(dist, 'bin', sidecarBinary)))
+          .then(() => chmod(join(dist, 'bin', sidecarBinary), 0o755)),
       ]
     : []),
 ]);

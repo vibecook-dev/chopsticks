@@ -52,11 +52,9 @@ export function workbenchTruffleConfig(options: WorkbenchTruffleConfigOptions): 
   const enabled = booleanSetting(enabledSetting);
   const sidecarName = options.platform === 'win32' ? 'sidecar-slim.exe' : 'sidecar-slim';
   const bundledSidecar = join(options.resourcesPath, 'bin', sidecarName);
-  const developmentSidecar = resolve(
-    options.appRoot,
-    '../../../truffle/packages/sidecar-slim',
-    sidecarName,
-  );
+  // Staged next to the bundle by build.mjs from @vibecook/truffle's platform
+  // package, so a development run needs no Truffle checkout beside this repo.
+  const developmentSidecar = resolve(options.appRoot, 'dist/bin', sidecarName);
   const explicitSidecar = nonempty(environment, 'TRUFFLE_SIDECAR_PATH');
   const discoveredSidecar = options.isPackaged ? bundledSidecar : developmentSidecar;
   const sidecarPath = explicitSidecar ?? (pathExists(discoveredSidecar) ? discoveredSidecar : undefined);

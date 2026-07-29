@@ -15,7 +15,7 @@ describe('workbenchTruffleConfig', () => {
     const config = workbenchTruffleConfig({
       ...base,
       environment: {},
-      pathExists: (path) => path === '/project/p008/truffle/packages/sidecar-slim/sidecar-slim',
+      pathExists: (path) => path === '/project/p008/chopsticks/apps/workbench/dist/bin/sidecar-slim',
     });
 
     expect(config).toEqual({
@@ -24,7 +24,7 @@ describe('workbenchTruffleConfig', () => {
         GHOSTTEA_TRUFFLE_ENABLED: 'true',
         GHOSTTEA_TRUFFLE_STATE_DIR: '/user/chopsticks/truffle',
         GHOSTTEA_TRUFFLE_DEVICE_NAME: 'studio · Chopsticks',
-        TRUFFLE_SIDECAR_PATH: '/project/p008/truffle/packages/sidecar-slim/sidecar-slim',
+        TRUFFLE_SIDECAR_PATH: '/project/p008/chopsticks/apps/workbench/dist/bin/sidecar-slim',
       },
     });
   });
