@@ -9,7 +9,6 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { fileURLToPath } from 'node:url';
-import { stageEsmRuntime } from '../../scripts/stage-esm-runtime.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const dist = join(root, 'dist');
@@ -60,6 +59,18 @@ await Promise.all([
     external: ['electron', '@parcel/watcher'],
     define: { 'import.meta.url': JSON.stringify(pathToFileURL(join(dist, 'main.cjs')).href) },
   }),
+  // The bridge runs as its own ESM process out of dist/. Copying its files
+  // there strands its bare imports: @vibecook/ghosttea-client is a private
+  // transitive dep of ghosttea-electron under pnpm, so it is unresolvable from
+  // dist/. Bundling inlines it and leaves one self-contained module.
+  build({
+    ...shared,
+    entryPoints: [requireFromGodview.resolve('@vibecook/ghosttea-electron/bridge-entry')],
+    outfile: join(dist, 'bridge-entry.js'),
+    platform: 'node',
+    format: 'esm',
+    target: 'node22',
+  }),
   build({
     ...shared,
     entryPoints: [join(root, 'src/preload/preload.ts')],
@@ -94,7 +105,6 @@ await Promise.all([
 
 await Promise.all([
   cp(join(root, 'src/renderer/index.html'), join(dist, 'index.html')),
-  stageEsmRuntime(requireFromGodview.resolve('@vibecook/ghosttea-electron/bridge-entry'), dist),
   cp(
     requireFromGodview.resolve('@vibecook/ghosttea-react/terminal-render.worker.js'),
     join(dist, 'terminal-render.worker.js'),
