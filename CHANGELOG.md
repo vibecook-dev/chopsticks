@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.5](https://github.com/vibecook-dev/chopsticks/compare/v0.1.4...v0.1.5) (2026-07-31)
+
+
+### Bug Fixes
+
+* **apps:** bundle the Ghosttea bridge so its imports resolve ([66bb92e](https://github.com/vibecook-dev/chopsticks/commit/66bb92e29ec7112380ad2d903877790139c08d29))
+* **apps:** bundle the Ghosttea bridge so its imports resolve ([bc33ac1](https://github.com/vibecook-dev/chopsticks/commit/bc33ac1463399b5e36d33319620e9224fc73ce79))
+* **apps:** stage the ghosttead binary, and move to Ghosttea 0.5.1 ([82efc9e](https://github.com/vibecook-dev/chopsticks/commit/82efc9e720c503c1df9cb7911dd236d7f8613310))
+* **apps:** stage the ghosttead binary, and move to Ghosttea 0.5.1 ([09cf973](https://github.com/vibecook-dev/chopsticks/commit/09cf973f1e4cd689ab6435e88561941530d82237))
+
 ## [0.1.4](https://github.com/vibecook-dev/chopsticks/compare/v0.1.3...v0.1.4) (2026-07-28)
 
 
