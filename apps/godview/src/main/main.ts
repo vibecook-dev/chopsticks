@@ -102,7 +102,15 @@ if (process.platform === 'darwin') app.setActivationPolicy('regular');
 // process; a second Godview process must activate the existing owner instead
 // of opening the same state directory concurrently.
 const ownsTruffleState = app.requestSingleInstanceLock({ application: 'godview' });
-if (!ownsTruffleState) app.quit();
+if (!ownsTruffleState) {
+  // A smoke run that loses the lock never reaches its assertions, so quitting
+  // quietly would report success for work that never happened.
+  if (SMOKE || SPAWN_THROUGH_SMOKE) {
+    console.error('another Godview instance owns the Truffle state; smoke did not run');
+    app.exit(1);
+  }
+  app.quit();
+}
 
 const clipboardHost = installGhostteaClipboardHost(ipcMain, clipboard);
 
