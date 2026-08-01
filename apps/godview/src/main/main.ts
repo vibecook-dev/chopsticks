@@ -47,6 +47,7 @@ import { resolveProcessCwd } from './process-cwd.js';
 import { GodviewTabRegistry } from './tab-registry.js';
 import { godviewTruffleConfig } from './truffle-config.js';
 import { LatestValueQueue } from './latest-value-queue.js';
+import { allocateWorkspaceSlot } from './workspace-slots.js';
 
 declare const __dirname: string;
 
@@ -650,6 +651,7 @@ ipcMain.on('terminal-new-window', (event, cwd: unknown) => {
   if (!source || !tabs.get(source)) return;
   void createWindow({
     initialCwd: typeof cwd === 'string' && cwd.trim() ? cwd : undefined,
+    freshWorkspace: true,
   }).catch((error) => console.error('failed to create window', error));
 });
 
@@ -692,9 +694,11 @@ ipcMain.on('terminal-reload-config', (event) => {
 ipcMain.on('terminal-new-tab', (event, cwd: unknown) => {
   const window = BrowserWindow.fromWebContents(event.sender);
   if (!window || !tabs.get(window)) return;
-  void createWindow({ tabOf: window, initialCwd: typeof cwd === 'string' && cwd.trim() ? cwd : undefined }).catch(
-    (error) => console.error('failed to create tab', error),
-  );
+  void createWindow({
+    tabOf: window,
+    initialCwd: typeof cwd === 'string' && cwd.trim() ? cwd : undefined,
+    freshWorkspace: true,
+  }).catch((error) => console.error('failed to create tab', error));
 });
 
 ipcMain.on('terminal-select-tab', (event, target: unknown) => {
@@ -785,16 +789,22 @@ interface CreateWindowOptions {
   tabOf?: BrowserWindow;
   initialCwd?: string;
   claimExistingSessions?: boolean;
+  /** A user asking for a new window or tab wants an empty one, not whatever the reused slot still holds. */
+  freshWorkspace?: boolean;
 }
 
 async function createWindow(options: CreateWindowOptions = {}): Promise<BrowserWindow> {
   await ensureBackend();
   const parentRecord = options.tabOf ? tabs.get(options.tabOf) : undefined;
   const groupId = parentRecord?.groupId ?? `godview-${randomUUID()}`;
-  const tabId = randomUUID();
+  const tabId = allocateWorkspaceSlot(tabs.records().map((record) => record.id));
+  // Reopening a window restores the layout its slot still holds; asking for a
+  // new one means asking for an empty one, so that slot's document is cleared.
+  const resetWorkspace = options.freshWorkspace === true;
   const claimExistingSessions = options.claimExistingSessions ?? tabs.records().length === 0;
   const additionalArguments = [
     `--ghosttea-tab-id=${tabId}`,
+    `--ghosttea-tab-reset=${resetWorkspace ? '1' : '0'}`,
     `--ghosttea-tab-claim-existing=${claimExistingSessions ? '1' : '0'}`,
     `--ghosttea-remote-sessions=${remoteSessionsEnabled ? '1' : '0'}`,
     ...(options.initialCwd ? [`--ghosttea-tab-cwd=${encodeURIComponent(options.initialCwd)}`] : []),
@@ -840,7 +850,7 @@ async function createWindow(options: CreateWindowOptions = {}): Promise<BrowserW
     lastFocusedWindow = window;
   });
   window.on('new-window-for-tab', () => {
-    void createWindow({ tabOf: window, initialCwd: record.activeCwd }).catch((error) =>
+    void createWindow({ tabOf: window, initialCwd: record.activeCwd, freshWorkspace: true }).catch((error) =>
       console.error('failed to create native tab', error),
     );
   });

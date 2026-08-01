@@ -35,6 +35,7 @@ function argument(name: string): string | undefined {
 }
 
 const tabId = argument('ghosttea-tab-id') ?? 'default';
+const resetWorkspace = argument('ghosttea-tab-reset') === '1';
 const claimExistingSessions = argument('ghosttea-tab-claim-existing') !== '0';
 const remoteSessionsEnabled = argument('ghosttea-remote-sessions') !== '0';
 const encodedInitialCwd = argument('ghosttea-tab-cwd');
@@ -85,6 +86,7 @@ contextBridge.exposeInMainWorld('chopsticks', chopsticks);
 contextBridge.exposeInMainWorld('desktop', {
   platform: process.platform,
   tabId,
+  resetWorkspace,
   claimExistingSessions,
   remoteSessionsEnabled,
   initialCwd,

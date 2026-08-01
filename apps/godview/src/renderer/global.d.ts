@@ -7,6 +7,7 @@ declare global {
     desktop: {
       platform: string;
       tabId: string;
+      resetWorkspace: boolean;
       claimExistingSessions: boolean;
       remoteSessionsEnabled: boolean;
       initialCwd?: string;
