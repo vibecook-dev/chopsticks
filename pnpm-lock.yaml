@@ -39,26 +39,26 @@ importers:
         specifier: workspace:*
         version: link:../../packages/workspaces
       '@vibecook/ghosttea':
-        specifier: 0.7.0
-        version: 0.7.0
+        specifier: 0.8.0
+        version: 0.8.0
       '@vibecook/ghosttea-electron':
-        specifier: 0.7.0
-        version: 0.7.0(electron@43.1.0)
+        specifier: 0.8.0
+        version: 0.8.0(electron@43.1.0)
       '@vibecook/ghosttea-frame':
-        specifier: 0.7.0
-        version: 0.7.0
+        specifier: 0.8.0
+        version: 0.8.0
       '@vibecook/ghosttea-native-tabs':
-        specifier: 0.7.0
-        version: 0.7.0
+        specifier: 0.8.0
+        version: 0.8.0
       '@vibecook/ghosttea-protocol':
-        specifier: 0.7.0
-        version: 0.7.0
+        specifier: 0.8.0
+        version: 0.8.0
       '@vibecook/ghosttea-react':
-        specifier: 0.7.0
-        version: 0.7.0(react@19.2.7)
+        specifier: 0.8.0
+        version: 0.8.0(react@19.2.7)
       '@vibecook/ghosttead':
-        specifier: 0.7.0
-        version: 0.7.0
+        specifier: 0.8.0
+        version: 0.8.0
       matter-js:
         specifier: 0.19.0
         version: 0.19.0
@@ -115,26 +115,26 @@ importers:
         specifier: workspace:*
         version: link:../../packages/workspaces
       '@vibecook/ghosttea':
-        specifier: 0.7.0
-        version: 0.7.0
+        specifier: 0.8.0
+        version: 0.8.0
       '@vibecook/ghosttea-electron':
-        specifier: 0.7.0
-        version: 0.7.0(electron@43.1.0)
+        specifier: 0.8.0
+        version: 0.8.0(electron@43.1.0)
       '@vibecook/ghosttea-frame':
-        specifier: 0.7.0
-        version: 0.7.0
+        specifier: 0.8.0
+        version: 0.8.0
       '@vibecook/ghosttea-native-tabs':
-        specifier: 0.7.0
-        version: 0.7.0
+        specifier: 0.8.0
+        version: 0.8.0
       '@vibecook/ghosttea-protocol':
-        specifier: 0.7.0
-        version: 0.7.0
+        specifier: 0.8.0
+        version: 0.8.0
       '@vibecook/ghosttea-react':
-        specifier: 0.7.0
-        version: 0.7.0(react@19.2.7)
+        specifier: 0.8.0
+        version: 0.8.0(react@19.2.7)
       '@vibecook/ghosttead':
-        specifier: 0.7.0
-        version: 0.7.0
+        specifier: 0.8.0
+        version: 0.8.0
       react:
         specifier: ^19.2.7
         version: 19.2.7
@@ -866,44 +866,44 @@ packages:
   '@ungap/structured-clone@1.3.3':
     resolution: {integrity: sha512-60YRaenCQcVjYEKOcG824+DRGGIQ3VKErcBoAEDJZz5bKIs2ZG+X/H9Nk+Q6EVkwJk5QNApxbrc5QtBSwtrXAg==}
 
-  '@vibecook/ghosttea-client@0.7.0':
-    resolution: {integrity: sha512-vHxb/x+CwxJcTFQlIqfOJ4F/7eV3XhcrYvuEbcm8jNtbCOPp833/OycvR8H7kFhuP+QhqqtGC9tD10wPWLRqbA==}
+  '@vibecook/ghosttea-client@0.8.0':
+    resolution: {integrity: sha512-FOZDAFxHtFMfmPNRc+0ndWoXMIUVjN9WRjcomcH9xXXyGhaJViJ1okgdZVA+GqQRp8GDsMgGwvwQ23n1Nu90UA==}
     engines: {node: '>=22'}
 
-  '@vibecook/ghosttea-electron@0.7.0':
-    resolution: {integrity: sha512-nYPwAiV7WiFbQqhSVDEUiMiXWpacdP1ipw7X/XOwebNS+77zznqGSyRx/yyW8VnFxAiRypmYIXTwzZbNmLTLww==}
+  '@vibecook/ghosttea-electron@0.8.0':
+    resolution: {integrity: sha512-j1xYkACVsSQFxmwnSXa+P91iaNVQUS2YSaU4LqSeAOhMUftLPrPSpWYfm5zUwixisasem8BeXn9B8okKN/aoig==}
     peerDependencies:
       electron: '>=35'
 
-  '@vibecook/ghosttea-frame@0.7.0':
-    resolution: {integrity: sha512-yLFkJ+Jq548qvNOb0WjknSTD8s4F/52ZnhHiKpiAdEu8D/DXmISVClpPChfTxhIid7QfTY7NydJY+VEuOK2iMg==}
+  '@vibecook/ghosttea-frame@0.8.0':
+    resolution: {integrity: sha512-hMi6mHADPyuBUSgcdJi0eblH+8qTuXBj+RibgG65J6dtdBWjHglyzyamN0LLw7PQ9mG6gXokQg7tP3raLYedKA==}
 
-  '@vibecook/ghosttea-native-tabs@0.7.0':
-    resolution: {integrity: sha512-V2d9wjzZC+Nfz6mglkilhErDk3A2YDWUXt10kneS2ZVcu1xmaLhiZxgKF2aZdAcMNbMq1uWL0IsmgtKUOCKmVw==}
+  '@vibecook/ghosttea-native-tabs@0.8.0':
+    resolution: {integrity: sha512-xoCbLxzNl2XI3CNkYumjOpVeLa6BLYgJnIwTFOkOAId/A0dsDnVi2WPPV7jt8ZFj0JIEcOCCeI7vHLEJzWW91g==}
 
-  '@vibecook/ghosttea-protocol@0.7.0':
-    resolution: {integrity: sha512-hBiAK4FkKPDdtPP8PI+2FCdPp8dzCWNUEiMEufrFqMv1sGAmUyLg2u56P954v9X5BBhbcLHtBPlbFKq0xwsugA==}
+  '@vibecook/ghosttea-protocol@0.8.0':
+    resolution: {integrity: sha512-0psF02Hiem44Cf87CbIK6w0GfhMoT7go4tOwSEaV6v8RVfjF4PrJr6KN2QVezUzW9Gi9Ki8Hd1929PrQWZVX4A==}
 
-  '@vibecook/ghosttea-react@0.7.0':
-    resolution: {integrity: sha512-c6lwb5SaW4EhiUZuTYH4oCpeQRd8tqFNkjqhlEfq+DXxg+d2bpVqGIG2ZVZFtRvbPQMH85mTxEjJnK5NAvyxUQ==}
+  '@vibecook/ghosttea-react@0.8.0':
+    resolution: {integrity: sha512-DEw/miVhES2jHUvZQ9RbRdDRnI7iVkgwf84f9VbTH+IUJ/aYcQG7sN/hQXd9OiJbEeX05CKo/XsG6/iiPzgx+A==}
     peerDependencies:
       react: '>=19'
 
-  '@vibecook/ghosttea@0.7.0':
-    resolution: {integrity: sha512-uFYqvVBVr0AsYhepTsJU74fd98CSztk7t9wxHmfGHdZ8gtlUDiYxICbjxYKo6dvjT21K5VIo7sg6wZXoEsWQIA==}
+  '@vibecook/ghosttea@0.8.0':
+    resolution: {integrity: sha512-g9isS170zs1x9cAunemcYN/uuFWhWSkDVIiFTUgFPSs57E+J4znU9Ps9x5cwWtvyu308KhbVCCGFpO+u7f2Yxw==}
 
-  '@vibecook/ghosttead-darwin-arm64@0.7.0':
-    resolution: {integrity: sha512-jWHiFaFwBeoSK4MmSp0oz18wa/+TxNNRJyM3ob+3w7ODBiWc/79ImdGVZaQT6qXmG0RNrMZhImTynAhNXv9Q4A==}
+  '@vibecook/ghosttead-darwin-arm64@0.8.0':
+    resolution: {integrity: sha512-HpS6O5prU1VMcGq+wDvsFKVuipUspLfUck99DdOqVVZEIgXNG1Uu3i9H/zteE8hmG52u7vrKrggmGuA3xgOObw==}
     cpu: [arm64]
     os: [darwin]
 
-  '@vibecook/ghosttead-win32-x64@0.7.0':
-    resolution: {integrity: sha512-8ltls1BAqco4jrWByy0NyeekrtiISfP411/IUTsMrWdrCHJsOCeBsTCF/GofxVzEeycqqq3s2TmG9J8qF8Mr/w==}
+  '@vibecook/ghosttead-win32-x64@0.8.0':
+    resolution: {integrity: sha512-PyvNUnmHlAG0WdEJhxzy7BvoQsjmzZBCjNedmGengLQg1GRq8Ffcywm2kVjXayDN+zCd130ff8mpwVCW5FMShQ==}
     cpu: [x64]
     os: [win32]
 
-  '@vibecook/ghosttead@0.7.0':
-    resolution: {integrity: sha512-vzBI/D9WOKPNjFt+/g2w7QVijLoZ6orVw9WKBt8vMNzxWKgfs4m6cbJYVLHTTN/cPVrujhb3Jzgz3OYMpPwz2A==}
+  '@vibecook/ghosttead@0.8.0':
+    resolution: {integrity: sha512-waCJnWaP6MLroOoOngKAUDzz2phndf3jU+kkTbZQ5/KljY1dSYNQjXiXxJnRSEwFMVcmotS9J1qFpCwU/uZJVg==}
 
   '@vibecook/spaghetti-sdk-native@0.5.16':
     resolution: {integrity: sha512-UREgXUUnxWv2KL09q7fvAaf0WAKO8ldyW+mq+Z5kNBQ7l9vxDnBkNmS+mibV7PvnVfHWGAqcEhMSPAIxUSjtCA==}
@@ -2081,43 +2081,43 @@ snapshots:
 
   '@ungap/structured-clone@1.3.3': {}
 
-  '@vibecook/ghosttea-client@0.7.0':
+  '@vibecook/ghosttea-client@0.8.0':
     dependencies:
-      '@vibecook/ghosttea-protocol': 0.7.0
+      '@vibecook/ghosttea-protocol': 0.8.0
 
-  '@vibecook/ghosttea-electron@0.7.0(electron@43.1.0)':
+  '@vibecook/ghosttea-electron@0.8.0(electron@43.1.0)':
     dependencies:
-      '@vibecook/ghosttea-client': 0.7.0
-      '@vibecook/ghosttea-protocol': 0.7.0
+      '@vibecook/ghosttea-client': 0.8.0
+      '@vibecook/ghosttea-protocol': 0.8.0
       electron: 43.1.0
 
-  '@vibecook/ghosttea-frame@0.7.0': {}
+  '@vibecook/ghosttea-frame@0.8.0': {}
 
-  '@vibecook/ghosttea-native-tabs@0.7.0': {}
+  '@vibecook/ghosttea-native-tabs@0.8.0': {}
 
-  '@vibecook/ghosttea-protocol@0.7.0': {}
+  '@vibecook/ghosttea-protocol@0.8.0': {}
 
-  '@vibecook/ghosttea-react@0.7.0(react@19.2.7)':
+  '@vibecook/ghosttea-react@0.8.0(react@19.2.7)':
     dependencies:
-      '@vibecook/ghosttea': 0.7.0
-      '@vibecook/ghosttea-frame': 0.7.0
-      '@vibecook/ghosttea-protocol': 0.7.0
+      '@vibecook/ghosttea': 0.8.0
+      '@vibecook/ghosttea-frame': 0.8.0
+      '@vibecook/ghosttea-protocol': 0.8.0
       react: 19.2.7
 
-  '@vibecook/ghosttea@0.7.0':
+  '@vibecook/ghosttea@0.8.0':
     dependencies:
-      '@vibecook/ghosttea-protocol': 0.7.0
+      '@vibecook/ghosttea-protocol': 0.8.0
 
-  '@vibecook/ghosttead-darwin-arm64@0.7.0':
+  '@vibecook/ghosttead-darwin-arm64@0.8.0':
     optional: true
 
-  '@vibecook/ghosttead-win32-x64@0.7.0':
+  '@vibecook/ghosttead-win32-x64@0.8.0':
     optional: true
 
-  '@vibecook/ghosttead@0.7.0':
+  '@vibecook/ghosttead@0.8.0':
     optionalDependencies:
-      '@vibecook/ghosttead-darwin-arm64': 0.7.0
-      '@vibecook/ghosttead-win32-x64': 0.7.0
+      '@vibecook/ghosttead-darwin-arm64': 0.8.0
+      '@vibecook/ghosttead-win32-x64': 0.8.0
 
   '@vibecook/spaghetti-sdk-native@0.5.16': {}
 
