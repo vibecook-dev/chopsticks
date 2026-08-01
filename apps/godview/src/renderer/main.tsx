@@ -42,6 +42,17 @@ type GodviewTheme = 'light' | 'dark';
 
 const THEME_STORAGE_KEY = 'godview:color-theme:v1';
 const PARAMETERS_STORAGE_KEY = 'godview:swarm-parameters:v1';
+const WORKSPACE_STORAGE_KEY = `godview:ghosttea-workspace:v2:${window.desktop.tabId}`;
+
+// A slot is reused across windows, so an explicitly new tab starts from an
+// empty document rather than inheriting the layout its predecessor left there.
+if (window.desktop.resetWorkspace) {
+  try {
+    localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+  } catch {
+    // A disabled storage partition already yields an empty workspace.
+  }
+}
 
 function initialTheme(): GodviewTheme {
   try {
@@ -411,7 +422,7 @@ function Godview() {
           <WorkspaceReporterContext.Provider value={setWorkspace}>
             <GhostteaWorkspace
               platform={platform}
-              storageKey={`godview:ghosttea-workspace:v2:${window.desktop.tabId}`}
+              storageKey={WORKSPACE_STORAGE_KEY}
               sidebar={WorkspaceReporter}
               theme={theme === 'dark' ? TERMINAL_THEMES.midnight : TERMINAL_THEMES.daylight}
               decoratePane={decoratePane}
