@@ -26,6 +26,7 @@
     "godview": "pnpm --filter godview start",
     "godview:bundle": "pnpm --filter godview bundle",
     "godview:smoke": "pnpm --filter godview smoke",
+    "godview:restore-smoke": "pnpm --filter godview restore-smoke",
     "godview:test": "pnpm --filter godview test",
     "godview:typecheck": "pnpm --filter godview typecheck",
     "pack:check": "pnpm build && node scripts/pack-check.mjs",

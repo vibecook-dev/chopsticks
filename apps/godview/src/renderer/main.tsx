@@ -47,9 +47,19 @@ const WORKSPACE_STORAGE_KEY = `godview:ghosttea-workspace:v2:${window.desktop.ta
 
 // A slot is reused across windows, so an explicitly new tab starts from an
 // empty document rather than inheriting the layout its predecessor left there.
+//
+// Strictly once per window. The flag is fixed at window creation and so is
+// still set on a reload, and this window reloads itself to recover from a dead
+// renderer — clearing again there would throw away the layout the user has
+// built since opening it. sessionStorage is exactly the right lifetime: it
+// survives the reload and dies with the window.
+const WORKSPACE_RESET_MARKER = 'godview:workspace-reset-applied';
 if (window.desktop.resetWorkspace) {
   try {
-    localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+    if (!sessionStorage.getItem(WORKSPACE_RESET_MARKER)) {
+      localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+      sessionStorage.setItem(WORKSPACE_RESET_MARKER, '1');
+    }
   } catch {
     // A disabled storage partition already yields an empty workspace.
   }

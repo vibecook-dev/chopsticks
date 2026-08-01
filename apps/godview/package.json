@@ -12,7 +12,8 @@
     "start": "pnpm bundle && electron .",
     "smoke": "pnpm bundle && electron . --smoke",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "restore-smoke": "pnpm bundle && electron . --restore-smoke"
   },
   "dependencies": {
     "@parcel/watcher": "^2.5.0",
