@@ -35,7 +35,7 @@ import type { CodexApprovalDecision, CodexApprovalRequest } from './driver.js';
 import { CodexNotificationNormalizer } from './normalizer.js';
 import { readLastCodexContextWindow } from './rollout-context.js';
 
-const CLIENT_INFO = { name: 'chopsticks-observer', version: '0.1.5' } as const; // x-release-please-version
+const CLIENT_INFO = { name: 'chopsticks-observer', version: '0.1.6' } as const; // x-release-please-version
 
 /** Empty inject materializes a rollout without a model turn (probe 3). */
 const MATERIALIZE_ITEMS = [{ type: 'text', text: '' }] as const;

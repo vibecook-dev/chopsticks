@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.6](https://github.com/vibecook-dev/chopsticks/compare/v0.1.5...v0.1.6) (2026-07-31)
+
+
+### Bug Fixes
+
+* **apps:** fail the smoke run when another instance holds the lock ([30ee611](https://github.com/vibecook-dev/chopsticks/commit/30ee611599abcbec53d3ba5d668ff25ab284ed0d))
+* **apps:** fail the smoke run when another instance holds the lock ([4aae6a0](https://github.com/vibecook-dev/chopsticks/commit/4aae6a03ffa5acd7b2a386928577501ff92aa1ba))
+
 ## [0.1.5](https://github.com/vibecook-dev/chopsticks/compare/v0.1.4...v0.1.5) (2026-07-31)
 
 
