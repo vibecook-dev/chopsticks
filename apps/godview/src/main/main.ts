@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { accessSync, chmodSync, constants, copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { accessSync, chmodSync, constants, copyFileSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { delimiter, isAbsolute, join, resolve } from 'node:path';
 import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeTheme, shell } from 'electron';
 import {
@@ -48,6 +48,7 @@ import { GodviewTabRegistry } from './tab-registry.js';
 import { godviewTruffleConfig } from './truffle-config.js';
 import { LatestValueQueue } from './latest-value-queue.js';
 import { allocateWorkspaceSlot } from './workspace-slots.js';
+import { buildRestoreManifest } from './restore-manifest.js';
 
 declare const __dirname: string;
 
@@ -141,6 +142,10 @@ interface AgentRecord {
 const agentRecords = new Map<string, AgentRecord>();
 const dirtyAgentStates = new Set<string>();
 let agentFlushTimer: NodeJS.Timeout | undefined;
+
+const RESTORE_MANIFEST_DEBOUNCE_MS = 1_000;
+const RESTORE_MANIFEST_FLUSH_TIMEOUT_MS = 2_000;
+let restoreManifestTimer: NodeJS.Timeout | undefined;
 
 interface AgentStateDelivery {
   queue: LatestValueQueue<string, AgentStateMessage>;
@@ -417,8 +422,45 @@ function monitorAdoptedProcess(runtimeSessionId: string, processId: number, prep
   adoptedProcessMonitors.set(runtimeSessionId, timer);
 }
 
+/**
+ * Ghosttea's layout document records geometry against terminal session ids, all
+ * of which die with the daemon, so reopening after a quit needs a description
+ * that outlives the process. Written on change and flushed before teardown;
+ * nothing reads it yet.
+ */
+async function writeRestoreManifest(): Promise<void> {
+  const client = backend?.automation;
+  if (!client) return;
+  try {
+    const manifest = buildRestoreManifest({
+      windows: tabs.records(),
+      agents: agentRecords,
+      sessions: await client.listSessions(),
+      updatedAtMs: Date.now(),
+    });
+    const path = join(app.getPath('userData'), 'restore-manifest.json');
+    const pending = `${path}.tmp`;
+    // Rename over the previous manifest so a crash mid-write cannot leave a
+    // truncated file where startup expects a complete one.
+    writeFileSync(pending, JSON.stringify(manifest, null, 2));
+    renameSync(pending, path);
+  } catch (error) {
+    console.error('failed to write restore manifest', error);
+  }
+}
+
+function scheduleRestoreManifestSave(): void {
+  if (quitting || restoreManifestTimer) return;
+  restoreManifestTimer = setTimeout(() => {
+    restoreManifestTimer = undefined;
+    void writeRestoreManifest();
+  }, RESTORE_MANIFEST_DEBOUNCE_MS);
+  restoreManifestTimer.unref?.();
+}
+
 function rememberAgent(info: AgentSessionInfo, session: SessionSummary): void {
   agentRecords.set(info.runtimeSessionId, { info, session });
+  scheduleRestoreManifestSave();
   broadcast('chopsticks:agent-session', info);
   const snapshot = stateSnapshot(info.runtimeSessionId);
   if (snapshot) publishAgentState(snapshot);
@@ -426,6 +468,7 @@ function rememberAgent(info: AgentSessionInfo, session: SessionSummary): void {
 
 function onSessionExited(event: SessionExitedEvent): void {
   if (!managedTerminalIds.delete(event.sessionId)) return;
+  scheduleRestoreManifestSave();
   stopAdoptedProcessMonitor(event.sessionId);
   const record = agentRecords.get(event.sessionId);
   if (record) {
@@ -733,12 +776,14 @@ ipcMain.on('terminal-tab-sessions', (event, sessionIds: unknown) => {
   const window = BrowserWindow.fromWebContents(event.sender);
   if (!window || !Array.isArray(sessionIds) || !sessionIds.every((id) => typeof id === 'string')) return;
   tabs.updateSessions(window, sessionIds);
+  scheduleRestoreManifestSave();
 });
 
 ipcMain.on('terminal-tab-active-cwd', (event, cwd: unknown) => {
   const window = BrowserWindow.fromWebContents(event.sender);
   if (!window) return;
   tabs.updateActiveCwd(window, typeof cwd === 'string' && cwd.trim() ? cwd : undefined);
+  scheduleRestoreManifestSave();
 });
 
 ipcMain.handle('godview:process-cwd', (event, pid: unknown): Promise<string | undefined> => {
@@ -859,6 +904,7 @@ async function createWindow(options: CreateWindowOptions = {}): Promise<BrowserW
     // another viewport, and must keep running until process exit or app
     // shutdown. Removing the attachment record is intentionally observational.
     tabs.delete(window);
+    scheduleRestoreManifestSave();
     agentStateDeliveries.delete(webContentsId);
     if (rendererRecoveryTimer) clearTimeout(rendererRecoveryTimer);
     if (lastFocusedWindow === window) lastFocusedWindow = undefined;
@@ -1011,6 +1057,15 @@ async function runSpawnThroughSmoke(agent: BuiltinExecutableAgentKind): Promise<
 function shutdown(): Promise<void> {
   shutdownPromise ??= (async () => {
     quitting = true;
+    // Snapshot first: the cleanup below terminates the very sessions the
+    // manifest describes, so anything written after this point is empty.
+    if (restoreManifestTimer) clearTimeout(restoreManifestTimer);
+    restoreManifestTimer = undefined;
+    // Bounded: the snapshot asks the daemon for its sessions, and losing a
+    // manifest is a far better outcome than a quit that never completes.
+    if (!(await allSettledWithin([writeRestoreManifest()], RESTORE_MANIFEST_FLUSH_TIMEOUT_MS))) {
+      console.warn('[main] restore manifest flush timed out during shutdown');
+    }
     accountUsageMonitor.stop();
     if (agentFlushTimer) clearTimeout(agentFlushTimer);
     for (const runtimeSessionId of adoptedProcessMonitors.keys()) stopAdoptedProcessMonitor(runtimeSessionId);
