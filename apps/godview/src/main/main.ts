@@ -60,7 +60,12 @@ import { GodviewTabRegistry } from './tab-registry.js';
 import { godviewTruffleConfig } from './truffle-config.js';
 import { LatestValueQueue } from './latest-value-queue.js';
 import { allocateWorkspaceSlot } from './workspace-slots.js';
-import { buildRestoreManifest, type RestoreManifest, type RestorePane } from './restore-manifest.js';
+import {
+  buildRestoreManifest,
+  RESTORE_MANIFEST_VERSION,
+  type RestoreManifest,
+  type RestorePane,
+} from './restore-manifest.js';
 import { readRestoreManifest, restorePaneFor, restorePromptDetail, summarizeRestore } from './restore-plan.js';
 
 declare const __dirname: string;
@@ -70,6 +75,7 @@ const DEFAULT_ROWS = 30;
 const AGENT_FLUSH_MS = 16;
 const SHUTDOWN_CLEANUP_TIMEOUT_MS = 5_000;
 const SMOKE = process.argv.includes('--smoke');
+const RESTORE_SMOKE = process.argv.includes('--restore-smoke');
 const SPAWN_THROUGH_SMOKE = process.argv
   .find((argument) => argument.startsWith('--spawn-through-smoke='))
   ?.slice('--spawn-through-smoke='.length) as BuiltinExecutableAgentKind | undefined;
@@ -120,7 +126,7 @@ const ownsTruffleState = app.requestSingleInstanceLock({ application: 'godview' 
 if (!ownsTruffleState) {
   // A smoke run that loses the lock never reaches its assertions, so quitting
   // quietly would report success for work that never happened.
-  if (SMOKE || SPAWN_THROUGH_SMOKE) {
+  if (SMOKE || SPAWN_THROUGH_SMOKE || RESTORE_SMOKE) {
     console.error('another Godview instance owns the Truffle state; smoke did not run');
     app.exit(1);
   }
@@ -686,7 +692,11 @@ function restoredWorkspaceRequest(pane: Extract<RestorePane, { kind: 'agent' }>)
 async function rehydratePane(sessionId: string, owner?: BrowserWindow): Promise<SessionSummary | null> {
   if (!restoreManifest) return null;
   const pane = restorePaneFor(restoreManifest, sessionId);
-  if (!pane) return null;
+  if (!pane) {
+    if (RESTORE_SMOKE) console.log(`[restore-smoke] no manifest entry for ${sessionId}`);
+    return null;
+  }
+  if (RESTORE_SMOKE) console.log(`[restore-smoke] rehydrating ${sessionId} as ${pane.kind}`);
   await ensureBackend();
   const client = backend?.automation;
   if (!client) return null;
@@ -1136,6 +1146,107 @@ async function runSmoke(): Promise<void> {
   console.log('SMOKE OK');
 }
 
+let restoreSmokeDiagnostic = '';
+
+async function until<T>(what: string, attempt: () => Promise<T | undefined>, timeoutMs = 20_000): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const value = await attempt();
+    if (value !== undefined) return value;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+  }
+  const detail = restoreSmokeDiagnostic ? ` (${restoreSmokeDiagnostic})` : '';
+  throw new Error(`restore smoke timed out waiting for ${what}${detail}`);
+}
+
+/**
+ * Drives the restore path against a real window, because that is the only place
+ * it exists: rehydration runs inside the renderer's workspace initialization,
+ * so no amount of unit testing over the pure parts proves the wiring works.
+ *
+ * The pane is made dead the way a restart makes one dead: by pointing the saved
+ * layout at a session id the daemon has never heard of. Terminating a real
+ * session is not the same thing — ghosttead still reports it, so Ghosttea
+ * resolves the pane and never asks for a replacement.
+ */
+async function runRestoreSmoke(): Promise<void> {
+  await ensureBackend();
+  const client = backend!.automation;
+  const slotId = 'godview-restore-smoke';
+  const storageKey = `godview:ghosttea-workspace:v2:${slotId}`;
+  const savedSessionId = 'restore-smoke-session-that-never-existed';
+  const window = await createWindow({ slotId, freshWorkspace: true, claimExistingSessions: false });
+
+  const saved = await until('Ghosttea to persist a layout', async () => {
+    const raw: unknown = await window.webContents.executeJavaScript(
+      `localStorage.getItem(${JSON.stringify(storageKey)})`,
+    );
+    if (typeof raw !== 'string') return undefined;
+    const parsed = JSON.parse(raw) as { root?: { kind?: string; id?: string; sessionId?: string } };
+    const root = parsed.root;
+    if (root?.kind !== 'pane' || typeof root.id !== 'string' || typeof root.sessionId !== 'string') return undefined;
+    return { document: parsed as Record<string, unknown>, paneId: root.id, sessionId: root.sessionId };
+  });
+
+  const originalSessionId = saved.sessionId;
+  const originalPaneId = saved.paneId;
+  const document = saved.document;
+  // Two panes, one dead. A revived pane keeps the split; a dropped one collapses
+  // it to the survivor. One pane could not tell those apart — an emptied layout
+  // makes Ghosttea open a default shell, which looks just like a restored pane.
+  document['root'] = {
+    kind: 'split',
+    id: 'restore-smoke-split',
+    axis: 'horizontal',
+    ratio: 0.5,
+    first: { kind: 'pane', id: 'restore-smoke-dead-pane', sessionId: savedSessionId },
+    second: { kind: 'pane', id: originalPaneId, sessionId: originalSessionId },
+  };
+  await window.webContents.executeJavaScript(
+    `localStorage.setItem(${JSON.stringify(storageKey)}, ${JSON.stringify(JSON.stringify(document))})`,
+  );
+  const savedRootKind = (): Promise<unknown> =>
+    window.webContents.executeJavaScript(
+      `JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}) ?? '{}')?.root?.kind`,
+    );
+  if ((await savedRootKind()) !== 'split') throw new Error('restore smoke could not seed a two-pane layout');
+
+  restoreManifest = {
+    version: RESTORE_MANIFEST_VERSION,
+    updatedAtMs: Date.now(),
+    windows: [
+      { slotId, groupId: 'restore-smoke', panes: [{ sessionId: savedSessionId, kind: 'terminal', cwd: repoRoot }] },
+    ],
+  };
+
+  window.webContents.reload();
+  await new Promise<void>((settle) => {
+    window.webContents.once('did-finish-load', () => settle());
+  });
+  // Guards the one-shot reset: a window that clears its layout on every load —
+  // and this one reloads itself to recover a dead renderer — silently destroys
+  // what it was meant to restore, and every assertion below would still pass by
+  // way of Ghosttea opening a fresh default shell.
+  if ((await savedRootKind()) !== 'split') {
+    throw new Error('the saved layout was cleared on reload, so there was nothing left to restore');
+  }
+
+  // The window reporting exactly one pane, holding a session that is neither
+  // the dead id nor the one from before the reload, is what proves the pane was
+  // revived in place rather than dropped and its split collapsed.
+  const restoredId = await until('the dead pane to be rehydrated', async () => {
+    const reported = [...(tabs.get(window)?.sessionIds ?? [])];
+    restoreSmokeDiagnostic = `window reported [${reported.join(', ')}]`;
+    if (reported.length !== 2 || !reported.includes(originalSessionId)) return undefined;
+    return reported.find((id) => id !== savedSessionId && id !== originalSessionId);
+  });
+  const live = await client.listSessions();
+  if (!live.some((session) => session.id === restoredId && !session.exited)) {
+    throw new Error(`restored pane ${restoredId} is not a live session`);
+  }
+  console.log(`RESTORE SMOKE OK (${savedSessionId} -> ${restoredId})`);
+}
+
 async function runSpawnThroughSmoke(agent: BuiltinExecutableAgentKind): Promise<void> {
   if (!realAgentExecutables[agent]) throw new Error(`${agent} is not installed`);
   await ensureBackend();
@@ -1277,8 +1388,9 @@ app
   .whenReady()
   .then(async () => {
     await initializeSpawnThrough();
-    if (SMOKE || SPAWN_THROUGH_SMOKE) {
+    if (SMOKE || SPAWN_THROUGH_SMOKE || RESTORE_SMOKE) {
       if (SPAWN_THROUGH_SMOKE) await runSpawnThroughSmoke(SPAWN_THROUGH_SMOKE);
+      else if (RESTORE_SMOKE) await runRestoreSmoke();
       else await runSmoke();
       await shutdown();
       app.exit(0);
