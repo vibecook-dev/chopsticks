@@ -1,7 +1,18 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { accessSync, chmodSync, constants, copyFileSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  accessSync,
+  chmodSync,
+  constants,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { delimiter, isAbsolute, join, resolve } from 'node:path';
-import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeTheme, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, shell } from 'electron';
 import {
   allSettledWithin,
   GhostteaElectronBackend,
@@ -19,6 +30,7 @@ import {
   createBuiltinAgentRuntime,
   type AgentRuntime,
   type AgentWorkspaceFinal,
+  type AgentWorkspaceRequest,
   type BuiltinExecutableAgentKind,
 } from '@vibecook/chopsticks-runtime';
 import type {
@@ -48,7 +60,8 @@ import { GodviewTabRegistry } from './tab-registry.js';
 import { godviewTruffleConfig } from './truffle-config.js';
 import { LatestValueQueue } from './latest-value-queue.js';
 import { allocateWorkspaceSlot } from './workspace-slots.js';
-import { buildRestoreManifest } from './restore-manifest.js';
+import { buildRestoreManifest, type RestoreManifest, type RestorePane } from './restore-manifest.js';
+import { readRestoreManifest, restorePaneFor, restorePromptDetail, summarizeRestore } from './restore-plan.js';
 
 declare const __dirname: string;
 
@@ -146,6 +159,8 @@ let agentFlushTimer: NodeJS.Timeout | undefined;
 const RESTORE_MANIFEST_DEBOUNCE_MS = 1_000;
 const RESTORE_MANIFEST_FLUSH_TIMEOUT_MS = 2_000;
 let restoreManifestTimer: NodeJS.Timeout | undefined;
+/** Held for the whole run: panes rehydrate as their windows load, not all at startup. */
+let restoreManifest: RestoreManifest | undefined;
 
 interface AgentStateDelivery {
   queue: LatestValueQueue<string, AgentStateMessage>;
@@ -449,6 +464,90 @@ async function writeRestoreManifest(): Promise<void> {
   }
 }
 
+function restoreManifestPath(): string {
+  return join(app.getPath('userData'), 'restore-manifest.json');
+}
+
+/** Read once at startup, then kept for the rehydration lookups the renderers make. */
+function loadRestoreManifest(): RestoreManifest | undefined {
+  try {
+    return readRestoreManifest(JSON.parse(readFileSync(restoreManifestPath(), 'utf8')));
+  } catch {
+    // No manifest, or one this build cannot honor. Either way, start clean.
+    return undefined;
+  }
+}
+
+function discardRestoreManifest(): void {
+  restoreManifest = undefined;
+  try {
+    rmSync(restoreManifestPath(), { force: true });
+  } catch (error) {
+    console.error('failed to discard restore manifest', error);
+  }
+}
+
+/**
+ * Restoring resumes agents, which costs real tokens and touches real
+ * workspaces, so it is never the silent default — the user is told exactly
+ * what would come back and asked first.
+ */
+async function confirmRestore(manifest: RestoreManifest): Promise<boolean> {
+  const detail = restorePromptDetail(summarizeRestore(manifest));
+  const { response } = await dialog.showMessageBox({
+    type: 'question',
+    buttons: ['Restore', 'Not now'],
+    defaultId: 0,
+    cancelId: 1,
+    message: 'Restore previous session?',
+    detail,
+  });
+  return response === 0;
+}
+
+/**
+ * Ghosttea's saved layout holds the geometry; this manifest holds what each
+ * pane was. Windows are reopened on their recorded slots so the two halves meet
+ * — the layout document a window loads is the one its panes were persisted to.
+ */
+async function openRestoredWindows(manifest: RestoreManifest): Promise<void> {
+  const leadByGroup = new Map<string, BrowserWindow>();
+  for (const window of manifest.windows) {
+    const lead = leadByGroup.get(window.groupId);
+    const created = await createWindow({
+      slotId: window.slotId,
+      claimExistingSessions: false,
+      ...(lead ? { tabOf: lead } : {}),
+      ...(window.activeCwd ? { initialCwd: window.activeCwd } : {}),
+    });
+    if (!lead) leadByGroup.set(window.groupId, created);
+  }
+}
+
+async function openInitialWindows(): Promise<void> {
+  const manifest = loadRestoreManifest();
+  if (!manifest) {
+    await createWindow();
+    return;
+  }
+  if (!(await confirmRestore(manifest))) {
+    // Declining is an answer, not a deferral; re-asking every launch would
+    // make the prompt noise rather than a choice.
+    discardRestoreManifest();
+    await createWindow();
+    return;
+  }
+  restoreManifest = manifest;
+  try {
+    await openRestoredWindows(manifest);
+  } catch (error) {
+    console.error('failed to restore previous session', error);
+  }
+  // However restore went, the application must not end up running with no way
+  // to reach it.
+  if (tabs.records().length === 0) await createWindow();
+}
+
 function scheduleRestoreManifestSave(): void {
   if (quitting || restoreManifestTimer) return;
   restoreManifestTimer = setTimeout(() => {
@@ -554,6 +653,79 @@ function recoverBackend(): Promise<void> {
   return recoveringBackend;
 }
 
+const RESTORABLE_AGENTS: readonly string[] = ['claude', 'codex', 'grok', 'acp'];
+
+function defaultShell(): string {
+  return process.platform === 'win32'
+    ? (process.env.COMSPEC ?? 'powershell.exe')
+    : (process.env.SHELL ?? '/bin/zsh');
+}
+
+/**
+ * Rebuild the workspace request for a restored agent.
+ *
+ * A clean worktree is destroyed when its session closes, so on the way back
+ * only the branch is reliably reusable; the retained-dirty case still has its
+ * directory, and `resumeRoot` binds to it. Passing a root that no longer exists
+ * is a hard failure in packages/workspaces, so it is offered only when it does.
+ */
+function restoredWorkspaceRequest(pane: Extract<RestorePane, { kind: 'agent' }>): AgentWorkspaceRequest {
+  const { mode, sourcePath, root, branch } = pane.workspace;
+  const request: AgentWorkspaceRequest = { mode: mode as AgentWorkspaceRequest['mode'], path: sourcePath };
+  if ((mode === 'worktree' || mode === 'copy') && branch) {
+    request.resumeBranch = branch;
+    if (existsSync(root)) request.resumeRoot = root;
+  }
+  return request;
+}
+
+/**
+ * Answers Ghosttea's `onRehydratePane` for a pane whose saved session is gone:
+ * put something live back in its place, or decline and let the pane drop.
+ */
+async function rehydratePane(sessionId: string, owner?: BrowserWindow): Promise<SessionSummary | null> {
+  if (!restoreManifest) return null;
+  const pane = restorePaneFor(restoreManifest, sessionId);
+  if (!pane) return null;
+  await ensureBackend();
+  const client = backend?.automation;
+  if (!client) return null;
+
+  try {
+    if (pane.kind === 'agent' && RESTORABLE_AGENTS.includes(pane.agent)) {
+      const result = await createAgentSession(
+        {
+          agent: pane.agent,
+          ...(pane.cwd ? { cwd: pane.cwd } : {}),
+          resume: pane.nativeSessionId,
+          workspace: restoredWorkspaceRequest(pane),
+        } as CreateAgentSessionOptions,
+        owner,
+      );
+      if (!('error' in result)) return result.session;
+      // The conversation may be gone, or its workspace unusable. The pane is
+      // still worth keeping: a shell where the agent was beats losing the slot.
+      console.warn(`[main] could not resume ${pane.agent}: ${result.error.message}`);
+    }
+
+    const created = await client.createSession({
+      executable: defaultShell(),
+      args: [],
+      ...(pane.cwd ? { cwd: pane.cwd } : {}),
+      environment: { mode: 'inherit' },
+      cols: DEFAULT_COLS,
+      rows: DEFAULT_ROWS,
+      persistence: 'terminate-with-app',
+      programKind: 'interactive-shell',
+    });
+    if (owner) tabs.get(owner)?.sessionIds.add(created.id);
+    return created;
+  } catch (error) {
+    console.error('failed to rehydrate pane', error);
+    return null;
+  }
+}
+
 async function createAgentSession(
   options: CreateAgentSessionOptions,
   owner?: BrowserWindow,
@@ -643,6 +815,11 @@ function registerIpc(): void {
   ipcMain.handle('chopsticks:create-agent-session', (event, options: CreateAgentSessionOptions) => {
     const owner = BrowserWindow.fromWebContents(event.sender);
     return createAgentSession(options, owner && tabs.get(owner) ? owner : undefined);
+  });
+  ipcMain.handle('chopsticks:rehydrate-pane', (event, sessionId: unknown): Promise<SessionSummary | null> => {
+    if (typeof sessionId !== 'string' || !sessionId) return Promise.resolve(null);
+    const owner = BrowserWindow.fromWebContents(event.sender);
+    return rehydratePane(sessionId, owner && tabs.get(owner) ? owner : undefined);
   });
   ipcMain.handle('chopsticks:list-agent-sessions', (): AgentSessionSnapshot[] =>
     [...agentRecords.values()].map((record) => ({
@@ -836,13 +1013,15 @@ interface CreateWindowOptions {
   claimExistingSessions?: boolean;
   /** A user asking for a new window or tab wants an empty one, not whatever the reused slot still holds. */
   freshWorkspace?: boolean;
+  /** Reopen a specific slot, so its saved layout document is the one this window loads. */
+  slotId?: string;
 }
 
 async function createWindow(options: CreateWindowOptions = {}): Promise<BrowserWindow> {
   await ensureBackend();
   const parentRecord = options.tabOf ? tabs.get(options.tabOf) : undefined;
   const groupId = parentRecord?.groupId ?? `godview-${randomUUID()}`;
-  const tabId = allocateWorkspaceSlot(tabs.records().map((record) => record.id));
+  const tabId = options.slotId ?? allocateWorkspaceSlot(tabs.records().map((record) => record.id));
   // Reopening a window restores the layout its slot still holds; asking for a
   // new one means asking for an empty one, so that slot's document is cleared.
   const resetWorkspace = options.freshWorkspace === true;
@@ -1106,7 +1285,7 @@ app
       return;
     }
     accountUsageMonitor.start();
-    await createWindow();
+    await openInitialWindows();
   })
   .catch((error) => {
     console.error(error);

@@ -19,6 +19,7 @@ import {
 import {
   GhostteaWorkspace,
   TERMINAL_THEMES,
+  type GhostteaPaneRehydration,
   type GhostteaWorkspaceContext,
   type GhostteaWorkspacePaneDecoration,
 } from '@vibecook/ghosttea-react/workspace';
@@ -315,6 +316,13 @@ function Godview() {
     },
     [agentsBySession, platform.defaultShell, unassignedAgents],
   );
+  // Main owns the durable descriptors, so the answer to "what was this pane?"
+  // is a lookup there; the saved session id is the key both sides already share.
+  const rehydratePane = useCallback(
+    ({ sessionId }: GhostteaPaneRehydration): Promise<SessionSummary | null> =>
+      window.chopsticks.rehydratePane(sessionId),
+    [],
+  );
   const decoratePane = useCallback(
     (session: SessionSummary, paneId: string): GhostteaWorkspacePaneDecoration => {
       const agent = agentsBySession.get(session.id);
@@ -427,6 +435,7 @@ function Godview() {
               theme={theme === 'dark' ? TERMINAL_THEMES.midnight : TERMINAL_THEMES.daylight}
               decoratePane={decoratePane}
               createSplitSession={createSplitSession}
+              onRehydratePane={rehydratePane}
               claimExistingSessions={window.desktop.claimExistingSessions}
               enableRemoteSessions={window.desktop.remoteSessionsEnabled}
               active={active}

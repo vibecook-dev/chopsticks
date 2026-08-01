@@ -25,16 +25,29 @@ export interface RestoreAgentWorkspace {
   branch?: string;
 }
 
-export type RestorePane =
-  | { kind: 'terminal'; cwd?: string }
-  | {
-      kind: 'agent';
-      agent: string;
-      /** The agent's own session id — what `resume` is given on the way back. */
-      nativeSessionId: string;
-      cwd?: string;
-      workspace: RestoreAgentWorkspace;
-    };
+/**
+ * The terminal session this pane held when the snapshot was taken. Dead by the
+ * time anything restores, and that is exactly its use: Ghosttea hands the same
+ * id back through `onRehydratePane` for a pane it could not resolve, so it is
+ * the join between its saved layout and this manifest. No `paneMeta` needed —
+ * the key both sides already agree on is the one Ghosttea persisted itself.
+ */
+interface RestorePaneIdentity {
+  sessionId: string;
+}
+
+export type RestorePane = RestorePaneIdentity &
+  (
+    | { kind: 'terminal'; cwd?: string }
+    | {
+        kind: 'agent';
+        agent: string;
+        /** The agent's own session id — what `resume` is given on the way back. */
+        nativeSessionId: string;
+        cwd?: string;
+        workspace: RestoreAgentWorkspace;
+      }
+  );
 
 export interface RestoreWindow {
   slotId: string;
@@ -86,13 +99,14 @@ function describePane(
   const agent = agents.get(sessionId);
   if (!agent || agent.session.exited) {
     const cwd = usable(session.cwd);
-    return { kind: 'terminal', ...(cwd ? { cwd } : {}) };
+    return { sessionId, kind: 'terminal', ...(cwd ? { cwd } : {}) };
   }
 
   const workspace = agent.info.workspace;
   const cwd = usable(workspace.sourcePath) ?? usable(workspace.root) ?? usable(session.cwd);
   const branch = usable(workspace.branch);
   return {
+    sessionId,
     kind: 'agent',
     agent: agent.info.agent,
     nativeSessionId: agent.info.sessionId,
