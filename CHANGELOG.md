@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.1.7](https://github.com/vibecook-dev/chopsticks/compare/v0.1.6...v0.1.7) (2026-08-01)
+
+
+### Features
+
+* **godview:** record what each window would need to come back ([c761b41](https://github.com/vibecook-dev/chopsticks/commit/c761b4195d3bc18120d0f02ac7d2cd59bedd873f))
+* **godview:** record what each window would need to come back (reland) ([82ed33d](https://github.com/vibecook-dev/chopsticks/commit/82ed33de24794363e81569c5a8166c285b8a4fa7))
+* **godview:** restore the previous session on launch ([af3a4a5](https://github.com/vibecook-dev/chopsticks/commit/af3a4a5dbd080d3c780dcb989df6beac6189da16))
+* **godview:** restore the previous session on launch ([6325c0f](https://github.com/vibecook-dev/chopsticks/commit/6325c0fb9b8f7bcc745d5f8bf0adf8e99ffe8c7a))
+
+
+### Bug Fixes
+
+* **godview:** keep a window's pane layout across close and reopen ([65b1dd1](https://github.com/vibecook-dev/chopsticks/commit/65b1dd1c38ec65323ebfaa5950558ce7d6a69597))
+* **godview:** keep a window's pane layout across close and reopen ([211766e](https://github.com/vibecook-dev/chopsticks/commit/211766ea88d176d6a063c5d17517126d90d22ed6))
+
 ## [0.1.6](https://github.com/vibecook-dev/chopsticks/compare/v0.1.5...v0.1.6) (2026-07-31)
 
 
