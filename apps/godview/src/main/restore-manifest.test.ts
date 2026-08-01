@@ -57,8 +57,9 @@ describe('buildRestoreManifest', () => {
           groupId: 'g',
           activeCwd: '/repo',
           panes: [
-            { kind: 'terminal', cwd: '/repo/api' },
+            { sessionId: 't1', kind: 'terminal', cwd: '/repo/api' },
             {
+              sessionId: 't2',
               kind: 'agent',
               agent: 'claude',
               nativeSessionId: 'native-t2',
@@ -106,7 +107,7 @@ describe('buildRestoreManifest', () => {
 
     expect(manifest.windows).toHaveLength(1);
     expect(manifest.windows[0]!.slotId).toBe('godview-tab-0');
-    expect(manifest.windows[0]!.panes).toEqual([{ kind: 'terminal', cwd: '/repo' }]);
+    expect(manifest.windows[0]!.panes).toEqual([{ sessionId: 'live', kind: 'terminal', cwd: '/repo' }]);
   });
 
   it('falls back to a terminal when the agent behind a pane has exited', () => {
@@ -118,7 +119,7 @@ describe('buildRestoreManifest', () => {
       updatedAtMs: 1,
     });
 
-    expect(manifest.windows[0]!.panes).toEqual([{ kind: 'terminal', cwd: '/repo/web' }]);
+    expect(manifest.windows[0]!.panes).toEqual([{ sessionId: 't1', kind: 'terminal', cwd: '/repo/web' }]);
   });
 
   it('persists no launch arguments or environment', () => {

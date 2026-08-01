@@ -109,6 +109,8 @@ export interface SubmitPromptOptions {
 export interface ChopsticksBridge {
   createAgentSession(opts: CreateAgentSessionOptions): Promise<CreateAgentSessionResult>;
   listAgentSessions(): Promise<AgentSessionSnapshot[]>;
+  /** Answers Ghosttea's rehydration request for a persisted pane whose session is gone. */
+  rehydratePane(sessionId: string): Promise<SessionSummary | null>;
   onAgentSession(cb: (info: AgentSessionInfo) => void): () => void;
   onAgentRemoved(cb: (runtimeSessionId: string) => void): () => void;
   submitPrompt(opts: SubmitPromptOptions): Promise<PromptReceipt>;
