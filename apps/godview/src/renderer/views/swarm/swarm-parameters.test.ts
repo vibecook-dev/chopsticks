@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SWARM_PARAMETERS, normalizeSwarmParameters, radiusForStatus } from './swarm-parameters.js';
+import { monitorParameterDefaults } from '../../monitor/parameters.js';
+import {
+  DEFAULT_SWARM_PARAMETERS,
+  SWARM_PARAMETER_GROUPS,
+  normalizeSwarmParameters,
+  radiusForStatus,
+} from './swarm-parameters.js';
 
 describe('swarm parameters', () => {
   it('matches the original prototype defaults', () => {
@@ -7,13 +13,14 @@ describe('swarm parameters', () => {
       gravityPull: 0.0002,
       restitution: 0,
       frictionAir: 0.2,
-      scanlineDensity: 2,
-      scanlineOpacity: 0.4,
-      vignetteOpacity: 1,
       radiusIdle: 40,
       radiusWorking: 50,
       radiusWaiting: 70,
     });
+  });
+
+  it('declares the same defaults to the shell that it applies itself', () => {
+    expect(monitorParameterDefaults(SWARM_PARAMETER_GROUPS)).toEqual({ ...DEFAULT_SWARM_PARAMETERS });
   });
 
   it('restores finite values and clamps them to the tweak panel ranges', () => {

@@ -113,6 +113,7 @@ kbd {
 .godview-screen,
 .godview-app,
 .godview-header,
+.godview-monitor-stage,
 .godview-swarm,
 .account-usage-panel,
 .account-usage-provider-icon,
@@ -453,7 +454,9 @@ kbd {
   background: var(--control-hover-bg);
 }
 
-.godview-swarm {
+/* The stage is the shell's; whichever view is mounted fills it, and the chrome
+   overlays it. Views inherit no layout beyond these bounds. */
+.godview-monitor-stage {
   position: relative;
   width: 100%;
   height: 35%;
@@ -462,6 +465,21 @@ kbd {
   overflow: hidden;
   border-bottom: 1px solid var(--panel-border);
   background: var(--panel-bg);
+}
+
+.godview-monitor-chrome {
+  position: absolute;
+  z-index: 7;
+  top: 11px;
+  left: 13px;
+  width: min(300px, calc(100% - 26px));
+}
+
+.godview-swarm {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
   isolation: isolate;
 }
 
@@ -478,11 +496,6 @@ kbd {
 }
 
 .account-usage-panel {
-  position: absolute;
-  z-index: 7;
-  top: 11px;
-  left: 13px;
-  width: min(300px, calc(100% - 26px));
   color: var(--text-main);
 }
 
@@ -1132,4 +1145,184 @@ kbd {
     opacity: 0.18;
     transform: translate(-50%, -50%) scale(0.72);
   }
+}
+
+.godview-view-switch {
+  height: 22px;
+  padding: 0 4px;
+  border: 1px solid var(--panel-border);
+  border-radius: 5px;
+  color: var(--text-muted);
+  background: transparent;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: 120ms ease;
+  -webkit-app-region: no-drag;
+}
+
+.godview-view-switch:hover {
+  border-color: var(--control-hover-border);
+  color: var(--text-main);
+  background: var(--control-hover-bg);
+}
+
+/* List view — a non-spatial reading of the same agents. */
+.godview-list {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* Clear whatever chrome the shell overlays on the stage. */
+  padding-top: calc(var(--monitor-chrome-height, 0px) + 18px);
+  color: var(--text-main);
+}
+
+.godview-list-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 13px 6px;
+  color: var(--text-faint);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.godview-list-new {
+  padding: 3px 7px;
+  border: 1px solid var(--panel-border);
+  border-radius: 5px;
+  color: var(--text-muted);
+  background: transparent;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: 120ms ease;
+}
+
+.godview-list-new:hover {
+  border-color: var(--control-hover-border);
+  color: var(--text-main);
+  background: var(--control-hover-bg);
+}
+
+.godview-list-rows {
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 0 13px 13px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.godview-list-row {
+  width: 100%;
+  min-height: var(--list-row-height, 38px);
+  display: grid;
+  grid-template-columns: 10px var(--list-project-width, 150px) minmax(0, 0.9fr) minmax(0, 1.4fr) 44px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-left: 3px solid transparent;
+  border-radius: 6px;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: 120ms ease;
+}
+
+.godview-list-row:hover {
+  border-color: var(--control-hover-border);
+  background: var(--control-hover-bg);
+}
+
+.godview-list-row.is-linked {
+  border-left-color: var(--agent-color);
+}
+
+.godview-list-row.is-active {
+  border-color: var(--agent-color);
+  background: var(--control-hover-bg);
+}
+
+.godview-list-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--agent-color);
+}
+
+.godview-list-row.is-idle .godview-list-status {
+  opacity: 0.4;
+}
+
+.godview-list-row.is-waiting .godview-list-status {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--agent-color) 30%, transparent);
+}
+
+.godview-list-project {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.godview-list-project strong {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.godview-list-project small,
+.godview-list-agent,
+.godview-list-detail,
+.godview-list-context {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.godview-list-agent {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.godview-list-agent i {
+  display: flex;
+  font-size: 11px;
+}
+
+.godview-list-terminal {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.godview-list-context {
+  color: var(--text-faint);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.godview-list-empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-faint);
+  font-size: 10px;
+  letter-spacing: 0.08em;
 }

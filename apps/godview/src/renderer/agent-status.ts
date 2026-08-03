@@ -2,21 +2,12 @@ import type { SessionActivity } from '@vibecook/ghosttea-protocol';
 import type { AgentSessionInfo, AgentStateMessage } from '../protocol.js';
 import { folderName } from './folder-name.js';
 
+/**
+ * What a session is doing, derived only from reduced runtime state — never from
+ * terminal text (DESIGN ADR-003/-005). How a status is then drawn is each
+ * monitor view's own business.
+ */
 export type AgentVisualStatus = 'idle' | 'working' | 'waiting';
-export type AgentBubbleVisualState = AgentVisualStatus | 'ignited';
-
-export interface LiveAgentView {
-  id: string;
-  info: AgentSessionInfo;
-  state?: AgentStateMessage;
-  status: AgentVisualStatus;
-  project: string;
-  provider: string;
-  model?: string;
-  branch?: string;
-  detail: string;
-  color: string;
-}
 
 const terminalLifecycles = new Set(['exited', 'failed']);
 
@@ -41,17 +32,6 @@ export function classifyTerminalStatus(
   activity: Pick<SessionActivity, 'kind'> | undefined,
 ): Exclude<AgentVisualStatus, 'waiting'> {
   return activity?.kind === 'foreground-job' ? 'working' : 'idle';
-}
-
-export function agentBubbleVisualState(status: AgentVisualStatus): AgentBubbleVisualState {
-  switch (status) {
-    case 'idle':
-      return 'working';
-    case 'working':
-      return 'ignited';
-    case 'waiting':
-      return 'waiting';
-  }
 }
 
 export function projectLabel(info: AgentSessionInfo, currentCwd?: string): string {
@@ -92,50 +72,4 @@ export function agentColor(id: string): string {
     hash = Math.imul(hash, 16777619);
   }
   return `hsl(${Math.abs(hash) % 360} 62% 44%)`;
-}
-
-export function liveAgentView(info: AgentSessionInfo, state?: AgentStateMessage): LiveAgentView | undefined {
-  if (info.session.exited) return undefined;
-  const status = classifyAgentStatus(state);
-  if (!status) return undefined;
-  const environment = state?.state.environment;
-  const currentCwd = environment?.currentCwd?.value;
-  const model = environment?.model?.value;
-  const git = environment?.git?.value;
-  const branch = environment?.git ? (git?.branch ?? undefined) : info.workspace.branch;
-  return {
-    // Keep the visual body stable when an unassigned terminal becomes an agent.
-    id: info.session.id,
-    info,
-    state,
-    status,
-    project: projectLabel(info, currentCwd),
-    provider: providerLabel(info.agent),
-    ...(model ? { model: model.displayName || model.id } : {}),
-    ...(branch ? { branch } : {}),
-    detail: agentDetail(state, status),
-    color: agentColor(info.runtimeSessionId),
-  };
-}
-
-export function nextAgentForStatus(
-  agents: readonly LiveAgentView[],
-  status: AgentVisualStatus,
-  currentSessionId: string | undefined,
-): LiveAgentView | undefined {
-  const matching = agents.filter((agent) => agent.status === status);
-  if (matching.length === 0) return undefined;
-  const currentIndex = matching.findIndex((agent) => agent.info.session.id === currentSessionId);
-  return matching[(currentIndex + 1) % matching.length];
-}
-
-export function bubbleRadius(status: AgentVisualStatus): number {
-  switch (status) {
-    case 'idle':
-      return 40;
-    case 'working':
-      return 50;
-    case 'waiting':
-      return 70;
-  }
 }

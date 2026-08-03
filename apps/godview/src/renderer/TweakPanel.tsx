@@ -1,44 +1,36 @@
-import type { SwarmParameterDefinition, SwarmParameterKey, SwarmParameters } from './swarm-parameters.js';
-import {
-  OVERLAY_PARAMETER_DEFINITIONS,
-  PHYSICS_PARAMETER_DEFINITIONS,
-  SIZE_PARAMETER_DEFINITIONS,
-} from './swarm-parameters.js';
+import type { MonitorParameterDefinition, MonitorParameterGroup, MonitorParameters } from './monitor/parameters.js';
 
 type GodviewTheme = 'light' | 'dark';
+
+/** One group of sliders bound to whichever store owns those keys. */
+export interface TweakSection {
+  id: string;
+  group: MonitorParameterGroup;
+  values: MonitorParameters;
+  onChange: (key: string, value: number) => void;
+}
 
 interface TweakPanelProps {
   open: boolean;
   theme: GodviewTheme;
-  parameters: SwarmParameters;
+  sections: readonly TweakSection[];
   onClose: () => void;
   onThemeChange: (theme: GodviewTheme) => void;
-  onParameterChange: (key: SwarmParameterKey, value: number) => void;
   onReset: () => void;
 }
 
-function displayedValue(definition: SwarmParameterDefinition, value: number): string {
+function displayedValue(definition: MonitorParameterDefinition, value: number): string {
   if (definition.step >= 1) return String(Math.round(value));
   const precision = Math.max(0, Math.ceil(-Math.log10(definition.step)));
   return value.toFixed(precision);
 }
 
-function ParameterGroup({
-  title,
-  definitions,
-  parameters,
-  onChange,
-}: {
-  title: string;
-  definitions: readonly SwarmParameterDefinition[];
-  parameters: SwarmParameters;
-  onChange: (key: SwarmParameterKey, value: number) => void;
-}) {
+function ParameterGroup({ group, values, onChange }: Omit<TweakSection, 'id'>) {
   return (
     <fieldset className="tweak-group">
-      <legend>{title}</legend>
-      {definitions.map((definition) => {
-        const value = parameters[definition.key];
+      <legend>{group.title}</legend>
+      {group.controls.map((definition) => {
+        const value = values[definition.key] ?? definition.defaultValue;
         return (
           <label className="tweak-control" key={definition.key}>
             <span>{definition.label}</span>
@@ -58,15 +50,7 @@ function ParameterGroup({
   );
 }
 
-export function TweakPanel({
-  open,
-  theme,
-  parameters,
-  onClose,
-  onThemeChange,
-  onParameterChange,
-  onReset,
-}: TweakPanelProps) {
+export function TweakPanel({ open, theme, sections, onClose, onThemeChange, onReset }: TweakPanelProps) {
   if (!open) return null;
   return (
     <aside id="godview-tweak-panel" className="godview-tweak-panel" aria-label="Godview system controls">
@@ -83,24 +67,9 @@ export function TweakPanel({
           <option value="dark">Dark</option>
         </select>
       </label>
-      <ParameterGroup
-        title="CRT OVERLAYS"
-        definitions={OVERLAY_PARAMETER_DEFINITIONS}
-        parameters={parameters}
-        onChange={onParameterChange}
-      />
-      <ParameterGroup
-        title="ENGINE VARIABLES"
-        definitions={PHYSICS_PARAMETER_DEFINITIONS}
-        parameters={parameters}
-        onChange={onParameterChange}
-      />
-      <ParameterGroup
-        title="AGENT SIZES"
-        definitions={SIZE_PARAMETER_DEFINITIONS}
-        parameters={parameters}
-        onChange={onParameterChange}
-      />
+      {sections.map((section) => (
+        <ParameterGroup key={section.id} group={section.group} values={section.values} onChange={section.onChange} />
+      ))}
       <button className="tweak-reset" type="button" onClick={onReset}>
         RESET DEFAULTS
       </button>

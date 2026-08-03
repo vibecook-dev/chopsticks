@@ -7,38 +7,11 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import Matter from 'matter-js';
-import type { SessionSummary } from '@vibecook/ghosttea-protocol';
-import type { AgentSessionInfo, AgentStateMessage } from '../protocol.js';
-import { AccountUsagePanel } from './AccountUsagePanel.js';
-import { AgentIcon } from './AgentIcon.js';
-import {
-  agentBubbleVisualState,
-  liveAgentView,
-  type AgentBubbleVisualState,
-  type AgentVisualStatus,
-  type LiveAgentView,
-} from './agent-status.js';
-import type { PaneAttachment } from './pane-attachments.js';
-import { radiusForStatus, type SwarmParameters } from './swarm-parameters.js';
-
-interface AgentRecord {
-  info: AgentSessionInfo;
-  state?: AgentStateMessage;
-}
-
-export interface UnassignedAgentView {
-  id: string;
-  session: SessionSummary;
-  cwd?: string;
-  status: Exclude<AgentVisualStatus, 'waiting'>;
-  project: string;
-  provider: '';
-  detail: string;
-  color: string;
-  spawnPosition: { x: number; y: number };
-}
-
-export type AgentBubbleView = LiveAgentView | UnassignedAgentView;
+import { AgentIcon } from '../../AgentIcon.js';
+import type { AgentVisualStatus } from '../../agent-status.js';
+import { monitorChromeElements } from '../../monitor/chrome.js';
+import type { AgentMonitorProps, MonitorAgent } from '../../monitor/types.js';
+import { normalizeSwarmParameters, radiusForStatus, type SwarmParameters } from './swarm-parameters.js';
 
 interface IgnitionParticleStyle extends CSSProperties {
   '--ignition-angle': string;
@@ -61,82 +34,6 @@ const IGNITION_PARTICLES: readonly IgnitionParticleStyle[] = Array.from({ length
   '--ignition-size': `${(2 + particleNoise(index, 4) * 1.5).toFixed(2)}px`,
 }));
 
-export function useLiveAgentViews(): readonly LiveAgentView[] {
-  const [records, setRecords] = useState(() => new Map<string, AgentRecord>());
-
-  useEffect(() => {
-    let alive = true;
-    let publishFrame: number | undefined;
-    const current = new Map<string, AgentRecord>();
-    const removed = new Set<string>();
-    const publish = (): void => {
-      if (publishFrame !== undefined) return;
-      publishFrame = window.requestAnimationFrame(() => {
-        publishFrame = undefined;
-        if (alive) setRecords(new Map(current));
-      });
-    };
-    const remember = (info: AgentSessionInfo): void => {
-      removed.delete(info.runtimeSessionId);
-      current.set(info.runtimeSessionId, { ...current.get(info.runtimeSessionId), info });
-      publish();
-    };
-    const forget = (runtimeSessionId: string): void => {
-      removed.add(runtimeSessionId);
-      if (current.delete(runtimeSessionId)) publish();
-    };
-    const updateState = (state: AgentStateMessage): void => {
-      const existing = current.get(state.runtimeSessionId);
-      if (!existing) return;
-      current.set(state.runtimeSessionId, { ...existing, state });
-      publish();
-    };
-
-    const unsubscribeSession = window.chopsticks.onAgentSession(remember);
-    const unsubscribeState = window.chopsticks.onAgentState(updateState);
-    const unsubscribeRemoved = window.chopsticks.onAgentRemoved(forget);
-    const unsubscribeFinal = window.chopsticks.onWorkspaceFinal((event) => forget(event.runtimeSessionId));
-
-    void window.chopsticks.listAgentSessions().then((snapshots) => {
-      if (!alive) return;
-      const next = new Map<string, AgentRecord>();
-      for (const snapshot of snapshots) {
-        const id = snapshot.info.runtimeSessionId;
-        if (removed.has(id) || snapshot.final || snapshot.info.session.exited) continue;
-        const live = current.get(id);
-        next.set(id, {
-          info: live?.info ?? snapshot.info,
-          state: live?.state ?? snapshot.state,
-        });
-      }
-      for (const [id, record] of current) {
-        if (!next.has(id) && !removed.has(id)) next.set(id, record);
-      }
-      current.clear();
-      for (const [id, record] of next) current.set(id, record);
-      publish();
-    });
-
-    return () => {
-      alive = false;
-      if (publishFrame !== undefined) window.cancelAnimationFrame(publishFrame);
-      unsubscribeSession();
-      unsubscribeState();
-      unsubscribeRemoved();
-      unsubscribeFinal();
-    };
-  }, []);
-
-  return useMemo(
-    () =>
-      [...records.values()]
-        .map(({ info, state }) => liveAgentView(info, state))
-        .filter((agent): agent is LiveAgentView => Boolean(agent))
-        .sort((left, right) => left.info.session.createdAtMs - right.info.session.createdAtMs),
-    [records],
-  );
-}
-
 interface PhysicsBody {
   body: Matter.Body;
   currentRadius: number;
@@ -148,14 +45,21 @@ interface PhysicsBody {
   dragged: boolean;
 }
 
+interface ChromeObstacle {
+  element: HTMLElement;
+  body: Matter.Body;
+  width: number;
+  height: number;
+}
+
 interface PhysicsWorld {
   engine: Matter.Engine;
   walls: [Matter.Body, Matter.Body, Matter.Body, Matter.Body];
-  usageObstacle: Matter.Body;
+  obstacles: readonly ChromeObstacle[];
 }
 
 const PHYSICAL_GAP = 4;
-const USAGE_OBSTACLE_PADDING = 7;
+const CHROME_OBSTACLE_PADDING = 7;
 const DRAG_STIFFNESS = 0.2;
 const WALL_THICKNESS = 5000;
 const SPAWN_DURATION_MS = 720;
@@ -164,6 +68,29 @@ const SPAWN_CANDIDATES = 40;
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const LONG_PRESS_DURATION_MS = 520;
 const LONG_PRESS_MOVE_TOLERANCE = 8;
+
+type SwarmVisualState = AgentVisualStatus | 'ignited';
+
+/**
+ * The swarm's own reading of status, and the reason a live agent is never drawn
+ * at the idle size: the smallest body is reserved for a terminal nobody has
+ * claimed, so an agent merely sitting ready still reads as present.
+ */
+function swarmVisualState(agent: MonitorAgent): SwarmVisualState {
+  if (!agent.agent) return agent.status;
+  switch (agent.status) {
+    case 'idle':
+      return 'working';
+    case 'working':
+      return 'ignited';
+    case 'waiting':
+      return 'waiting';
+  }
+}
+
+function swarmAppearance(state: SwarmVisualState): AgentVisualStatus {
+  return state === 'ignited' ? 'working' : state;
+}
 
 function animateSpawn(element: HTMLButtonElement): void {
   if (
@@ -232,33 +159,12 @@ function findSpawnPosition(
   return bestPosition;
 }
 
-function isLiveAgent(agent: AgentBubbleView): agent is LiveAgentView {
-  return 'info' in agent;
-}
-
-function visualStateForBubble(agent: AgentBubbleView): AgentBubbleVisualState {
-  return isLiveAgent(agent) ? agentBubbleVisualState(agent.status) : agent.status;
-}
-
-function appearanceForVisualState(state: AgentBubbleVisualState): AgentVisualStatus {
-  return state === 'ignited' ? 'working' : state;
-}
-
 function clampSpawnPosition(width: number, height: number, radius: number, position: Matter.Vector): Matter.Vector {
   const margin = radius + PHYSICAL_GAP;
   return {
     x: Math.min(Math.max(position.x, margin), Math.max(margin, width - margin)),
     y: Math.min(Math.max(position.y, margin), Math.max(margin, height - margin)),
   };
-}
-
-interface AgentSwarmProps {
-  agents: readonly AgentBubbleView[];
-  paneAttachments: ReadonlyMap<string, PaneAttachment>;
-  parameters: SwarmParameters;
-  activeSessionId?: string;
-  onSelect: (agent: AgentBubbleView) => void;
-  onCreateAt: (position: { x: number; y: number }) => void | Promise<void>;
 }
 
 interface PendingLongPress {
@@ -268,14 +174,8 @@ interface PendingLongPress {
   position: { x: number; y: number };
 }
 
-export function AgentSwarm({
-  agents,
-  paneAttachments,
-  parameters,
-  activeSessionId,
-  onSelect,
-  onCreateAt,
-}: AgentSwarmProps) {
+export function AgentSwarm({ agents, parameters, actions }: AgentMonitorProps) {
+  const swarm = useMemo<SwarmParameters>(() => normalizeSwarmParameters(parameters), [parameters]);
   const containerRef = useRef<HTMLDivElement>(null);
   const elementRefs = useRef(new Map<string, HTMLDivElement>());
   const bubbleRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -284,7 +184,7 @@ export function AgentSwarm({
   const longPressRef = useRef<PendingLongPress | undefined>(undefined);
   const longPressTimerRef = useRef<number | undefined>(undefined);
   const worldRef = useRef<PhysicsWorld | undefined>(undefined);
-  const parametersRef = useRef(parameters);
+  const parametersRef = useRef(swarm);
   const [longPressPosition, setLongPressPosition] = useState<{ x: number; y: number }>();
 
   const cancelLongPress = (): void => {
@@ -302,16 +202,16 @@ export function AgentSwarm({
   );
 
   useEffect(() => {
-    parametersRef.current = parameters;
+    parametersRef.current = swarm;
     const world = worldRef.current;
     if (!world) return;
     for (const wrapper of bodiesRef.current.values()) {
-      wrapper.body.restitution = parameters.restitution;
-      wrapper.body.frictionAir = parameters.frictionAir;
+      wrapper.body.restitution = swarm.restitution;
+      wrapper.body.frictionAir = swarm.frictionAir;
     }
-    for (const wall of world.walls) wall.restitution = parameters.restitution;
-    world.usageObstacle.restitution = parameters.restitution;
-  }, [parameters]);
+    for (const wall of world.walls) wall.restitution = swarm.restitution;
+    for (const obstacle of world.obstacles) obstacle.body.restitution = swarm.restitution;
+  }, [swarm]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -328,13 +228,21 @@ export function AgentSwarm({
       Matter.Bodies.rectangle(-WALL_THICKNESS / 2, height / 2, WALL_THICKNESS, 10000, wallOptions),
       Matter.Bodies.rectangle(width + WALL_THICKNESS / 2, height / 2, WALL_THICKNESS, 10000, wallOptions),
     ];
-    const usagePanel = container.querySelector<HTMLElement>('.account-usage-panel');
-    const initialPanelRect = usagePanel?.getBoundingClientRect();
-    let obstacleWidth = Math.max(1, (initialPanelRect?.width ?? 1) + USAGE_OBSTACLE_PADDING * 2);
-    let obstacleHeight = Math.max(1, (initialPanelRect?.height ?? 1) + USAGE_OBSTACLE_PADDING * 2);
-    const usageObstacle = Matter.Bodies.rectangle(0, 0, obstacleWidth, obstacleHeight, wallOptions);
-    Matter.Composite.add(engine.world, [...walls, usageObstacle]);
-    worldRef.current = { engine, walls, usageObstacle };
+    // Shell chrome is solid: bubbles settle around the usage panel rather than
+    // drifting under it. Which elements those are is the shell's business.
+    const obstacles: ChromeObstacle[] = monitorChromeElements(container).map((element) => {
+      const rect = element.getBoundingClientRect();
+      const obstacleWidth = Math.max(1, rect.width + CHROME_OBSTACLE_PADDING * 2);
+      const obstacleHeight = Math.max(1, rect.height + CHROME_OBSTACLE_PADDING * 2);
+      return {
+        element,
+        body: Matter.Bodies.rectangle(0, 0, obstacleWidth, obstacleHeight, wallOptions),
+        width: obstacleWidth,
+        height: obstacleHeight,
+      };
+    });
+    Matter.Composite.add(engine.world, [...walls, ...obstacles.map((obstacle) => obstacle.body)]);
+    worldRef.current = { engine, walls, obstacles };
 
     const updateBounds = (): void => {
       width = container.clientWidth;
@@ -343,23 +251,25 @@ export function AgentSwarm({
       Matter.Body.setPosition(walls[1], { x: width / 2, y: -WALL_THICKNESS / 2 });
       Matter.Body.setPosition(walls[2], { x: -WALL_THICKNESS / 2, y: height / 2 });
       Matter.Body.setPosition(walls[3], { x: width + WALL_THICKNESS / 2, y: height / 2 });
-      if (!usagePanel) return;
+      if (obstacles.length === 0) return;
       const containerRect = container.getBoundingClientRect();
-      const panelRect = usagePanel.getBoundingClientRect();
-      const nextWidth = Math.max(1, panelRect.width + USAGE_OBSTACLE_PADDING * 2);
-      const nextHeight = Math.max(1, panelRect.height + USAGE_OBSTACLE_PADDING * 2);
-      Matter.Body.scale(usageObstacle, nextWidth / obstacleWidth, nextHeight / obstacleHeight);
-      obstacleWidth = nextWidth;
-      obstacleHeight = nextHeight;
-      Matter.Body.setPosition(usageObstacle, {
-        x: panelRect.left - containerRect.left + panelRect.width / 2,
-        y: panelRect.top - containerRect.top + panelRect.height / 2,
-      });
+      for (const obstacle of obstacles) {
+        const rect = obstacle.element.getBoundingClientRect();
+        const nextWidth = Math.max(1, rect.width + CHROME_OBSTACLE_PADDING * 2);
+        const nextHeight = Math.max(1, rect.height + CHROME_OBSTACLE_PADDING * 2);
+        Matter.Body.scale(obstacle.body, nextWidth / obstacle.width, nextHeight / obstacle.height);
+        obstacle.width = nextWidth;
+        obstacle.height = nextHeight;
+        Matter.Body.setPosition(obstacle.body, {
+          x: rect.left - containerRect.left + rect.width / 2,
+          y: rect.top - containerRect.top + rect.height / 2,
+        });
+      }
     };
 
     const resizeObserver = new ResizeObserver(updateBounds);
     resizeObserver.observe(container);
-    if (usagePanel) resizeObserver.observe(usagePanel);
+    for (const obstacle of obstacles) resizeObserver.observe(obstacle.element);
     updateBounds();
 
     let frame = 0;
@@ -428,19 +338,18 @@ export function AgentSwarm({
       spawnedIdsRef.current.delete(id);
     }
     for (const agent of agents) {
-      const targetRadius = radiusForStatus(parameters, appearanceForVisualState(visualStateForBubble(agent)));
+      const targetRadius = radiusForStatus(swarm, swarmAppearance(swarmVisualState(agent)));
       const existing = bodiesRef.current.get(agent.id);
       if (existing) {
         existing.targetRadius = targetRadius;
         continue;
       }
-      const spawnPosition =
-        'spawnPosition' in agent
-          ? clampSpawnPosition(width, height, targetRadius, agent.spawnPosition)
-          : findSpawnPosition(width, height, targetRadius, bodiesRef.current.values());
+      const spawnPosition = agent.spawnHint
+        ? clampSpawnPosition(width, height, targetRadius, agent.spawnHint)
+        : findSpawnPosition(width, height, targetRadius, bodiesRef.current.values());
       const body = Matter.Bodies.circle(spawnPosition.x, spawnPosition.y, targetRadius + PHYSICAL_GAP, {
-        restitution: parameters.restitution,
-        frictionAir: parameters.frictionAir,
+        restitution: swarm.restitution,
+        frictionAir: swarm.frictionAir,
         friction: 0.1,
       });
       bodiesRef.current.set(agent.id, {
@@ -453,7 +362,7 @@ export function AgentSwarm({
       });
       Matter.Composite.add(world.engine.world, body);
     }
-  }, [agents, parameters.radiusIdle, parameters.radiusWaiting, parameters.radiusWorking]);
+  }, [agents, swarm]);
 
   const moveBody = (event: ReactPointerEvent<HTMLButtonElement>, id: string): void => {
     const wrapper = bodiesRef.current.get(id);
@@ -489,7 +398,7 @@ export function AgentSwarm({
           longPressTimerRef.current = undefined;
           longPressRef.current = undefined;
           setLongPressPosition(undefined);
-          void onCreateAt(pending.position);
+          void actions.createAt(pending.position);
         }, LONG_PRESS_DURATION_MS);
       }}
       onPointerMove={(event) => {
@@ -510,7 +419,6 @@ export function AgentSwarm({
       }}
     >
       <div className="godview-swarm-grid" aria-hidden="true" />
-      <AccountUsagePanel />
       {longPressPosition ? (
         <span
           className="godview-long-press-indicator"
@@ -525,16 +433,13 @@ export function AgentSwarm({
         </div>
       ) : null}
       {agents.map((agent) => {
-        const liveAgent = isLiveAgent(agent);
-        const visualState = visualStateForBubble(agent);
-        const appearance = appearanceForVisualState(visualState);
+        const facet = agent.agent;
+        const visualState = swarmVisualState(agent);
+        const appearance = swarmAppearance(visualState);
         const ignited = visualState === 'ignited';
-        const sessionId = liveAgent ? agent.info.session.id : agent.session.id;
-        const attachment = paneAttachments.get(sessionId);
-        const linkedColor = attachment?.primary;
+        const linkedColor = agent.attachment?.primary;
         const style = { '--agent-color': linkedColor ?? agent.color } as CSSProperties;
-        const active = activeSessionId === sessionId;
-        const contextWindow = liveAgent ? agent.state?.state.contextWindow : undefined;
+        const contextWindow = facet?.contextWindow;
         const contextPercent = contextWindow ? Math.floor(contextWindow.usedPercent) : undefined;
         const contextLabel =
           contextPercent === undefined ? 'CTX:--%' : `CTX:${contextPercent.toString().padStart(2, '0')}%`;
@@ -557,15 +462,15 @@ export function AgentSwarm({
                 else bubbleRefs.current.delete(agent.id);
               }}
               type="button"
-              className={`agent-bubble is-${appearance}${ignited ? ' is-ignited' : ''}${liveAgent ? '' : ' is-unassigned'}${linkedColor ? ' is-linked' : ''}${active ? ' is-active' : ''}`}
+              className={`agent-bubble is-${appearance}${ignited ? ' is-ignited' : ''}${facet ? '' : ' is-unassigned'}${linkedColor ? ' is-linked' : ''}${agent.active ? ' is-active' : ''}`}
               style={style}
-              aria-current={active ? 'true' : undefined}
+              aria-current={agent.active ? 'true' : undefined}
               aria-label={
-                liveAgent
-                  ? `${agent.project}, ${agent.model ?? agent.provider}, ${agent.status}: ${agent.detail}, ${contextLabel}`
+                facet
+                  ? `${agent.project}, ${facet.model ?? facet.provider}, ${agent.status}: ${agent.detail}, ${contextLabel}`
                   : `${agent.project}, unassigned terminal, ${agent.status}`
               }
-              title={liveAgent ? `${agent.project} · ${agent.model ?? agent.provider} · ${agent.detail}` : agent.detail}
+              title={facet ? `${agent.project} · ${facet.model ?? facet.provider} · ${agent.detail}` : agent.detail}
               onPointerDown={(event) => {
                 const wrapper = bodiesRef.current.get(agent.id);
                 const world = worldRef.current;
@@ -618,7 +523,7 @@ export function AgentSwarm({
                   wrapper.dragged = false;
                   return;
                 }
-                onSelect(agent);
+                actions.select(agent);
                 if (wrapper) {
                   Matter.Body.applyForce(wrapper.body, wrapper.body.position, {
                     x: (Math.random() - 0.5) * 0.003,
@@ -627,7 +532,7 @@ export function AgentSwarm({
                 }
               }}
             >
-              {liveAgent && contextWindow ? (
+              {contextWindow ? (
                 <span
                   className="agent-bubble-context-fill"
                   style={{ height: `${contextWindow.usedPercent}%` }}
@@ -644,24 +549,24 @@ export function AgentSwarm({
                   </span>
                 </span>
               ) : null}
-              {attachment?.mirrors.length ? (
+              {agent.attachment?.mirrors.length ? (
                 <span className="agent-bubble-mirror-rings" aria-hidden="true">
-                  {attachment.mirrors.map((color, index) => (
+                  {agent.attachment.mirrors.map((color, index) => (
                     <i key={`${color}-${index}`} style={{ inset: `${4 + index * 3}px`, borderColor: color }} />
                   ))}
                 </span>
               ) : null}
-              {liveAgent ? (
+              {facet ? (
                 <span className="agent-bubble-glyph" aria-hidden="true">
-                  <AgentIcon agent={agent.info.agent} />
+                  <AgentIcon agent={facet.kind} />
                 </span>
               ) : null}
               <span className="agent-bubble-copy">
-                {liveAgent && agent.branch ? <span className="agent-bubble-branch">{agent.branch}</span> : null}
+                {facet?.branch ? <span className="agent-bubble-branch">{facet.branch}</span> : null}
                 <strong>{agent.project}</strong>
-                {liveAgent ? <span className="agent-bubble-provider">{agent.model ?? agent.provider}</span> : null}
+                {facet ? <span className="agent-bubble-provider">{facet.model ?? facet.provider}</span> : null}
               </span>
-              {liveAgent ? <span className="agent-bubble-context">{contextLabel}</span> : null}
+              {facet ? <span className="agent-bubble-context">{contextLabel}</span> : null}
             </button>
           </div>
         );
