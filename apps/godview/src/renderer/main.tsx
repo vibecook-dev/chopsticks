@@ -23,18 +23,23 @@ import {
   type GhostteaWorkspaceContext,
   type GhostteaWorkspacePaneDecoration,
 } from '@vibecook/ghosttea-react/workspace';
-import { AgentSwarm, useLiveAgentViews, type AgentBubbleView, type UnassignedAgentView } from './AgentSwarm.js';
-import { TweakPanel } from './TweakPanel.js';
-import { agentColor, classifyTerminalStatus, nextAgentForStatus, type AgentVisualStatus } from './agent-status.js';
-import { folderName } from './folder-name.js';
+import { AccountUsagePanel } from './AccountUsagePanel.js';
+import { TweakPanel, type TweakSection } from './TweakPanel.js';
+import type { AgentVisualStatus } from './agent-status.js';
+import { MONITOR_CHROME_ATTRIBUTE, MONITOR_STAGE_CLASS } from './monitor/chrome.js';
+import { monitorAgentCounts, nextMonitorAgentForStatus } from './monitor/agents.js';
+import {
+  loadMonitorParameters,
+  monitorParameterDefaults,
+  normalizeMonitorParameters,
+  saveMonitorParameters,
+  type MonitorParameters,
+} from './monitor/parameters.js';
+import { MONITOR_VIEWS, monitorViewFor } from './monitor/registry.js';
+import { useMonitorAgents } from './monitor/useMonitorAgents.js';
 import { buildPaneAttachments } from './pane-attachments.js';
 import { paneBadgeLabel, paneSessionLaunchSource } from './pane-session.js';
-import {
-  DEFAULT_SWARM_PARAMETERS,
-  normalizeSwarmParameters,
-  type SwarmParameterKey,
-  type SwarmParameters,
-} from './swarm-parameters.js';
+import { SCREEN_PARAMETER_GROUPS } from './screen-parameters.js';
 import '@vibecook/ghosttea-react/styles.css';
 import '@vibecook/ghosttea-react/workspace.css';
 import './styles.css';
@@ -42,8 +47,16 @@ import './styles.css';
 type GodviewTheme = 'light' | 'dark';
 
 const THEME_STORAGE_KEY = 'godview:color-theme:v1';
-const PARAMETERS_STORAGE_KEY = 'godview:swarm-parameters:v1';
+const VIEW_STORAGE_KEY = 'godview:monitor-view:v1';
+const SCREEN_PARAMETERS_KEY = 'godview:screen-parameters:v1';
+// Where every tunable lived before views owned their own controls; read as a
+// seed so an installation keeps the look it was tuned to.
+const LEGACY_PARAMETERS_KEY = 'godview:swarm-parameters:v1';
 const WORKSPACE_STORAGE_KEY = `godview:ghosttea-workspace:v2:${window.desktop.tabId}`;
+
+function viewParametersKey(viewId: string): string {
+  return `godview:monitor-parameters:v1:${viewId}`;
+}
 
 // A slot is reused across windows, so an explicitly new tab starts from an
 // empty document rather than inheriting the layout its predecessor left there.
@@ -73,16 +86,16 @@ function initialTheme(): GodviewTheme {
   }
 }
 
-function initialParameters(): SwarmParameters {
+function initialViewId(): string {
   try {
-    const saved = localStorage.getItem(PARAMETERS_STORAGE_KEY);
-    return normalizeSwarmParameters(saved ? JSON.parse(saved) : undefined);
+    return monitorViewFor(localStorage.getItem(VIEW_STORAGE_KEY)).id;
   } catch {
-    return { ...DEFAULT_SWARM_PARAMETERS };
+    return monitorViewFor(undefined).id;
   }
 }
 
 const bootTheme = initialTheme();
+const bootViewId = initialViewId();
 document.documentElement.dataset.theme = bootTheme;
 
 const terminalRuntime = createGhostteaTerminalRuntime({
@@ -112,14 +125,32 @@ function WorkspaceReporter({ workspace }: { workspace: GhostteaWorkspaceContext 
 function Godview() {
   const [active, setActive] = useState(document.visibilityState !== 'hidden');
   const [theme, setTheme] = useState<GodviewTheme>(bootTheme);
-  const [parameters, setParameters] = useState<SwarmParameters>(initialParameters);
+  const [viewId, setViewId] = useState(bootViewId);
+  const [parametersByView, setParametersByView] = useState<Record<string, MonitorParameters>>(() => ({
+    [bootViewId]: loadMonitorParameters(
+      viewParametersKey(bootViewId),
+      monitorViewFor(bootViewId).parameterGroups,
+      LEGACY_PARAMETERS_KEY,
+    ),
+  }));
+  const [screenParameters, setScreenParameters] = useState<MonitorParameters>(() =>
+    loadMonitorParameters(SCREEN_PARAMETERS_KEY, SCREEN_PARAMETER_GROUPS, LEGACY_PARAMETERS_KEY),
+  );
   const [tweakPanelOpen, setTweakPanelOpen] = useState(false);
   const [workspace, setWorkspace] = useState<GhostteaWorkspaceContext>();
   const [paneColors, setPaneColors] = useState<ReadonlyMap<string, string>>(() => new Map());
-  const [unassignedAgents, setUnassignedAgents] = useState<readonly UnassignedAgentView[]>([]);
   const paneColorRegistry = useRef(new Map<string, string>());
   const nextPaneHue = useRef(Math.random() * 360);
-  const agents = useLiveAgentViews();
+  const stageRef = useRef<HTMLElement>(null);
+  const chromeRef = useRef<HTMLDivElement>(null);
+  const view = monitorViewFor(viewId);
+  // Seeded on boot and on every switch, so the fallback is a guard rather than a
+  // path. Memoized regardless: a fresh object here would re-fire the save effect
+  // on every render.
+  const parameters = useMemo(
+    () => parametersByView[view.id] ?? monitorParameterDefaults(view.parameterGroups),
+    [parametersByView, view],
+  );
   const platform = useMemo(
     () => ({
       platform: window.desktop.platform,
@@ -167,11 +198,14 @@ function Godview() {
 
   useEffect(() => {
     try {
-      localStorage.setItem(PARAMETERS_STORAGE_KEY, JSON.stringify(parameters));
+      localStorage.setItem(VIEW_STORAGE_KEY, viewId);
     } catch {
-      // Keep live controls usable when persistence is unavailable.
+      // Keep the switcher usable when persistence is unavailable.
     }
-  }, [parameters]);
+  }, [viewId]);
+
+  useEffect(() => saveMonitorParameters(viewParametersKey(view.id), parameters), [parameters, view]);
+  useEffect(() => saveMonitorParameters(SCREEN_PARAMETERS_KEY, screenParameters), [screenParameters]);
 
   useEffect(() => {
     if (!tweakPanelOpen) return;
@@ -181,6 +215,20 @@ function Godview() {
     window.addEventListener('keydown', closeOnEscape);
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, [tweakPanelOpen]);
+
+  // Views that lay out in flow clear the chrome with this; the swarm instead
+  // reads the chrome's rect directly and steers bodies around it.
+  useEffect(() => {
+    const stage = stageRef.current;
+    const chrome = chromeRef.current;
+    if (!stage || !chrome) return;
+    const publish = (): void =>
+      stage.style.setProperty('--monitor-chrome-height', `${Math.round(chrome.getBoundingClientRect().height)}px`);
+    const observer = new ResizeObserver(publish);
+    observer.observe(chrome);
+    publish();
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const next = new Map<string, string>();
@@ -202,44 +250,27 @@ function Godview() {
     });
   }, [workspace?.panes]);
 
-  const selectBubble = useCallback(
-    (bubble: AgentBubbleView): void => {
-      if (!workspace) return;
-      workspace.mountSession('info' in bubble ? bubble.info.session : bubble.session);
-    },
-    [workspace],
+  const paneAttachments = useMemo(
+    () => buildPaneAttachments(workspace?.panes ?? [], paneColors, workspace?.activePaneId),
+    [paneColors, workspace?.activePaneId, workspace?.panes],
   );
 
-  const createUnassignedAgent = useCallback(
-    async (spawnPosition: { x: number; y: number }): Promise<void> => {
-      if (!workspace?.activeSession) return;
-      const sourceCwd = workspace.activeSession.cwd;
-      const session = await workspace.createSessionInActivePane();
-      if (!session) return;
-      const cwd = session.cwd ?? sourceCwd;
-      const placeholder: UnassignedAgentView = {
-        id: session.id,
-        session,
-        ...(cwd ? { cwd } : {}),
-        status: 'idle',
-        project: folderName(cwd, 'terminal'),
-        provider: '',
-        detail: cwd || 'Unassigned terminal',
-        color: agentColor(session.id),
-        spawnPosition,
-      };
-      setUnassignedAgents((current) => [...current.filter((agent) => agent.id !== session.id), placeholder]);
-    },
-    [workspace],
-  );
+  const onSessionExited = useCallback((listener: (sessionId: string) => void) => {
+    const handler = (event: Event): void => listener((event as CustomEvent<{ sessionId: string }>).detail.sessionId);
+    terminalRuntime.addEventListener('session-exited', handler);
+    return () => terminalRuntime.removeEventListener('session-exited', handler);
+  }, []);
+
+  const { agents, actions } = useMonitorAgents({ workspace, attachments: paneAttachments, onSessionExited });
+  const agentsBySession = useMemo(() => new Map(agents.map((agent) => [agent.session.id, agent] as const)), [agents]);
+  const counts = useMemo(() => monitorAgentCounts(agents), [agents]);
 
   const selectNextStatus = useCallback(
     (status: AgentVisualStatus): void => {
-      if (!workspace) return;
-      const next = nextAgentForStatus(agents, status, workspace.activeSession?.id);
-      if (next) workspace.mountSession(next.info.session);
+      const next = nextMonitorAgentForStatus(agents, status, workspace?.activeSession?.id);
+      if (next) actions.select(next);
     },
-    [agents, workspace],
+    [actions, agents, workspace?.activeSession?.id],
   );
 
   useEffect(() => {
@@ -257,57 +288,17 @@ function Godview() {
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [selectNextStatus]);
 
-  const agentsBySession = useMemo(
-    () => new Map(agents.map((agent) => [agent.info.session.id, agent] as const)),
-    [agents],
-  );
-  useEffect(() => {
-    if (agentsBySession.size === 0) return;
-    setUnassignedAgents((current) => {
-      const next = current.filter((agent) => !agentsBySession.has(agent.session.id));
-      return next.length === current.length ? current : next;
-    });
-  }, [agentsBySession]);
-  useEffect(() => {
-    const forgetExitedSession = (event: Event): void => {
-      const sessionId = (event as CustomEvent<{ sessionId: string }>).detail.sessionId;
-      setUnassignedAgents((current) => {
-        const next = current.filter((agent) => agent.session.id !== sessionId);
-        return next.length === current.length ? current : next;
-      });
-    };
-    terminalRuntime.addEventListener('session-exited', forgetExitedSession);
-    return () => terminalRuntime.removeEventListener('session-exited', forgetExitedSession);
-  }, []);
-  const workspaceSessionsById = useMemo(
-    () => new Map((workspace?.sessions ?? []).map((session) => [session.id, session] as const)),
-    [workspace?.sessions],
-  );
-  const agentBubbles = useMemo<readonly AgentBubbleView[]>(() => {
-    const unassigned = unassignedAgents
-      .filter((agent) => !agentsBySession.has(agent.session.id))
-      .map((agent) => {
-        const session = workspaceSessionsById.get(agent.session.id) ?? agent.session;
-        return { ...agent, session, status: classifyTerminalStatus(session.activity) };
-      });
-    return [...agents, ...unassigned];
-  }, [agents, agentsBySession, unassignedAgents, workspaceSessionsById]);
-  const paneAttachments = useMemo(
-    () => buildPaneAttachments(workspace?.panes ?? [], paneColors, workspace?.activePaneId),
-    [paneColors, workspace?.activePaneId, workspace?.panes],
-  );
   const createSplitSession = useCallback(
     async (selectedSession: SessionSummary): Promise<SessionSummary> => {
       const refreshedSessions = await terminalRuntime.listSessions();
-      const agent = agentsBySession.get(selectedSession.id);
-      const unassigned = unassignedAgents.find((candidate) => candidate.session.id === selectedSession.id);
-      const agentCwd = agent?.state?.state.environment.currentCwd?.value;
+      const monitored = agentsBySession.get(selectedSession.id);
+      const facet = monitored?.agent;
+      const agentCwd = facet?.state?.state.environment.currentCwd?.value;
       const refreshedSession =
         refreshedSessions.find((candidate) => candidate.id === selectedSession.id) ?? selectedSession;
       const processCwd =
         !agentCwd && refreshedSession.pid ? await window.desktop.resolveProcessCwd(refreshedSession.pid) : undefined;
-      const fallbackCwd =
-        agent?.info.workspace.sourcePath || agent?.info.workspace.root || unassigned?.cwd || undefined;
+      const fallbackCwd = facet?.info.workspace.sourcePath || facet?.info.workspace.root || monitored?.cwd || undefined;
       const source = paneSessionLaunchSource(selectedSession, refreshedSessions, {
         agent: agentCwd,
         process: processCwd,
@@ -324,8 +315,9 @@ function Godview() {
         programKind: 'interactive-shell',
       });
     },
-    [agentsBySession, platform.defaultShell, unassignedAgents],
+    [agentsBySession, platform.defaultShell],
   );
+
   // Main owns the durable descriptors, so the answer to "what was this pane?"
   // is a lookup there; the saved session id is the key both sides already share.
   const rehydratePane = useCallback(
@@ -333,29 +325,68 @@ function Godview() {
       window.chopsticks.rehydratePane(sessionId),
     [],
   );
+
   const decoratePane = useCallback(
     (session: SessionSummary, paneId: string): GhostteaWorkspacePaneDecoration => {
-      const agent = agentsBySession.get(session.id);
-      const unassigned = unassignedAgents.find((candidate) => candidate.session.id === session.id);
-      const label = paneBadgeLabel(session, agent?.project, unassigned?.cwd);
+      const monitored = agentsBySession.get(session.id);
+      const label = paneBadgeLabel(session, monitored?.agent ? monitored.project : undefined, monitored?.cwd);
       const color = paneColors.get(paneId);
       return { label, ...(color ? { color } : {}) };
     },
-    [agentsBySession, paneColors, unassignedAgents],
+    [agentsBySession, paneColors],
   );
-  const counts = agents.reduce((current, agent) => ({ ...current, [agent.status]: current[agent.status] + 1 }), {
-    idle: 0,
-    working: 0,
-    waiting: 0,
-  });
-  const screenStyle = {
-    '--scanline-density': `${parameters.scanlineDensity}px`,
-    '--scanline-opacity': parameters.scanlineOpacity,
-    '--vignette-opacity': parameters.vignetteOpacity,
-  } as CSSProperties;
-  const updateParameter = useCallback((key: SwarmParameterKey, value: number): void => {
-    setParameters((current) => normalizeSwarmParameters({ ...current, [key]: value }));
+
+  const updateParameter = useCallback(
+    (key: string, value: number): void => {
+      setParametersByView((current) => ({
+        ...current,
+        [view.id]: normalizeMonitorParameters(view.parameterGroups, { ...current[view.id], [key]: value }),
+      }));
+    },
+    [view],
+  );
+
+  const updateScreenParameter = useCallback((key: string, value: number): void => {
+    setScreenParameters((current) => normalizeMonitorParameters(SCREEN_PARAMETER_GROUPS, { ...current, [key]: value }));
   }, []);
+
+  const selectView = useCallback((nextViewId: string): void => {
+    const next = monitorViewFor(nextViewId);
+    setParametersByView((current) =>
+      current[next.id]
+        ? current
+        : {
+            ...current,
+            [next.id]: loadMonitorParameters(viewParametersKey(next.id), next.parameterGroups, LEGACY_PARAMETERS_KEY),
+          },
+    );
+    setViewId(next.id);
+  }, []);
+
+  const tweakSections = useMemo<readonly TweakSection[]>(
+    () => [
+      ...SCREEN_PARAMETER_GROUPS.map((group) => ({
+        id: `screen:${group.title}`,
+        group,
+        values: screenParameters,
+        onChange: updateScreenParameter,
+      })),
+      ...view.parameterGroups.map((group) => ({
+        id: `${view.id}:${group.title}`,
+        group,
+        values: parameters,
+        onChange: updateParameter,
+      })),
+    ],
+    [parameters, screenParameters, updateParameter, updateScreenParameter, view],
+  );
+
+  const screenStyle = {
+    '--scanline-density': `${screenParameters.scanlineDensity}px`,
+    '--scanline-opacity': screenParameters.scanlineOpacity,
+    '--vignette-opacity': screenParameters.vignetteOpacity,
+  } as CSSProperties;
+  const MonitorView = view.Component;
 
   return (
     <div className={`godview-screen theme-${theme} platform-${window.desktop.platform}`} style={screenStyle}>
@@ -373,6 +404,18 @@ function Godview() {
             <small>AGENT TOPOLOGY</small>
           </div>
           <div className="godview-header-actions">
+            <select
+              className="godview-view-switch"
+              aria-label="Monitor view"
+              value={view.id}
+              onChange={(event) => selectView(event.currentTarget.value)}
+            >
+              {MONITOR_VIEWS.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.label}
+                </option>
+              ))}
+            </select>
             <nav className="godview-status-controls" aria-label="Agent status shortcuts">
               <button type="button" onClick={() => selectNextStatus('waiting')}>
                 WAIT {counts.waiting}
@@ -417,24 +460,25 @@ function Godview() {
         <TweakPanel
           open={tweakPanelOpen}
           theme={theme}
-          parameters={parameters}
+          sections={tweakSections}
           onClose={() => setTweakPanelOpen(false)}
           onThemeChange={setTheme}
-          onParameterChange={updateParameter}
           onReset={() => {
             setTheme('light');
-            setParameters({ ...DEFAULT_SWARM_PARAMETERS });
+            setScreenParameters(monitorParameterDefaults(SCREEN_PARAMETER_GROUPS));
+            setParametersByView((current) => ({
+              ...current,
+              [view.id]: monitorParameterDefaults(view.parameterGroups),
+            }));
           }}
         />
 
-        <AgentSwarm
-          agents={agentBubbles}
-          paneAttachments={paneAttachments}
-          parameters={parameters}
-          activeSessionId={workspace?.activeSession?.id}
-          onSelect={selectBubble}
-          onCreateAt={createUnassignedAgent}
-        />
+        <section ref={stageRef} className={MONITOR_STAGE_CLASS} aria-label="Agent monitor">
+          <MonitorView agents={agents} parameters={parameters} actions={actions} />
+          <div ref={chromeRef} className="godview-monitor-chrome" {...{ [MONITOR_CHROME_ATTRIBUTE]: '' }}>
+            <AccountUsagePanel />
+          </div>
+        </section>
 
         <section className="godview-terminal-deck" aria-label="Terminal panes">
           <WorkspaceReporterContext.Provider value={setWorkspace}>
