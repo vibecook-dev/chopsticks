@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.8](https://github.com/vibecook-dev/chopsticks/compare/v0.1.7...v0.1.8) (2026-08-03)
+
+
+### Features
+
+* **godview:** open the agent monitor to more than one view ([2961a8b](https://github.com/vibecook-dev/chopsticks/commit/2961a8bec36ac398b361b8a6426bf850e2bc3c86))
+* **godview:** open the agent monitor to more than one view ([f580e92](https://github.com/vibecook-dev/chopsticks/commit/f580e92192b597c84da42b658256db879fea92a7))
+
 ## [0.1.7](https://github.com/vibecook-dev/chopsticks/compare/v0.1.6...v0.1.7) (2026-08-01)
 
 
