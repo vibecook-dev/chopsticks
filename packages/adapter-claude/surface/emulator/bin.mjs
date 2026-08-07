@@ -17,7 +17,7 @@ import { appendFileSync, mkdtempSync, readFileSync, readdirSync, rmSync } from '
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadModel, validatePayload } from '@vibecook/chopsticks-emulator/model';
+import { loadModel, validatePayload } from '@vibecook/chopsticks-surface';
 import {
   createHookEmitter,
   createPasteDecoder,

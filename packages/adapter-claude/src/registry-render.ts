@@ -13,7 +13,7 @@
  * byte-stable across `pnpm format` runs.
  */
 
-import type { SurfaceModel } from '@vibecook/chopsticks-emulator';
+import type { SurfaceModel } from '@vibecook/chopsticks-surface';
 
 /** Single-quoted JS string literal (prettier style). */
 function jsStr(value: string): string {

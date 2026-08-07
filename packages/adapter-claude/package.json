@@ -53,6 +53,7 @@
   },
   "devDependencies": {
     "@vibecook/chopsticks-emulator": "workspace:*",
+    "@vibecook/chopsticks-surface": "workspace:*",
     "@vibecook/chopsticks-testing": "workspace:*"
   }
 }

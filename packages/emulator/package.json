@@ -2,7 +2,7 @@
   "name": "@vibecook/chopsticks-emulator",
   "version": "0.1.8",
   "type": "module",
-  "description": "Agent Surface Model (ASM) runtime and vendor-neutral emulator engine: validate, load, audit, and emulate captured vendor surfaces (draft/EMULATOR.md).",
+  "description": "Vendor-neutral emulator engine and control channel: channel simulators, scenario runner, and the loopback control plane (draft/EMULATOR.md §3-§6). The ASM runtime lives in @vibecook/chopsticks-surface.",
   "license": "MIT",
   "author": "James Yong",
   "repository": {
@@ -14,7 +14,6 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./model": "./src/model.ts",
     "./engine": "./src/engine.ts",
     "./control": "./src/control.ts",
     "./package.json": "./package.json"
@@ -28,10 +27,6 @@
       ".": {
         "types": "./dist/index.d.ts",
         "import": "./dist/index.js"
-      },
-      "./model": {
-        "types": "./dist/model.d.ts",
-        "import": "./dist/model.js"
       },
       "./engine": {
         "types": "./dist/engine.d.ts",

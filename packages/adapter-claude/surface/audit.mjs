@@ -14,7 +14,7 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildReport, diffModelVsReport, loadModel } from '@vibecook/chopsticks-emulator/model';
+import { buildReport, diffModelVsReport, loadModel } from '@vibecook/chopsticks-surface';
 import { checkCaptureDirectory } from './sanitize-captures.mjs';
 
 const surface = fileURLToPath(new URL('.', import.meta.url));

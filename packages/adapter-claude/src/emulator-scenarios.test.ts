@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createScenarioRunner, createTranscriptWriter, type ScenarioStep } from '@vibecook/chopsticks-emulator/engine';
-import { loadModel, validatePayload } from '@vibecook/chopsticks-emulator/model';
+import { loadModel, validatePayload } from '@vibecook/chopsticks-surface';
 
 const adapterRoot = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const scenarioDir = join(adapterRoot, 'surface', 'emulator', 'scenarios');

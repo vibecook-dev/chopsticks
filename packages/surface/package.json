@@ -1,0 +1,45 @@
+{
+  "name": "@vibecook/chopsticks-surface",
+  "version": "0.1.8",
+  "type": "module",
+  "description": "Agent Surface Model (ASM) runtime: load, validate, report on, and diff the captured surface of a coding agent (draft/EMULATOR.md §2, §7).",
+  "license": "MIT",
+  "author": "James Yong",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vibecook-dev/chopsticks.git",
+    "directory": "packages/surface"
+  },
+  "main": "./src/model.ts",
+  "types": "./src/model.ts",
+  "exports": {
+    ".": "./src/model.ts",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "main": "./dist/model.js",
+    "types": "./dist/model.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/model.d.ts",
+        "import": "./dist/model.js"
+      },
+      "./package.json": "./package.json"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "pnpm clean && tsc -p tsconfig.build.json",
+    "prepack": "pnpm build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  }
+}

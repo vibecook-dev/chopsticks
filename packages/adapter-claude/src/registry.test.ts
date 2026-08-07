@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { loadModel } from '@vibecook/chopsticks-emulator/model';
+import { loadModel } from '@vibecook/chopsticks-surface';
 import { renderRegistry } from './registry-render.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));

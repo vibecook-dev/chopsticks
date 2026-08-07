@@ -11,7 +11,7 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadModel } from '@vibecook/chopsticks-emulator/model';
+import { loadModel } from '@vibecook/chopsticks-surface';
 import { renderRegistry } from '../src/registry-render.ts';
 
 const surface = fileURLToPath(new URL('.', import.meta.url));

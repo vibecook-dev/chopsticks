@@ -4,10 +4,16 @@
  *
  * This module is SELF-CONTAINED by design: no relative imports, erasable
  * syntax only. Adapter-local `.mjs` scripts (audit, registry generation)
- * import it directly as `@vibecook/chopsticks-emulator/model`, which node
- * (≥22.18, type stripping) can execute — node does not remap the repo's
- * `.js`-suffixed relative imports, so anything reachable from those scripts
- * must live in this one file.
+ * import it as `@vibecook/chopsticks-surface`, which node (≥22.18, type
+ * stripping) can execute — node does not remap the repo's `.js`-suffixed
+ * relative imports, so anything reachable from those scripts must live in
+ * this one file. It is therefore the package root export, not a barrel.
+ *
+ * That constraint is why this owns a package rather than living beside the
+ * imposter (draft/IMPOSTER.md §7.1): `erasableSyntaxOnly` is set package-wide
+ * here, so the compiler enforces it. A package that also carried a TUI could
+ * not set that flag, and a relative import added years from now would surface
+ * as a baffling `audit.mjs` failure instead of a type error.
  *
  * Truth flows real CLI → captures → model → projections; this module never
  * contacts a vendor binary. `buildReport` reads captures, `loadModel` reads
