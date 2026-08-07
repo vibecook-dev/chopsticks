@@ -1,0 +1,2141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chopsticks · Claude-centric parity matrix</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1c2029;
+    --border: #2a3140;
+    --text: #e8ecf4;
+    --muted: #93a0b8;
+    --gold: #f0c14b;
+    --gold-bg: rgba(240, 193, 75, 0.12);
+    --gold-border: rgba(240, 193, 75, 0.45);
+    --match: #3dd68c;
+    --match-bg: rgba(61, 214, 140, 0.12);
+    --partial: #f0c14b;
+    --partial-bg: rgba(240, 193, 75, 0.10);
+    --none: #3a4254;
+    --claude: #d97757;
+    --codex: #6cb6ff;
+    --acp: #b48ead;
+    --grok: #8be9a8;
+    --link: #8ab4ff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, .m {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12.5px;
+  }
+  .wrap { max-width: 1480px; margin: 0 auto; padding: 28px 22px 80px; }
+  header.hero {
+    border: 1px solid var(--gold-border);
+    background: linear-gradient(180deg, rgba(240,193,75,0.08), transparent 70%), var(--panel);
+    border-radius: 14px;
+    padding: 22px 24px 18px;
+    margin-bottom: 22px;
+  }
+  header.hero h1 {
+    margin: 0 0 8px;
+    font-size: 1.55rem;
+    letter-spacing: -0.02em;
+  }
+  header.hero h1 .gold { color: var(--gold); }
+  header.hero p { margin: 0 0 10px; color: var(--muted); max-width: 92ch; }
+  .meta {
+    display: flex; flex-wrap: wrap; gap: 10px 18px;
+    color: var(--muted); font-size: 12.5px;
+  }
+  .meta strong { color: var(--text); font-weight: 600; }
+  nav.toc {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    margin: 16px 0 0;
+  }
+  nav.toc a {
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--text);
+    padding: 5px 10px;
+    border-radius: 999px;
+    font-size: 12.5px;
+  }
+  nav.toc a:hover { border-color: var(--gold-border); text-decoration: none; }
+
+  .legend {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+    margin: 18px 0 22px;
+  }
+  .legend-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .legend-card h3 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+  .legend-card p { margin: 0; color: var(--muted); font-size: 12.5px; }
+  .pill {
+    display: inline-block;
+    border-radius: 999px;
+    padding: 1px 8px;
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: 0.02em;
+    vertical-align: middle;
+  }
+  .pill.match { background: var(--match-bg); color: var(--match); border: 1px solid rgba(61,214,140,0.35); }
+  .pill.partial { background: var(--partial-bg); color: var(--partial); border: 1px solid rgba(240,193,75,0.35); }
+  .pill.none { background: rgba(58,66,84,0.45); color: #7e8aa3; border: 1px solid var(--none); }
+  .pill.gold { background: var(--gold-bg); color: var(--gold); border: 1px solid var(--gold-border); }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+    margin-bottom: 26px;
+  }
+  .stat {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .stat .n { display: block; font-size: 1.5rem; font-weight: 700; letter-spacing: -0.03em; }
+  .stat .l { color: var(--muted); font-size: 12px; }
+  .stat.claude .n { color: var(--gold); }
+  .stat.codex .n { color: var(--codex); }
+  .stat.acp .n { color: var(--acp); }
+  .stat.grok .n { color: var(--grok); }
+
+  section.block { margin: 0 0 34px; }
+  section.block > h2 {
+    margin: 0 0 6px;
+    font-size: 1.15rem;
+    letter-spacing: -0.01em;
+  }
+  section.block > .sub {
+    margin: 0 0 12px;
+    color: var(--muted);
+    font-size: 13px;
+    max-width: 100ch;
+  }
+
+  .table-scroll {
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--panel);
+  }
+  table.matrix {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    min-width: 1100px;
+  }
+  table.matrix th, table.matrix td {
+    border-bottom: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    padding: 10px 12px;
+    vertical-align: top;
+    text-align: left;
+  }
+  table.matrix th:last-child, table.matrix td:last-child { border-right: none; }
+  table.matrix tr:last-child td { border-bottom: none; }
+  table.matrix thead th {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: #1a1f29;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+  }
+  table.matrix thead th.col-claude {
+    color: var(--gold);
+    background: #221c12;
+    border-bottom-color: var(--gold-border);
+  }
+  table.matrix thead th.col-codex { color: var(--codex); }
+  table.matrix thead th.col-acp { color: var(--acp); }
+  table.matrix thead th.col-grok { color: var(--grok); }
+  table.matrix tbody th.row-key {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: #151922;
+    min-width: 220px;
+    max-width: 280px;
+    font-weight: 600;
+  }
+  table.matrix tbody tr:hover td,
+  table.matrix tbody tr:hover th.row-key { background: #1b2130; }
+  table.matrix tbody tr.field-row th.row-key,
+  table.matrix tbody tr.field-row td {
+    background: #12151c;
+    font-size: 12.5px;
+  }
+  table.matrix tbody tr.field-row:hover th.row-key,
+  table.matrix tbody tr.field-row:hover td { background: #171b25; }
+  table.matrix tbody tr.field-row th.row-key {
+    padding-left: 28px;
+    font-weight: 500;
+    color: var(--muted);
+  }
+  table.matrix tbody tr.field-row th.row-key .dot {
+    color: #5c6780;
+    margin-right: 6px;
+  }
+  .cell-claude {
+    background: rgba(240,193,75,0.04);
+  }
+  .name {
+    display: block;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    font-weight: 650;
+    color: var(--text);
+    margin-bottom: 3px;
+  }
+  .desc { color: var(--muted); font-size: 12.5px; }
+  .maps {
+    margin-top: 6px;
+    color: #a8b3c9;
+    font-size: 12px;
+  }
+  .maps code { color: #c9d4ea; }
+  .blank {
+    color: #4d566c;
+    font-style: italic;
+    font-size: 12.5px;
+  }
+  .note {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-left: 3px solid var(--gold-border);
+    background: rgba(240,193,75,0.06);
+    color: var(--muted);
+    font-size: 12.5px;
+    border-radius: 0 8px 8px 0;
+  }
+  footer {
+    margin-top: 28px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <h1><span class="gold">Claude</span> as golden standard · cross-adapter parity matrix</h1>
+    <p>
+      Column 1 lists every Claude Code hook and statusline data field (the observation surface chopsticks
+      treats as the reference model). Columns 2–4 show the closest Codex App Server, ACP, and Grok
+      equivalents. Empty cells mean no credible parity — leave blank for brainstorming, do not invent matches.
+    </p>
+    <div class="meta">
+      <span><strong>Scope</strong> official surfaces + chopsticks mapping notes</span>
+      <span><strong>Date</strong> 2026-08-03</span>
+      <span><strong>Sources</strong>
+        <a href="../packages/adapter-claude/docs/event-map.html">Claude event-map</a> ·
+        <a href="../packages/adapter-codex/docs/event-map.html">Codex</a> ·
+        <a href="../packages/adapter-acp/docs/event-map.html">ACP</a> ·
+        <a href="../packages/adapter-grok/docs/event-map.html">Grok</a>
+      </span>
+    </div>
+    <nav class="toc">
+      <a href="#legend">Legend</a>
+      <a href="#summary">Summary</a>
+      <a href="#envelope">Common envelope</a>
+      <a href="#lifecycle">Lifecycle</a>
+      <a href="#turn">Turn &amp; messages</a>
+      <a href="#tools">Tools &amp; permissions</a>
+      <a href="#subagents">Subagents &amp; tasks</a>
+      <a href="#system">System / workspace</a>
+      <a href="#compact">Compaction</a>
+      <a href="#mcp">MCP elicitation</a>
+      <a href="#statusline">Status line fields</a>
+      <a href="#nonhook">Non-hook Claude sources</a>
+    </nav>
+  </header>
+
+  <div class="legend" id="legend">
+    <div class="legend-card">
+      <h3>Match quality</h3>
+      <p>
+        <span class="pill match">full</span> same semantic job (lifecycle, turn, tool, …)<br />
+        <span class="pill partial">partial</span> related but different shape / timing / authority<br />
+        <span class="pill none">—</span> blank cell = no match
+      </p>
+    </div>
+    <div class="legend-card">
+      <h3>Claude (gold)</h3>
+      <p>Hooks are HTTP/command callbacks with JSON stdin/body. Status line is a separate command fed a JSON payload on a refresh cadence — chopsticks’ only live CTX source for Claude.</p>
+    </div>
+    <div class="legend-card">
+      <h3>Codex</h3>
+      <p>App Server JSON-RPC over WS-in-UDS: client methods + server notifications + item types. Permissions arrive as structured server requests, not hooks.</p>
+    </div>
+    <div class="legend-card">
+      <h3>ACP / Grok</h3>
+      <p>ACP = Agent Client Protocol v1 (<code>session/*</code> + <code>session/update</code>). Grok = ACP + native <code>updates.jsonl</code> dual-source (hooks/turn extensions in the log).</p>
+    </div>
+  </div>
+
+  <div class="stats" id="summary">
+    <div class="stat claude"><span class="n" id="n-claude">—</span><span class="l">Claude rows (hooks + fields)</span></div>
+    <div class="stat codex"><span class="n" id="n-codex">—</span><span class="l">Codex full / partial</span></div>
+    <div class="stat acp"><span class="n" id="n-acp">—</span><span class="l">ACP full / partial</span></div>
+    <div class="stat grok"><span class="n" id="n-grok">—</span><span class="l">Grok full / partial</span></div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <section class="block" id="envelope">
+    <h2>0 · Common hook envelope fields</h2>
+    <p class="sub">Present on (nearly) every Claude hook payload. Peer adapters expose equivalents on notifications/params or session records — not a single shared envelope.</p>
+    <div class="table-scroll">
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th class="col-claude">Claude (golden)</th>
+            <th class="col-codex">Codex App Server</th>
+            <th class="col-acp">ACP</th>
+            <th class="col-grok">Grok</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">session_id</span>
+              <span class="desc">Current session identifier</span>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">threadId / thread.id</span>
+              <div class="maps">→ <code>session.started.nativeSessionId</code></div>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">sessionId</span>
+              <div class="desc">On every <code>session/update</code> params</div>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">params.sessionId</span>
+              <div class="desc">ACP + log records</div>
+            </td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">prompt_id</span>
+              <span class="desc">UUID for the user prompt / turn correlation (≥ 2.1.196)</span>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">turn.id</span>
+              <div class="desc">Plus <code>clientUserMessageId</code> for injection confirm</div>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">driver-synthesized turnId</span>
+              <div class="desc">No protocol-native prompt UUID on updates</div>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">prompt_id / _meta.promptId</span>
+              <div class="desc">Grok log carries Claude-like prompt correlation</div>
+            </td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">transcript_path</span>
+              <span class="desc">Path to conversation JSON (async, may lag)</span>
+            </th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">rollout / session files</span>
+              <div class="desc">Observer resolves rollout context; not on every notif</div>
+            </td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">updates.jsonl path</span>
+              <div class="desc"><code>~/.grok/sessions/&lt;cwd&gt;/&lt;id&gt;/updates.jsonl</code></div>
+            </td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">cwd</span>
+              <span class="desc">Working directory at hook invoke</span>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">thread.cwd · threadSettings.cwd</span>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">session/new cwd</span>
+              <div class="desc">Set at create; no mid-session cwd event in v1 core</div>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">summary.info.cwd / summary.cwd</span>
+              <div class="desc">Polled from session summary</div>
+            </td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">permission_mode</span>
+              <span class="desc">default | plan | acceptEdits | auto | dontAsk | bypassPermissions</span>
+            </th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">approval policy / sandbox settings</span>
+              <div class="desc">Different vocabulary; not a hook field</div>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">session modes / config options</span>
+              <div class="desc"><code>current_mode_update</code> when agent supports modes</div>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">ACP modes if exposed</span>
+            </td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">hook_event_name</span>
+              <span class="desc">Firing event discriminator</span>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">notification method</span>
+              <div class="desc">e.g. <code>turn/started</code>, <code>item/completed</code></div>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">update.sessionUpdate</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">sessionUpdate (+ event_name on hooks)</span>
+            </td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">effort.level</span>
+              <span class="desc">Reasoning effort when model supports it</span>
+            </th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">reasoning item / model knobs</span>
+              <div class="desc">Not a shared envelope field</div>
+            </td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">agent_id / agent_type</span>
+              <span class="desc">Present when hook runs inside a subagent</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <section class="block" id="lifecycle">
+    <h2>1 · Lifecycle hooks</h2>
+    <p class="sub">Session begin/end and boot-context loading. Claude fires these as hooks; peers use thread/session RPCs or process lifecycle.</p>
+    <div class="table-scroll">
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th class="col-claude">Claude (golden)</th>
+            <th class="col-codex">Codex App Server</th>
+            <th class="col-acp">ACP</th>
+            <th class="col-grok">Grok</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">SessionStart</span>
+              <span class="desc">New or resumed session. Fields: source, session_title, model, cwd, …</span>
+              <div class="maps">chopsticks → <code>session.started</code> (+ env)</div>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">thread/started</span>
+              <div class="desc">After <code>thread/start</code> | <code>thread/resume</code></div>
+              <div class="maps">→ <code>session.started</code></div>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">session/new · session/load</span>
+              <div class="desc">RPC response establishes session; not a hook stream</div>
+              <div class="maps">driver → ready / identity</div>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">hook_execution: session_start</span>
+              <div class="desc">Native log; also ACP session/new for structured path</div>
+              <div class="maps">→ <code>session.started</code></div>
+            </td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">source</span>
+              <span class="desc">startup | resume | clear | compact | fork</span>
+            </th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">start vs resume method</span>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">new vs load</span>
+            </td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">session_title</span></th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">thread.name / preview</span>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">session_info_update.title?</span>
+              <div class="desc">If agent emits session info</div>
+            </td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">model · agent_type</span></th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">thread model at start</span>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">configOptions on session create</span>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">summary current_model_id</span>
+            </td>
+          </tr>
+
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">Setup</span>
+              <span class="desc">Only with --init-only / --init / --maintenance non-interactive. Fields: trigger</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">InstructionsLoaded</span>
+              <span class="desc">CLAUDE.md / rules loaded. Fields: file_path, memory_type, load_reason</span>
+              <div class="maps">load_reason=session_start → <code>session.ready</code></div>
+            </th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">skills/changed</span>
+              <div class="desc">Ambient in chopsticks (dropped); not instruction-load parity</div>
+            </td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">file_path · memory_type · load_reason</span></th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">globs · path_glob_match · trigger_file_path · parent_file_path · include</span></th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">SessionEnd</span>
+              <span class="desc">Session ending. Field: reason</span>
+              <div class="maps">→ <code>session.exited</code></div>
+            </th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">process/transport close · thread/archive</span>
+              <div class="desc">No clean “session end” notif used as primary exit signal</div>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">session/cancel · disconnect</span>
+              <div class="desc">No dedicated SessionEnd notification in core ACP</div>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">hook_execution: session_end</span>
+              <div class="maps">→ <code>session.exited</code> (Grok is the only ACP-family adapter with real exit)</div>
+            </td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">reason</span>
+              <span class="desc">clear | resume | logout | prompt_input_exit | bypass_permissions_disabled | other</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">reason</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <section class="block" id="turn">
+    <h2>2 · Turn &amp; message hooks</h2>
+    <p class="sub">User prompt, assistant streaming display, turn completion/failure.</p>
+    <div class="table-scroll">
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th class="col-claude">Claude (golden)</th>
+            <th class="col-codex">Codex App Server</th>
+            <th class="col-acp">ACP</th>
+            <th class="col-grok">Grok</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">UserPromptSubmit</span>
+              <span class="desc">User submitted a prompt (pre-process). Fields: prompt, prompt_id</span>
+              <div class="maps">→ <code>turn.started</code>; injection confirm vs matching prompt</div>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">turn/started + item userMessage</span>
+              <div class="desc">Normalizer defers turn.started until userMessage text arrives</div>
+              <div class="maps">control: <code>turn/start</code></div>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">session/prompt</span>
+              <div class="desc">Driver synthesizes <code>turn.started</code> around the RPC</div>
+              <div class="maps"><code>user_message_chunk</code> is echo (dropped)</div>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">hook user_prompt_submit + user_message_chunk</span>
+              <div class="desc">Log is authoritative for TUI-typed turns</div>
+              <div class="maps">→ <code>turn.started</code></div>
+            </td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">prompt (verbatim text)</span></th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">userMessage content / text</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">prompt[] ContentBlocks</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">user_message_chunk content.text</span>
+            </td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">prompt_id</span></th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">turn.id · clientUserMessageId</span>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">synthesized turnId</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">prompt_id / _meta.promptId</span>
+            </td>
+          </tr>
+
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">UserPromptExpansion</span>
+              <span class="desc">Slash/command expansion before Claude sees the prompt</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">command_name · command_args · command_source · expansion_type · prompt</span>
+              <span class="desc">expansion_type: slash_command | mcp_prompt</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">MessageDisplay</span>
+              <span class="desc">Streaming assistant display deltas. Fields: delta, index, final, turn_id, message_id</span>
+              <div class="maps">→ <code>assistant.message</code> (displayOnly)</div>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">item/agentMessage/delta + item/completed(agentMessage)</span>
+              <div class="maps">→ <code>assistant.message</code> (authoritative, displayOnly:false)</div>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">agent_message_chunk</span>
+              <div class="desc">No per-message final; driver seals on turn end</div>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">agent_message_chunk (log)</span>
+              <div class="desc">Final sealed on <code>turn_completed</code></div>
+            </td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">delta · final · message_id · turn_id</span></th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">delta · itemId · turnId · completed text</span>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">content · messageId (no final flag)</span>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">content · messageId · turn_completed seal</span>
+            </td>
+          </tr>
+
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">Stop</span>
+              <span class="desc">Main agent finished responding. Fields: last_assistant_message, stop_hook_active</span>
+              <div class="maps">→ <code>turn.completed</code></div>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">turn/completed</span>
+              <div class="desc">status success path</div>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">session/prompt result stopReason</span>
+              <div class="desc">Driver emits <code>turn.completed</code></div>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">turn_completed</span>
+              <div class="desc">Grok log extension (not plain ACP)</div>
+            </td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">last_assistant_message</span></th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">last agentMessage item text</span>
+              <div class="desc">Reconstructible; not a dedicated Stop field</div>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">driver-accumulated assistant text</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">sealed assistant on turn_completed</span>
+            </td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">stop_hook_active · background_tasks · session_crons</span></th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">StopFailure</span>
+              <span class="desc">Turn ends due to API error (instead of Stop)</span>
+              <div class="maps">→ <code>turn.failed</code></div>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">turn/completed status=failed · error</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">session/prompt rejection / error path</span>
+              <div class="maps">→ <code>turn.failed</code></div>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">stop_reason on turn_completed</span>
+              <div class="desc">Failure taxonomy less explicit than Claude StopFailure</div>
+            </td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">error · error_details · last_assistant_message</span>
+              <span class="desc">error enums: rate_limit, overloaded, authentication_failed, billing_error, max_output_tokens, …</span>
+            </th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">turn.error message</span>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">RPC error / stopReason</span>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">stop_reason string</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <section class="block" id="tools">
+    <h2>3 · Tools &amp; permissions</h2>
+    <p class="sub">Pre/post tool hooks, permission dialogs, batch and deny edges.</p>
+    <div class="table-scroll">
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th class="col-claude">Claude (golden)</th>
+            <th class="col-codex">Codex App Server</th>
+            <th class="col-acp">ACP</th>
+            <th class="col-grok">Grok</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">PreToolUse</span>
+              <span class="desc">Before tool runs. Fields: tool_name, tool_input, tool_use_id</span>
+              <div class="maps">→ <code>tool.requested</code> (+ permission resolve if matched)</div>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">item/started</span>
+              <div class="desc">commandExecution · fileChange · webSearch · mcpToolCall · …</div>
+              <div class="maps">→ <code>tool.started</code></div>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">tool_call</span>
+              <div class="maps">→ <code>tool.started</code></div>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">tool_call (log / ACP)</span>
+            </td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">tool_name · tool_input · tool_use_id</span></th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">item.type / command / id</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">kind · title · rawInput · toolCallId</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">same as ACP</span>
+            </td>
+          </tr>
+
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">PermissionRequest</span>
+              <span class="desc">About to show permission UI. No tool_use_id — FIFO correlate prompt_id+tool_name</span>
+              <div class="maps">→ <code>permission.requested</code> (native-tui)</div>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">server request (e.g. execCommandApproval)</span>
+              <div class="desc">Structured approve/deny over app-server</div>
+              <div class="maps">→ <code>permission.requested</code> (host-ui)</div>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">session/request_permission</span>
+              <div class="desc">Agent→Client RPC with PermissionOption[]</div>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">session/request_permission</span>
+              <div class="desc">Allowlisted from ACP when observer active</div>
+            </td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">tool_name · tool_input · permission_suggestions</span></th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">method-specific params</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">toolCall + options[]</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">same as ACP</span>
+            </td>
+          </tr>
+
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">PostToolUse</span>
+              <span class="desc">Tool succeeded. + tool_response, duration_ms</span>
+              <div class="maps">→ <code>tool.completed</code></div>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">item/completed (tool item types)</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">tool_call_update status=completed</span>
+              <div class="desc">Or tool_call already completed</div>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">tool_call_update (log/ACP)</span>
+            </td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">tool_response · duration_ms</span></th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">output / result (duration not unified)</span>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">rawOutput / content (no duration_ms)</span>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">same as ACP</span>
+            </td>
+          </tr>
+
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">PostToolUseFailure</span>
+              <span class="desc">Approved tool failed. Fields: tool_name, tool_input, tool_use_id, error / tool_use_error, is_interrupt</span>
+              <div class="maps">→ <code>tool.failed</code></div>
+            </th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">failed tool item / turn error</span>
+              <div class="desc">Less clean “approved-then-failed” separation than Claude</div>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">tool_call(_update) status=failed</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">same as ACP</span>
+            </td>
+          </tr>
+
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">PostToolBatch</span>
+              <span class="desc">Once after all tools in a parallel batch resolve. Field: tool_calls[]</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">tool_calls[]</span></th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">PermissionDenied</span>
+              <span class="desc">Auto-mode classifier denied a tool (not manual deny)</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">reject_* permission option</span>
+              <div class="desc">User/client deny, not an auto classifier event</div>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">same as ACP</span>
+            </td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">tool_name · tool_input · tool_use_id · reason</span></th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">Notification</span>
+              <span class="desc">Claude Code notifications. Fields: message, notification_type</span>
+              <div class="maps">observed type: permission_prompt → retained / notify</div>
+            </th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">error notification</span>
+              <div class="maps">→ <code>notification</code></div>
+            </td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">notification_type</span>
+              <span class="desc">permission_prompt | idle_prompt | auth_success | elicitation_* | agent_needs_input | agent_completed | …</span>
+            </th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">error only (narrower)</span>
+            </td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <section class="block" id="subagents">
+    <h2>4 · Subagents &amp; tasks</h2>
+    <p class="sub">Claude-native agent hierarchy and Task tool lifecycle. Peers largely lack 1:1 surfaces today.</p>
+    <div class="table-scroll">
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th class="col-claude">Claude (golden)</th>
+            <th class="col-codex">Codex App Server</th>
+            <th class="col-acp">ACP</th>
+            <th class="col-grok">Grok</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">SubagentStart</span>
+              <span class="desc">Agent tool spawns subagent. Fields: agent_id, agent_type, name</span>
+              <div class="maps">→ <code>subagent.started</code></div>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">agent_id · agent_type · name</span></th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">SubagentStop</span>
+              <span class="desc">Subagent finished (re-entrant stop_hook_active)</span>
+              <div class="maps">→ <code>subagent.stopped</code> (first only)</div>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">agent_id · agent_type · agent_transcript_path · last_assistant_message · stop_hook_active</span></th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">TaskCreated</span>
+              <span class="desc">TaskCreate tool creating a task (not Task-tool subagents)</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">task_id · task_subject · task_description · teammate_name · team_name</span></th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">TaskCompleted</span>
+              <span class="desc">Task marked completed</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">task_id · task_subject · task_description · teammate_name · team_name</span></th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">TeammateIdle</span>
+              <span class="desc">Agent-team teammate about to go idle</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">teammate_name · team_name</span></th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      Reasoning streams (Codex <code>item/reasoning/*</code>, ACP <code>agent_thought_chunk</code>) are <strong>not</strong> Claude hooks — Claude has no MessageDisplay-style “thought” hook in the official catalog. They map to chopsticks <code>reasoning.*</code>, which Claude does not produce from hooks.
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <section class="block" id="system">
+    <h2>5 · System / workspace / config</h2>
+    <p class="sub">Cwd, files, worktrees, config churn.</p>
+    <div class="table-scroll">
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th class="col-claude">Claude (golden)</th>
+            <th class="col-codex">Codex App Server</th>
+            <th class="col-acp">ACP</th>
+            <th class="col-grok">Grok</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">ConfigChange</span>
+              <span class="desc">Configuration file changed mid-session</span>
+            </th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">thread/settings/updated</span>
+              <div class="desc">Runtime settings, not file-watcher semantics</div>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">config_option_update</span>
+              <div class="maps">model select → <code>session.environment.updated</code></div>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">ACP config_option_update + summary model</span>
+            </td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">source · file_path</span>
+              <span class="desc">source: user_settings | project_settings | local_settings | policy_settings | skills</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">CwdChanged</span>
+              <span class="desc">Working directory changed (e.g. cd). old_cwd, new_cwd</span>
+              <div class="maps">normalized → environment.updated</div>
+            </th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">thread/settings/updated.cwd</span>
+            </td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">summary cwd poll</span>
+              <div class="desc">Observed on disk, not a live hook</div>
+            </td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">old_cwd · new_cwd</span></th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">new cwd only</span>
+            </td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">current cwd only</span>
+            </td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">DirectoryAdded</span>
+              <span class="desc">/add-dir or register_repo_root mid-session</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">directory · source</span>
+              <span class="desc">source: slash_command | register_repo_root | …</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">FileChanged</span>
+              <span class="desc">Watched file changed on disk</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">file_path · event · matcher</span></th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">WorktreeCreate</span>
+              <span class="desc">Worktree being created (--worktree, subagent isolation, …)</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">WorktreeRemove</span>
+              <span class="desc">Worktree cleanup counterpart. Field: worktree_path</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">worktree_path</span></th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      Chopsticks worktree isolation lives in <code>packages/workspaces</code> (host-owned), not as a peer of Claude’s WorktreeCreate hook. That is orchestration, not agent-surface parity.
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <section class="block" id="compact">
+    <h2>6 · Compaction</h2>
+    <p class="sub">Claude has explicit pre/post compact hooks. Peers usually only expose post-effects on context window telemetry.</p>
+    <div class="table-scroll">
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th class="col-claude">Claude (golden)</th>
+            <th class="col-codex">Codex App Server</th>
+            <th class="col-acp">ACP</th>
+            <th class="col-grok">Grok</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">PreCompact</span>
+              <span class="desc">About to compact context</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">trigger · custom_instructions</span>
+              <span class="desc">trigger: manual | auto</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">PostCompact</span>
+              <span class="desc">Compact finished; react to new window state</span>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">thread/compacted</span>
+              <div class="maps">→ <code>context-window.invalidated</code> reason=compacted</div>
+            </td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">signals.compactionCount</span>
+              <div class="maps">→ <code>context-window.invalidated</code></div>
+            </td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">trigger · compact_summary</span></th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <section class="block" id="mcp">
+    <h2>7 · MCP elicitation</h2>
+    <p class="sub">Claude-specific MCP mid-task user input dialogs.</p>
+    <div class="table-scroll">
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th class="col-claude">Claude (golden)</th>
+            <th class="col-codex">Codex App Server</th>
+            <th class="col-acp">ACP</th>
+            <th class="col-grok">Grok</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">Elicitation</span>
+              <span class="desc">MCP server requests user input mid-task</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">mcp_server_name · message · mode · url · elicitation_id · requested_schema</span></th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">ElicitationResult</span>
+              <span class="desc">User responded to MCP elicitation</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">mcp_server_name · action · mode · elicitation_id · content</span></th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <section class="block" id="statusline">
+    <h2>8 · Status line data fields</h2>
+    <p class="sub">
+      Full official statusline stdin JSON from
+      <a href="https://code.claude.com/docs/en/statusline" rel="noopener">code.claude.com/docs/en/statusline</a>
+      (fetched 2026-08-03). Chopsticks only consumes a subset today (model/cwd/context_window + rate_limits for account-usage).
+      Peers expose equivalent <em>jobs</em> via protocol events, not a statusline binary.
+    </p>
+    <div class="table-scroll">
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th class="col-claude">Claude statusline field</th>
+            <th class="col-codex">Codex App Server</th>
+            <th class="col-acp">ACP</th>
+            <th class="col-grok">Grok</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- model / cwd / workspace -->
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">model.id</span>
+              <span class="desc">Current model identifier</span>
+              <div class="maps">→ environment.model.id</div>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">threadSettings.model · model/rerouted</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">config_option_update (model select)</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">current_model_id / summary + ACP config</span>
+            </td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">model.display_name</span>
+              <span class="desc">Human-readable model name</span>
+            </th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">display name via model catalog helper</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">selected option name</span>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">ACP option name if present</span>
+            </td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">cwd · workspace.current_dir</span>
+              <span class="desc">Live working directory (same value; workspace.current_dir preferred)</span>
+              <div class="maps">→ environment.currentCwd</div>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">thread.cwd · settings.cwd</span>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">session create cwd only</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">summary cwd</span>
+            </td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">workspace.project_dir</span>
+              <span class="desc">Launch directory (may differ after cwd changes)</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">workspace.added_dirs</span>
+              <span class="desc">Extra dirs from /add-dir or --add-dir (empty array if none)</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">workspace.git_worktree</span>
+              <span class="desc">Linked git worktree name when inside <code>git worktree add</code> tree</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">workspace.repo.host · owner · name</span>
+              <span class="desc">Parsed from origin remote; absent outside git / no origin</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+
+          <!-- context window -->
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">context_window.context_window_size</span>
+              <span class="desc">Max context size in tokens (200k default / 1M extended)</span>
+              <div class="maps">→ capacityTokens</div>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">tokenUsage.modelContextWindow</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">usage_update.size</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">signals.contextWindowTokens · usage_update.size</span>
+            </td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">context_window.total_input_tokens</span>
+              <span class="desc">Current window input tokens (incl. cache); post 2.1.132 not cumulative</span>
+              <div class="maps">→ usedTokens (fallback)</div>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">tokenUsage.last.totalTokens</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">usage_update.used</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">signals.contextTokensUsed · usage_update.used</span>
+            </td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">context_window.total_output_tokens</span>
+              <span class="desc">Output tokens from most recent response (not in used_percentage)</span>
+            </th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">if present on last usage object</span>
+            </td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">context_window.used_percentage</span>
+              <span class="desc">Input-only pre-calc fill % (may be null early)</span>
+              <div class="maps">fallback when token breakdown missing</div>
+            </th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">derivable used/capacity</span>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">derivable used/size</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">signals.contextWindowUsage</span>
+            </td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">context_window.remaining_percentage</span>
+              <span class="desc">Complement of used_percentage; may be null early</span>
+            </th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">derivable</span>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">derivable</span>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">derivable from usage</span>
+            </td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">context_window.current_usage</span>
+              <span class="desc">Per-component tokens; null before first API call / after compact until next call</span>
+              <div class="maps">null → context-window.invalidated; input components sum → usedTokens</div>
+            </th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">tokenUsage.last breakdown fields</span>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">usage_update.used only (no component split)</span>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">aggregate used + compaction invalidation</span>
+            </td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">current_usage.input_tokens</span></th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">last.* token fields (provider-specific)</span>
+            </td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">current_usage.output_tokens</span></th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">if present</span>
+            </td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">current_usage.cache_creation_input_tokens</span></th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">if present on last usage object</span>
+            </td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr class="field-row">
+            <th class="row-key cell-claude"><span class="dot">↳</span><span class="name">current_usage.cache_read_input_tokens</span></th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">if present on last usage object</span>
+            </td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">exceeds_200k_tokens</span>
+              <span class="desc">Fixed 200k threshold flag (independent of actual window size)</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+
+          <!-- session identity -->
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">session_id</span>
+              <span class="desc">Unique session identifier on statusline payload</span>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">threadId</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">sessionId</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">params.sessionId</span>
+            </td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">session_name</span>
+              <span class="desc">Custom --name / /rename or AI title; absent for default display names</span>
+            </th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">thread.name</span>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">session_info_update if agent emits title</span>
+            </td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">prompt_id</span>
+              <span class="desc">Current user-prompt UUID (≥ 2.1.196); absent until first input</span>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">turn.id · clientUserMessageId</span>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">driver-synthesized turnId</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">prompt_id / _meta.promptId</span>
+            </td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">transcript_path</span>
+              <span class="desc">Path to conversation transcript file</span>
+            </th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">rollout path resolution</span>
+            </td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">updates.jsonl path</span>
+            </td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">version</span>
+              <span class="desc">Claude Code version string</span>
+            </th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">initialize client/server versions</span>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">initialize protocol/agent versions</span>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">ACP initialize + Grok binary</span>
+            </td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">output_style.name</span>
+              <span class="desc">Current output style name</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+
+          <!-- session modes -->
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">fast_mode</span>
+              <span class="desc">Whether fast mode is enabled for the session</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">effort.level</span>
+              <span class="desc">low | medium | high | xhigh | max; live incl. mid-session /effort; absent if model lacks effort</span>
+            </th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">reasoning / model knobs (different shape)</span>
+            </td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">thinking.enabled</span>
+              <span class="desc">Whether extended thinking is enabled</span>
+            </th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">reasoning item presence (inferred)</span>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">agent_thought_chunk presence (inferred)</span>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">agent_thought_chunk in log (inferred)</span>
+            </td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">vim.mode</span>
+              <span class="desc">NORMAL | INSERT | VISUAL | VISUAL LINE when vim mode enabled</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">agent.name</span>
+              <span class="desc">When running with --agent or agent settings</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+
+          <!-- cost -->
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">cost.total_cost_usd</span>
+              <span class="desc">Estimated client-side session cost; resets on /clear</span>
+              <div class="maps">not used for godview CTX</div>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">usage_update.cost { amount, currency }</span>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">ACP cost if agent emits it</span>
+            </td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">cost.total_duration_ms</span>
+              <span class="desc">Wall-clock ms since session start</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">cost.total_api_duration_ms</span>
+              <span class="desc">Time spent waiting for API responses</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">cost.total_lines_added · total_lines_removed</span>
+              <span class="desc">Lines of code changed this session</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+
+          <!-- rate limits -->
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">rate_limits.five_hour.used_percentage</span>
+              <span class="desc">5h rolling window 0–100; Pro/Max after first API response</span>
+              <div class="maps">account-usage from statusline</div>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">account/rateLimits/updated · account/rateLimits/read</span>
+            </td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">rate_limits.five_hour.resets_at</span>
+              <span class="desc">Unix epoch seconds when 5h window resets</span>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">rate-limit window reset fields</span>
+            </td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">rate_limits.seven_day.used_percentage</span>
+              <span class="desc">7-day window 0–100</span>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">account rate-limit buckets</span>
+            </td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">rate_limits.seven_day.resets_at</span>
+              <span class="desc">Unix epoch seconds when 7d window resets</span>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">rate-limit window reset fields</span>
+            </td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+
+          <!-- PR / worktree (statusline-only session chrome) -->
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">pr.number · pr.url</span>
+              <span class="desc">Open PR for current branch; absent until found / when merged-closed</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">pr.review_state</span>
+              <span class="desc">approved | pending | changes_requested | draft</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">worktree.name · path · branch</span>
+              <span class="desc">Only during --worktree sessions (not every git worktree)</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">worktree.original_cwd · original_branch</span>
+              <span class="desc">Pre-worktree directory/branch; original_branch absent for hook-based worktrees</span>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      Official statusline also documents <code>subagentStatusLine</code> (separate settings key): a command that receives all visible subagent rows as JSON
+      (<code>tasks[]</code> with id/name/type/status/tokenCount/model/effort/…). That is <strong>not</strong> the main statusline payload — listed under non-hook sources below.
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <section class="block" id="nonhook">
+    <h2>9 · Non-hook Claude sources (still golden-standard rows)</h2>
+    <p class="sub">
+      Surfaces chopsticks uses for Claude that are <em>not</em> hooks, but still part of the Claude observation model.
+      Useful when asking “what would peers need to match Claude completeness?”
+    </p>
+    <div class="table-scroll">
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th class="col-claude">Claude source</th>
+            <th class="col-codex">Codex App Server</th>
+            <th class="col-acp">ACP</th>
+            <th class="col-grok">Grok</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">statusLine command (telemetry forwarder)</span>
+              <span class="desc">settings.statusLine → stdin JSON → chopsticks /statusline endpoint</span>
+              <div class="maps">environment + context-window + account rate_limits</div>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">thread/tokenUsage/updated · settings · account/*</span>
+              <div class="desc">Protocol events replace statusline binary</div>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">usage_update · config_option_update</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">signals + summary poll + ACP usage allowlist</span>
+            </td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">subagentStatusLine</span>
+              <span class="desc">Official settings key; stdin = tasks[] for agent-panel rows</span>
+              <div class="maps">not wired in chopsticks today</div>
+            </th>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">transcript observer (JSONL on disk)</span>
+              <span class="desc">Live: assistant.message only; resume: turn.* with replay:true</span>
+              <div class="maps">secondary to MessageDisplay for live text</div>
+            </th>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">rollout / thread history read</span>
+              <div class="desc">Primary path is app-server stream, not transcript tail</div>
+            </td>
+            <td data-p="partial">
+              <span class="pill partial">partial</span>
+              <span class="name">session/load history replay</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">updates.jsonl observer</span>
+              <div class="desc">Primary observation when adopting TUI session</div>
+            </td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">OAuth account usage endpoint</span>
+              <span class="desc"><code>api.anthropic.com/api/oauth/usage</code> via stored Claude OAuth token</span>
+              <div class="maps">account-usage module (experimental stability)</div>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">account/rateLimits/read</span>
+              <div class="desc">Documented app-server API</div>
+            </td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none">
+              <span class="blank">—</span>
+              <div class="desc">adapter explicitly: not exposed via ACP/headless</div>
+            </td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">statusline rate_limits → account-usage</span>
+              <span class="desc">Live subscription windows without OAuth round-trip</span>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">account/rateLimits/updated push</span>
+            </td>
+            <td data-p="none"><span class="blank">—</span></td>
+            <td data-p="none"><span class="blank">—</span></td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">Hook output / control plane</span>
+              <span class="desc">JSON stdout can block/modify tools, inject context, decide permissions (official hooks)</span>
+              <div class="maps">chopsticks mostly observes; permission path is FIFO correlate + native TUI</div>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">structured approve/deny server requests</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">session/request_permission outcome</span>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">ACP permission allowlist</span>
+            </td>
+          </tr>
+          <tr>
+            <th class="row-key cell-claude">
+              <span class="name">Prompt injection confirmation</span>
+              <span class="desc">Bracketed paste + matching UserPromptSubmit (may be <code>uncertain</code>)</span>
+            </th>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">clientUserMessageId on turn/start</span>
+              <div class="desc">Deterministic confirm</div>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">session/prompt RPC</span>
+              <div class="desc">Deterministic (driver-owned turn)</div>
+            </td>
+            <td data-p="full">
+              <span class="pill match">full</span>
+              <span class="name">session/prompt (structured) · log for TUI-typed</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    Generated for chopsticks brainstorming. Empty cells are intentional gaps — fill them only when a real vendor surface exists.
+    Per-adapter deep cards remain in <code>packages/adapter-*/docs/event-map.html</code>.
+    Statusline field list synced to official docs 2026-08-03 (full Available data table).
+  </footer>
+</div>
+
+<script>
+  // Live summary counts from data-p attributes (exclude Claude column).
+  function countParity() {
+    const cols = { codex: { full: 0, partial: 0 }, acp: { full: 0, partial: 0 }, grok: { full: 0, partial: 0 } };
+    let claudeRows = 0;
+    document.querySelectorAll('table.matrix tbody tr').forEach((tr) => {
+      const key = tr.querySelector('th.row-key');
+      if (key) claudeRows += 1;
+      const cells = tr.querySelectorAll('td[data-p]');
+      // order: codex, acp, grok
+      ['codex', 'acp', 'grok'].forEach((name, i) => {
+        const cell = cells[i];
+        if (!cell) return;
+        const p = cell.getAttribute('data-p');
+        if (p === 'full' || p === 'partial') cols[name][p] += 1;
+      });
+    });
+    document.getElementById('n-claude').textContent = String(claudeRows);
+    document.getElementById('n-codex').textContent = `${cols.codex.full}/${cols.codex.partial}`;
+    document.getElementById('n-acp').textContent = `${cols.acp.full}/${cols.acp.partial}`;
+    document.getElementById('n-grok').textContent = `${cols.grok.full}/${cols.grok.partial}`;
+  }
+  countParity();
+</script>
+</body>
+</html>

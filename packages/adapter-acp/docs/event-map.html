@@ -1,0 +1,978 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ACP adapter — event map</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #fbfbfa; --fg: #1a1a19; --muted: #6b6b66; --line: #e0dfdb;
+        --head: #f2f1ee; --code: #f5f4f1; --live: #1f7a3d; --dead: #a33b2a; --partial: #9a6b12;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #14140f; --fg: #e8e6e0; --muted: #9a978e; --line: #2e2e28;
+          --head: #1d1d17; --code: #1c1c16; --live: #5ec27c; --dead: #e07a63; --partial: #d9a441;
+        }
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 40px 28px 90px; background: var(--bg); color: var(--fg);
+        font: 15px/1.6 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+      main { max-width: 1180px; margin: 0 auto; }
+      h1 { margin: 0 0 6px; font-size: 26px; letter-spacing: -0.01em; }
+      h2 { margin: 44px 0 10px; font-size: 17px; letter-spacing: -0.01em; }
+      .sub { margin: 0 0 30px; color: var(--muted); font-size: 14px; }
+      p { margin: 0 0 14px; }
+      code, .m { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+      code { padding: 1px 5px; border-radius: 4px; background: var(--code); }
+      .scroll { overflow-x: auto; margin: 0 0 10px; border: 1px solid var(--line); border-radius: 8px; }
+      table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      th, td { padding: 8px 11px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+      th { position: sticky; top: 0; background: var(--head); font-size: 11px; font-weight: 700;
+        letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+      tbody tr:last-child td { border-bottom: 0; }
+      td.m { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+      .tag { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+      .t-live { color: var(--live); background: color-mix(in srgb, var(--live) 14%, transparent); }
+      .t-dead { color: var(--dead); background: color-mix(in srgb, var(--dead) 14%, transparent); }
+      .t-partial { color: var(--partial); background: color-mix(in srgb, var(--partial) 16%, transparent); }
+      .none { color: var(--muted); }
+      .note { margin: 18px 0; padding: 12px 15px; border-left: 3px solid var(--partial);
+        background: color-mix(in srgb, var(--partial) 7%, transparent); font-size: 13.5px; }
+/* ── Ground truth layout ── */
+      .gt {
+        margin: 8px 0 36px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        overflow: hidden;
+        background: var(--bg);
+      }
+      .gt-hero {
+        display: flex; flex-wrap: wrap; gap: 20px; justify-content: space-between; align-items: flex-start;
+        padding: 22px 22px 18px;
+        background: linear-gradient(135deg,
+          color-mix(in srgb, #3b6fd4 12%, var(--head)),
+          color-mix(in srgb, #7c4dff 8%, var(--head)));
+        border-bottom: 1px solid var(--line);
+      }
+      .gt-kicker {
+        margin: 0 0 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+        text-transform: uppercase; color: #3b6fd4;
+      }
+      @media (prefers-color-scheme: dark) {
+        .gt-kicker { color: #8ab4ff; }
+      }
+      .gt-hero h2 { margin: 0 0 6px; font-size: 22px; letter-spacing: -0.02em; }
+      .gt-hero .sub { margin: 0; max-width: 52ch; }
+      .gt-toc {
+        display: flex; flex-direction: column; gap: 6px; min-width: 180px;
+        padding: 10px 12px; border-radius: 8px;
+        background: color-mix(in srgb, var(--bg) 70%, transparent);
+        border: 1px solid var(--line); font-size: 12.5px;
+      }
+      .gt-toc a {
+        color: var(--fg); text-decoration: none; padding: 3px 6px; border-radius: 4px;
+      }
+      .gt-toc a:hover { background: var(--code); color: #3b6fd4; }
+      .cites {
+        margin: 0; padding: 14px 22px; font-size: 12.5px;
+        border-bottom: 1px solid var(--line);
+        background: var(--code);
+      }
+      .cites ul { margin: 8px 0 6px; padding-left: 18px; }
+      .cites li { margin-bottom: 4px; }
+      .cites a { color: #3b6fd4; }
+      @media (prefers-color-scheme: dark) { .cites a { color: #8ab4ff; } }
+      .cite-date { color: var(--muted); }
+      .cite-note { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+      .gt-part { padding: 22px 22px 10px; }
+      .gt-part + .gt-part { border-top: 1px solid var(--line); }
+      .gt-part-head {
+        display: flex; gap: 14px; align-items: flex-start;
+        margin: 0 0 18px; padding: 14px 16px; border-radius: 10px;
+      }
+      .gt-part-head.part-official {
+        background: color-mix(in srgb, #3b6fd4 10%, var(--head));
+        border: 1px solid color-mix(in srgb, #3b6fd4 28%, var(--line));
+      }
+      .gt-part-head.part-ours {
+        background: color-mix(in srgb, #1f7a3d 10%, var(--head));
+        border: 1px solid color-mix(in srgb, #1f7a3d 28%, var(--line));
+      }
+      .part-num {
+        flex: 0 0 auto; width: 32px; height: 32px; border-radius: 50%;
+        display: grid; place-items: center; font-weight: 800; font-size: 14px;
+        color: #fff; background: #3b6fd4;
+      }
+      .part-ours .part-num { background: #1f7a3d; }
+      .gt-part-head h3 { margin: 0 0 4px; font-size: 16px; }
+      .gt-part-head p { margin: 0; font-size: 13px; color: var(--muted); }
+      .gt h4 {
+        margin: 28px 0 10px; font-size: 13px; font-weight: 700;
+        letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted);
+        padding-bottom: 6px; border-bottom: 1px solid var(--line);
+      }
+      .gt h5 { margin: 14px 0 6px; font-size: 13px; font-weight: 700; color: var(--fg); }
+      .stat-row {
+        display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+        gap: 10px; margin: 0 0 20px;
+      }
+      .stat {
+        padding: 12px 12px 10px; border-radius: 8px; border: 1px solid var(--line);
+        background: var(--head); text-align: center;
+      }
+      .stat-n { display: block; font-size: 22px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
+      .stat-l { display: block; margin-top: 4px; font-size: 11px; color: var(--muted); line-height: 1.3; }
+      .stat.used { border-color: color-mix(in srgb, var(--live) 40%, var(--line)); background: color-mix(in srgb, var(--live) 10%, var(--head)); }
+      .stat.used .stat-n { color: var(--live); }
+      .stat.partial { border-color: color-mix(in srgb, var(--partial) 40%, var(--line)); background: color-mix(in srgb, var(--partial) 10%, var(--head)); }
+      .stat.partial .stat-n { color: var(--partial); }
+      .stat.registry { border-color: color-mix(in srgb, #6b5b95 40%, var(--line)); background: color-mix(in srgb, #6b5b95 10%, var(--head)); }
+      .stat.registry .stat-n { color: #6b5b95; }
+      @media (prefers-color-scheme: dark) { .stat.registry .stat-n { color: #b5a5e0; } }
+      .stat.unused .stat-n { color: var(--muted); }
+      .prose-box {
+        margin: 0 0 14px; padding: 12px 14px; border-radius: 8px;
+        border: 1px solid var(--line); background: var(--head); font-size: 13.5px;
+      }
+      .prose-box p:last-child { margin-bottom: 0; }
+      .muted-p { color: var(--muted); font-size: 13px; }
+      .tag { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 700; white-space: nowrap; vertical-align: middle; }
+      .t-used, .t-live { color: var(--live); background: color-mix(in srgb, var(--live) 14%, transparent); }
+      .t-dead, .t-unused { color: var(--dead); background: color-mix(in srgb, var(--dead) 12%, transparent); }
+      .t-partial { color: var(--partial); background: color-mix(in srgb, var(--partial) 16%, transparent); }
+      .t-registry { color: #6b5b95; background: color-mix(in srgb, #6b5b95 14%, transparent); }
+      @media (prefers-color-scheme: dark) {
+        .t-registry { color: #b5a5e0; background: color-mix(in srgb, #b5a5e0 16%, transparent); }
+      }
+      .hook-index {
+        display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px;
+      }
+      .hook-chip {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 5px 10px; border-radius: 999px; text-decoration: none; color: var(--fg);
+        border: 1px solid var(--line); background: var(--head); font-size: 12px;
+        transition: border-color .12s, transform .12s;
+      }
+      .hook-chip:hover { transform: translateY(-1px); border-color: #3b6fd4; }
+      .hook-chip code { font-size: 11.5px; background: transparent; padding: 0; }
+      .hook-chip.use-used { border-color: color-mix(in srgb, var(--live) 45%, var(--line)); background: color-mix(in srgb, var(--live) 8%, var(--head)); }
+      .hook-chip.use-partial { border-color: color-mix(in srgb, var(--partial) 45%, var(--line)); background: color-mix(in srgb, var(--partial) 8%, var(--head)); }
+      .hook-chip.use-registry { border-color: color-mix(in srgb, #6b5b95 45%, var(--line)); background: color-mix(in srgb, #6b5b95 8%, var(--head)); }
+      .hook-chip.use-unused { opacity: 0.85; }
+      .hook-catalog { display: flex; flex-direction: column; gap: 12px; margin: 0 0 20px; }
+      .hook-card {
+        border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+        background: var(--bg); scroll-margin-top: 16px;
+      }
+      .hook-card.use-used { border-left: 4px solid var(--live); }
+      .hook-card.use-partial { border-left: 4px solid var(--partial); }
+      .hook-card.use-registry { border-left: 4px solid #6b5b95; }
+      .hook-card.use-unused { border-left: 4px solid var(--line); }
+      .hook-card-h {
+        padding: 12px 14px 10px;
+        background: var(--head); border-bottom: 1px solid var(--line);
+      }
+      .hook-card-title { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+      .hook-anchor { color: inherit; text-decoration: none; }
+      .hook-anchor code {
+        font-size: 13.5px; font-weight: 700; background: var(--code); padding: 2px 7px; border-radius: 4px;
+      }
+      .hook-when { margin: 6px 0 0; font-size: 12.5px; color: var(--muted); }
+      .hook-card-body { padding: 12px 14px 14px; font-size: 13.5px; }
+      .hook-card-body p { margin: 0 0 10px; }
+      .hook-card-body ul { margin: 0 0 10px; padding-left: 18px; }
+      .hook-card-body li { margin-bottom: 3px; }
+      .hook-usage {
+        margin: 12px 0 0 !important; padding: 8px 10px; border-radius: 6px;
+        background: color-mix(in srgb, var(--head) 80%, var(--code));
+        border: 1px dashed var(--line); font-size: 12.5px;
+      }
+      .def-table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin: 0 0 10px; }
+      .def-table th, .def-table td {
+        padding: 7px 10px; text-align: left; vertical-align: top;
+        border-bottom: 1px solid var(--line);
+      }
+      .def-table th {
+        background: var(--head); font-size: 10.5px; font-weight: 700;
+        letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted);
+      }
+      .def-table td.m { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; white-space: nowrap; }
+      .snippet {
+        margin: 8px 0 12px; padding: 10px 12px; border-radius: 6px;
+        background: #1a1a19; color: #e8e6e0; overflow-x: auto; font-size: 11.5px; line-height: 1.45;
+      }
+      @media (prefers-color-scheme: light) {
+        .snippet { background: #1e1e1c; }
+      }
+      .snippet code { background: transparent; padding: 0; color: inherit; font-size: inherit; }
+      .flow {
+        margin: 0 0 14px; padding: 14px 16px; border-radius: 8px;
+        background: #14140f; color: #c8e6c9; font-size: 12px; line-height: 1.55;
+        overflow-x: auto; border: 1px solid var(--line);
+      }
+      @media (prefers-color-scheme: light) {
+        .flow { background: #1b2a1c; color: #d7f0d9; }
+      }
+      .scroll { overflow-x: auto; margin: 0 0 12px; border: 1px solid var(--line); border-radius: 8px; }
+      .scroll .def-table { margin: 0; }
+      .scroll .def-table th { position: sticky; top: 0; }
+      ul { margin: 0 0 14px; padding-left: 20px; }
+      li { margin-bottom: 5px; }
+      footer { margin-top: 50px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12.5px; }
+
+      .t-ambient { color: var(--muted); background: color-mix(in srgb, var(--muted) 16%, transparent); }
+      .t-driver { color: #3b6fd4; background: color-mix(in srgb, #3b6fd4 14%, transparent); }
+      .t-observer { color: #0d9488; background: color-mix(in srgb, #0d9488 14%, transparent); }
+      .t-acp { color: #7c3aed; background: color-mix(in srgb, #7c3aed 14%, transparent); }
+      .group-h { margin: 16px 0 8px; font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: 0.03em; }
+      .row-used td:first-child { box-shadow: inset 3px 0 0 var(--live); }
+      .hook-chip.use-ambient { opacity: 0.9; }
+      .gt h5.group-h { text-transform: none; letter-spacing: 0; border: 0; padding: 0; margin: 18px 0 8px; }
+
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>ACP adapter — event map</h1>
+      <p class="sub">
+        Every ACP <code>session/update</code> kind, whether we interpret it, what it normalizes to, how it folds into
+        <code>SessionRuntimeState</code>, and what the Godview monitor views draw. Full official protocol surface and
+        our driver/normalizer usage are in <a href="#ground-truth">Ground truth</a>. Adapter code:
+        <code>src/normalizer.ts</code>, <code>src/driver.ts</code>.
+      </p>
+
+
+
+      <section class="gt" id="ground-truth">
+        <header class="gt-hero">
+          <div>
+            <p class="gt-kicker">Vendor surface · Agent Client Protocol</p>
+            <h2>Ground truth</h2>
+            <p class="sub">Full ACP v1 catalog with <strong>input/output field tables</strong> from the official schema, then how chopsticks uses them. Retrieved <time datetime="2026-08-03">2026-08-03</time>.</p>
+          </div>
+          <nav class="gt-toc">
+            <a href="#gt-official">1. Official surface</a>
+            <a href="#gt-acp-envelope">Envelope</a>
+            <a href="#gt-acp-agent">Agent methods</a>
+            <a href="#gt-acp-client">Client methods</a>
+            <a href="#gt-acp-updates">Update kinds</a>
+            <a href="#gt-ours">2. How we use it</a>
+          </nav>
+        </header>
+        <div class="cites">
+          <strong>Primary citations</strong>
+          <ul>
+            <li><a href="https://agentclientprotocol.com/protocol/v1/schema" rel="noopener">Schema</a> — request/response property tables <span class="cite-date">· 2026-08-03</span></li>
+            <li><a href="https://agentclientprotocol.com/protocol/v1/overview" rel="noopener">Overview</a> · <a href="https://agentclientprotocol.com/protocol/v1/prompt-turn" rel="noopener">Prompt turn</a> · <a href="https://agentclientprotocol.com/protocol/v1/tool-calls" rel="noopener">Tool calls</a></li>
+            <li><a href="https://github.com/agentclientprotocol/agent-client-protocol/releases/latest/download/schema.json" rel="noopener">schema.json</a></li>
+          </ul>
+        </div>
+        <div class="gt-part" id="gt-official">
+          <div class="gt-part-head part-official">
+            <span class="part-num">1</span>
+            <div>
+              <h3>Official surface — full definitions &amp; fields</h3>
+              <p>Each method lists Input and Output properties. Each update kind lists payload fields. Badges mark chopsticks adoption.</p>
+            </div>
+          </div>
+          <div class="stat-row">
+            <div class="stat"><span class="stat-n">13</span><span class="stat-l">Agent methods</span></div>
+            <div class="stat"><span class="stat-n">10</span><span class="stat-l">Client methods</span></div>
+            <div class="stat"><span class="stat-n">11</span><span class="stat-l">update kinds</span></div>
+            <div class="stat used"><span class="stat-n">6</span><span class="stat-l">updates normalized</span></div>
+          </div>
+          <div class="prose-box">
+            <p><strong>JSON-RPC 2.0</strong>. Object keys <code>camelCase</code>; discriminators <code>snake_case</code>. Paths absolute. <strong>Turn boundary</strong> = <code>session/prompt</code> response with <code>stopReason</code>.</p>
+          </div>
+          <h4 id="gt-acp-envelope">session/update envelope</h4>
+          <p>Agent → Client notification (no response expected).</p>
+          <div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionId</td><td>SessionId (required)</td><td>Session this update pertains to</td></tr><tr><td class="m">update</td><td>SessionUpdate (required)</td><td>Discriminated union via sessionUpdate</td></tr><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div>
+          <h4 id="gt-acp-agent">Agent methods</h4>
+          <div class="hook-index"><a class="hook-chip use-used" href="#acp-m-initialize"><code>initialize</code></a><a class="hook-chip use-partial" href="#acp-m-authenticate"><code>authenticate</code></a><a class="hook-chip use-used" href="#acp-m-session-new"><code>session/new</code></a><a class="hook-chip use-used" href="#acp-m-session-load"><code>session/load</code></a><a class="hook-chip use-used" href="#acp-m-session-prompt"><code>session/prompt</code></a><a class="hook-chip use-partial" href="#acp-m-session-cancel"><code>session/cancel</code></a><a class="hook-chip use-unused" href="#acp-m-session-set-mode"><code>session/set_mode</code></a><a class="hook-chip use-unused" href="#acp-m-session-set-config"><code>session/set_config_option</code></a><a class="hook-chip use-unused" href="#acp-m-session-list"><code>session/list</code></a><a class="hook-chip use-unused" href="#acp-m-session-close"><code>session/close</code></a><a class="hook-chip use-unused" href="#acp-m-session-delete"><code>session/delete</code></a><a class="hook-chip use-unused" href="#acp-m-session-resume"><code>session/resume</code></a><a class="hook-chip use-unused" href="#acp-m-logout"><code>logout</code></a></div>
+          <div class="hook-catalog">
+<article class="hook-card use-used" id="acp-m-initialize">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-m-initialize"><code>initialize</code></a>
+      <span class="tag t-used">Used</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Establishes the connection with a client and negotiates protocol capabilities. Called once at connection start.</p>
+    <h5>Input — InitializeRequest</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">protocolVersion</td><td>ProtocolVersion (required)</td><td>Latest protocol version supported by the client</td></tr><tr><td class="m">clientCapabilities</td><td>ClientCapabilities</td><td>Default: fs read/write false, terminal false</td></tr><tr><td class="m">clientInfo</td><td>Implementation | null</td><td>Client name/version; required in future protocol versions</td></tr><tr><td class="m">_meta</td><td>object | null</td><td>Extensibility metadata</td></tr></tbody></table></div><h5>Output — InitializeResponse</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">protocolVersion</td><td>ProtocolVersion (required)</td><td>Negotiated version; client should disconnect if unsupported</td></tr><tr><td class="m">agentCapabilities</td><td>AgentCapabilities</td><td>loadSession, promptCapabilities, mcpCapabilities, sessionCapabilities, auth</td></tr><tr><td class="m">agentInfo</td><td>Implementation | null</td><td>Agent name/version</td></tr><tr><td class="m">authMethods</td><td>AuthMethod[]</td><td>Default []</td></tr><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div>
+  </div>
+</article>
+<article class="hook-card use-partial" id="acp-m-authenticate">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-m-authenticate"><code>authenticate</code></a>
+      <span class="tag t-partial">Partial</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Authenticates using a method advertised at initialize. After success, session creation proceeds without auth_required.</p>
+    <h5>Input — AuthenticateRequest</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">methodId</td><td>AuthMethodId (required)</td><td>Must be one of initialize.authMethods</td></tr><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div><h5>Output — AuthenticateResponse</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div>
+  </div>
+</article>
+<article class="hook-card use-used" id="acp-m-session-new">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-m-session-new"><code>session/new</code></a>
+      <span class="tag t-used">Used</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Creates a new conversation session. Agent creates context, connects MCP servers, returns sessionId. May return auth_required.</p>
+    <h5>Input — NewSessionRequest</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">cwd</td><td>string (required)</td><td>Absolute working directory</td></tr><tr><td class="m">mcpServers</td><td>McpServer[] (required)</td><td>MCP servers for this session</td></tr><tr><td class="m">additionalDirectories</td><td>string[]</td><td>Extra absolute workspace roots; does not change cwd</td></tr><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div><h5>Output — NewSessionResponse</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionId</td><td>SessionId (required)</td><td>Used on all subsequent requests for this conversation</td></tr><tr><td class="m">configOptions</td><td>SessionConfigOption[] | null</td><td>Initial config if supported</td></tr><tr><td class="m">modes</td><td>SessionModeState | null</td><td>Initial mode state if supported</td></tr><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div>
+  </div>
+</article>
+<article class="hook-card use-used" id="acp-m-session-load">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-m-session-load"><code>session/load</code></a>
+      <span class="tag t-used">Used</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Loads an existing session (requires loadSession). Restores history, connects MCP, streams history via notifications.</p>
+    <h5>Input — LoadSessionRequest</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionId</td><td>SessionId (required)</td><td></td></tr><tr><td class="m">cwd</td><td>string (required)</td><td>Absolute; must match session cwd when changing additional roots</td></tr><tr><td class="m">mcpServers</td><td>McpServer[] (required)</td><td></td></tr><tr><td class="m">additionalDirectories</td><td>string[]</td><td>Complete resulting additional-root list when non-empty</td></tr><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div><h5>Output — LoadSessionResponse</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">configOptions</td><td>SessionConfigOption[] | null</td><td></td></tr><tr><td class="m">modes</td><td>SessionModeState | null</td><td></td></tr><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div>
+  </div>
+</article>
+<article class="hook-card use-used" id="acp-m-session-prompt">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-m-session-prompt"><code>session/prompt</code></a>
+      <span class="tag t-used">Used</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Full prompt-turn lifecycle: user content, stream updates, permissions, tools, return with stopReason. <strong>This response is the turn boundary</strong> in ACP v1.</p>
+    <h5>Input — PromptRequest</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionId</td><td>SessionId (required)</td><td></td></tr><tr><td class="m">prompt</td><td>ContentBlock[] (required)</td><td>Baseline MUST support Text and ResourceLink; image/audio/embeddedContext via PromptCapabilities. Resource preferred over ResourceLink when available.</td></tr><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div><h5>Output — PromptResponse</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">stopReason</td><td>StopReason (required)</td><td>end_turn | max_tokens | max_turn_requests | refusal | cancelled</td></tr><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div>
+  </div>
+</article>
+<article class="hook-card use-partial" id="acp-m-session-cancel">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-m-session-cancel"><code>session/cancel</code></a>
+      <span class="tag t-partial">Partial</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Client notification to cancel ongoing prompt turn. No response. Agent should stop LM/tools, flush updates, answer original prompt with cancelled.</p>
+    <h5>Input — CancelNotification</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionId</td><td>SessionId (required)</td><td></td></tr><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div><h5>Output</h5><p class="muted-p">None — notification only.</p>
+  </div>
+</article>
+<article class="hook-card use-unused" id="acp-m-session-set-mode">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-m-session-set-mode"><code>session/set_mode</code></a>
+      <span class="tag t-unused">Not used</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Sets session mode (must be in availableModes). Callable anytime.</p>
+    <h5>Input</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionId</td><td>SessionId (required)</td><td></td></tr><tr><td class="m">modeId</td><td>SessionModeId (required)</td><td></td></tr></tbody></table></div><h5>Output</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div>
+  </div>
+</article>
+<article class="hook-card use-unused" id="acp-m-session-set-config">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-m-session-set-config"><code>session/set_config_option</code></a>
+      <span class="tag t-unused">Not used</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Sets a session configuration option (boolean or value_id variants).</p>
+    <h5>Input</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionId</td><td>SessionId (required)</td><td></td></tr><tr><td class="m">configId</td><td>SessionConfigId (required)</td><td></td></tr><tr><td class="m">type / value</td><td>union</td><td>boolean or SessionConfigValueId</td></tr></tbody></table></div><h5>Output</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">configOptions</td><td>SessionConfigOption[] (required)</td><td>Full set after update</td></tr></tbody></table></div>
+  </div>
+</article>
+<article class="hook-card use-unused" id="acp-m-session-list">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-m-session-list"><code>session/list</code></a>
+      <span class="tag t-unused">Not used</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Lists sessions (sessionCapabilities.list). Cursor pagination + optional cwd filter.</p>
+    <h5>Input</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">cursor</td><td>string | null</td><td>Opaque pagination token</td></tr><tr><td class="m">cwd</td><td>string | null</td><td>Absolute path filter</td></tr></tbody></table></div><h5>Output</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessions</td><td>SessionInfo[] (required)</td><td></td></tr><tr><td class="m">nextCursor</td><td>string | null</td><td></td></tr></tbody></table></div>
+  </div>
+</article>
+<article class="hook-card use-unused" id="acp-m-session-close">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-m-session-close"><code>session/close</code></a>
+      <span class="tag t-unused">Not used</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Closes session and frees resources (sessionCapabilities.close). Cancels work first.</p>
+    <h5>Input</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionId</td><td>SessionId (required)</td><td></td></tr></tbody></table></div><h5>Output</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div>
+  </div>
+</article>
+<article class="hook-card use-unused" id="acp-m-session-delete">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-m-session-delete"><code>session/delete</code></a>
+      <span class="tag t-unused">Not used</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Deletes session from list (sessionCapabilities.delete).</p>
+    <h5>Input</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionId</td><td>SessionId (required)</td><td></td></tr></tbody></table></div><h5>Output</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div>
+  </div>
+</article>
+<article class="hook-card use-unused" id="acp-m-session-resume">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-m-session-resume"><code>session/resume</code></a>
+      <span class="tag t-unused">Not used</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Resumes without replaying history (sessionCapabilities.resume), unlike session/load.</p>
+    <h5>Input</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionId</td><td>SessionId (required)</td><td></td></tr><tr><td class="m">cwd</td><td>string (required)</td><td></td></tr><tr><td class="m">mcpServers</td><td>McpServer[]</td><td></td></tr><tr><td class="m">additionalDirectories</td><td>string[]</td><td></td></tr></tbody></table></div><h5>Output</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">configOptions</td><td>SessionConfigOption[] | null</td><td></td></tr><tr><td class="m">modes</td><td>SessionModeState | null</td><td></td></tr></tbody></table></div>
+  </div>
+</article>
+<article class="hook-card use-unused" id="acp-m-logout">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-m-logout"><code>logout</code></a>
+      <span class="tag t-unused">Not used</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Ends authenticated state. New sessions need auth again.</p>
+    <h5>Input / Output</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">_meta</td><td>object | null</td><td>Request and response</td></tr></tbody></table></div>
+  </div>
+</article></div>
+          <h4 id="gt-acp-client">Client methods</h4>
+          <div class="hook-index"><a class="hook-chip use-used" href="#acp-c-permission"><code>session/request_permission</code></a><a class="hook-chip use-partial" href="#acp-c-fs-read"><code>fs/read_text_file</code></a><a class="hook-chip use-partial" href="#acp-c-fs-write"><code>fs/write_text_file</code></a><a class="hook-chip use-unused" href="#acp-c-term-create"><code>terminal/create</code></a><a class="hook-chip use-unused" href="#acp-c-term-output"><code>terminal/output</code></a><a class="hook-chip use-unused" href="#acp-c-term-wait"><code>terminal/wait_for_exit</code></a><a class="hook-chip use-unused" href="#acp-c-term-kill"><code>terminal/kill</code></a><a class="hook-chip use-unused" href="#acp-c-term-release"><code>terminal/release</code></a><a class="hook-chip use-unused" href="#acp-c-elicit"><code>elicitation/create</code></a><a class="hook-chip use-unused" href="#acp-c-elicit-complete"><code>elicitation/complete</code></a></div>
+          <div class="hook-catalog">
+<article class="hook-card use-used" id="acp-c-permission">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-c-permission"><code>session/request_permission</code></a>
+      <span class="tag t-used">Used</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Agent → Client request for user authorization before a sensitive tool operation. If client cancels the turn, MUST respond with outcome cancelled.</p>
+    <h5>Input — RequestPermissionRequest</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionId</td><td>SessionId (required)</td><td></td></tr><tr><td class="m">toolCall</td><td>ToolCallUpdate (required)</td><td>Details of the tool call needing permission</td></tr><tr><td class="m">options</td><td>PermissionOption[] (required)</td><td>Each: optionId, name, kind ∈ allow_once | allow_always | reject_once | reject_always</td></tr><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div><h5>Output — RequestPermissionResponse</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">outcome</td><td>RequestPermissionOutcome (required)</td><td>selected + optionId, or cancelled</td></tr><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div>
+  </div>
+</article>
+<article class="hook-card use-partial" id="acp-c-fs-read">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-c-fs-read"><code>fs/read_text_file</code></a>
+      <span class="tag t-partial">Partial</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Read text file in client FS (capability fs.readTextFile).</p>
+    <h5>Input</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionId</td><td>SessionId (required)</td><td></td></tr><tr><td class="m">path</td><td>string (required)</td><td>Absolute path</td></tr><tr><td class="m">line</td><td>integer | null</td><td>1-based start</td></tr><tr><td class="m">limit</td><td>integer | null</td><td>Max lines</td></tr></tbody></table></div><h5>Output</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">content</td><td>string (required)</td><td>File text</td></tr></tbody></table></div>
+  </div>
+</article>
+<article class="hook-card use-partial" id="acp-c-fs-write">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-c-fs-write"><code>fs/write_text_file</code></a>
+      <span class="tag t-partial">Partial</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Write text file (capability fs.writeTextFile).</p>
+    <h5>Input</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionId</td><td>SessionId (required)</td><td></td></tr><tr><td class="m">path</td><td>string (required)</td><td></td></tr><tr><td class="m">content</td><td>string (required)</td><td></td></tr></tbody></table></div><h5>Output</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div>
+  </div>
+</article>
+<article class="hook-card use-unused" id="acp-c-term-create">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-c-term-create"><code>terminal/create</code></a>
+      <span class="tag t-unused">Not used</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Create terminal and run command (terminal capability).</p>
+    <h5>Input</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionId</td><td>SessionId (required)</td><td></td></tr><tr><td class="m">command</td><td>string (required)</td><td></td></tr><tr><td class="m">args</td><td>string[]</td><td></td></tr><tr><td class="m">cwd</td><td>string | null</td><td>Absolute</td></tr><tr><td class="m">env</td><td>EnvVariable[]</td><td></td></tr><tr><td class="m">outputByteLimit</td><td>integer | null</td><td></td></tr></tbody></table></div><h5>Output</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">terminalId</td><td>TerminalId (required)</td><td></td></tr></tbody></table></div>
+  </div>
+</article>
+<article class="hook-card use-unused" id="acp-c-term-output">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-c-term-output"><code>terminal/output</code></a>
+      <span class="tag t-unused">Not used</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Current terminal output without waiting for exit.</p>
+    <h5>Input</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionId</td><td>SessionId (required)</td><td></td></tr><tr><td class="m">terminalId</td><td>TerminalId (required)</td><td></td></tr></tbody></table></div><h5>Output</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">output</td><td>string (required)</td><td></td></tr><tr><td class="m">truncated</td><td>boolean (required)</td><td></td></tr><tr><td class="m">exitStatus</td><td>TerminalExitStatus | null</td><td></td></tr></tbody></table></div>
+  </div>
+</article>
+<article class="hook-card use-unused" id="acp-c-term-wait">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-c-term-wait"><code>terminal/wait_for_exit</code></a>
+      <span class="tag t-unused">Not used</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Wait for terminal command exit.</p>
+    <h5>Input</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionId</td><td>SessionId (required)</td><td></td></tr><tr><td class="m">terminalId</td><td>TerminalId (required)</td><td></td></tr></tbody></table></div><h5>Output</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">exitCode</td><td>integer | null</td><td></td></tr><tr><td class="m">signal</td><td>string | null</td><td></td></tr></tbody></table></div>
+  </div>
+</article>
+<article class="hook-card use-unused" id="acp-c-term-kill">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-c-term-kill"><code>terminal/kill</code></a>
+      <span class="tag t-unused">Not used</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Kill command but keep terminalId valid.</p>
+    <h5>Input</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionId</td><td>SessionId (required)</td><td></td></tr><tr><td class="m">terminalId</td><td>TerminalId (required)</td><td></td></tr></tbody></table></div><h5>Output</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div>
+  </div>
+</article>
+<article class="hook-card use-unused" id="acp-c-term-release">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-c-term-release"><code>terminal/release</code></a>
+      <span class="tag t-unused">Not used</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Free terminal; terminalId invalid afterward.</p>
+    <h5>Input</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionId</td><td>SessionId (required)</td><td></td></tr><tr><td class="m">terminalId</td><td>TerminalId (required)</td><td></td></tr></tbody></table></div><h5>Output</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div>
+  </div>
+</article>
+<article class="hook-card use-unused" id="acp-c-elicit">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-c-elicit"><code>elicitation/create</code></a>
+      <span class="tag t-unused">Not used</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Agent requests structured user input (form or URL modes).</p>
+    <h5>Input (union)</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">message</td><td>string (required)</td><td></td></tr><tr><td class="m">mode</td><td>string (required)</td><td>form | url | extension</td></tr><tr><td class="m">requestedSchema</td><td>ElicitationSchema</td><td>form mode</td></tr><tr><td class="m">url</td><td>uri string</td><td>url mode</td></tr><tr><td class="m">elicitationId</td><td>ElicitationId</td><td>url mode</td></tr></tbody></table></div><h5>Output (union)</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">action</td><td>string (required)</td><td>accept | decline | cancel</td></tr><tr><td class="m">content</td><td>object | null</td><td>accept: schema values</td></tr></tbody></table></div>
+  </div>
+</article>
+<article class="hook-card use-unused" id="acp-c-elicit-complete">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-c-elicit-complete"><code>elicitation/complete</code></a>
+      <span class="tag t-unused">Not used</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Notification that URL elicitation finished.</p>
+    <h5>Input</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">elicitationId</td><td>ElicitationId (required)</td><td></td></tr></tbody></table></div><h5>Output</h5><p class="muted-p">None — notification only.</p>
+  </div>
+</article></div>
+          <h4 id="gt-acp-updates">SessionUpdate kinds</h4>
+          <div class="hook-index"><a class="hook-chip use-ambient" href="#acp-u-user_message_chunk"><code>user_message_chunk</code></a><a class="hook-chip use-used" href="#acp-u-agent_message_chunk"><code>agent_message_chunk</code></a><a class="hook-chip use-used" href="#acp-u-agent_thought_chunk"><code>agent_thought_chunk</code></a><a class="hook-chip use-used" href="#acp-u-tool_call"><code>tool_call</code></a><a class="hook-chip use-used" href="#acp-u-tool_call_update"><code>tool_call_update</code></a><a class="hook-chip use-unused" href="#acp-u-plan"><code>plan</code></a><a class="hook-chip use-unused" href="#acp-u-available_commands_update"><code>available_commands_update</code></a><a class="hook-chip use-unused" href="#acp-u-current_mode_update"><code>current_mode_update</code></a><a class="hook-chip use-used" href="#acp-u-config_option_update"><code>config_option_update</code></a><a class="hook-chip use-unused" href="#acp-u-session_info_update"><code>session_info_update</code></a><a class="hook-chip use-used" href="#acp-u-usage_update"><code>usage_update</code></a></div>
+          <div class="hook-catalog">
+<article class="hook-card use-ambient" id="acp-u-user_message_chunk">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-u-user_message_chunk"><code>sessionUpdate: user_message_chunk</code></a>
+      <span class="tag t-ambient">Dropped by us</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>A chunk of the user's message being streamed.</p>
+    <h5>Payload fields (update object)</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionUpdate</td><td>string (required)</td><td>Must be "user_message_chunk"</td></tr><tr><td class="m">content</td><td>ContentBlock (required)</td><td>Single content item</td></tr><tr><td class="m">messageId</td><td>MessageId | null</td><td>Same id = same message</td></tr><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div><h5>Chopsticks</h5><p class="hook-usage"><strong>Chopsticks:</strong> Dropped — driver already emitted turn.started with our prompt text.</p>
+  </div>
+</article>
+<article class="hook-card use-used" id="acp-u-agent_message_chunk">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-u-agent_message_chunk"><code>sessionUpdate: agent_message_chunk</code></a>
+      <span class="tag t-used">Used</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>A chunk of the agent's response being streamed.</p>
+    <h5>Payload fields</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionUpdate</td><td>string (required)</td><td>"agent_message_chunk"</td></tr><tr><td class="m">content</td><td>ContentBlock (required)</td><td>Usually type text</td></tr><tr><td class="m">messageId</td><td>MessageId | null</td><td>Chunks with same id = one message</td></tr><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div><h5>Chopsticks</h5><p class="hook-usage"><strong>Chopsticks:</strong> Accumulate content.text → assistant.message (final:false).</p>
+  </div>
+</article>
+<article class="hook-card use-used" id="acp-u-agent_thought_chunk">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-u-agent_thought_chunk"><code>sessionUpdate: agent_thought_chunk</code></a>
+      <span class="tag t-used">Used</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>A chunk of the agent's internal reasoning being streamed.</p>
+    <h5>Payload fields</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionUpdate</td><td>string (required)</td><td>"agent_thought_chunk"</td></tr><tr><td class="m">content</td><td>ContentBlock (required)</td><td>Thought text</td></tr><tr><td class="m">messageId</td><td>MessageId | null</td><td></td></tr><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div><h5>Chopsticks</h5><p class="hook-usage"><strong>Chopsticks:</strong> reasoning.started then reasoning.progress; raw content on envelope only.</p>
+  </div>
+</article>
+<article class="hook-card use-used" id="acp-u-tool_call">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-u-tool_call"><code>sessionUpdate: tool_call</code></a>
+      <span class="tag t-used">Used</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Agent reports a new tool call.</p>
+    <h5>Payload fields</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionUpdate</td><td>string (required)</td><td>"tool_call"</td></tr><tr><td class="m">toolCallId</td><td>ToolCallId (required)</td><td>Unique within session</td></tr><tr><td class="m">title</td><td>string (required)</td><td>Human-readable title</td></tr><tr><td class="m">kind</td><td>ToolKind</td><td>read|edit|delete|move|search|execute|think|fetch|other</td></tr><tr><td class="m">status</td><td>ToolCallStatus</td><td>pending (default)|in_progress|completed|failed</td></tr><tr><td class="m">content</td><td>ToolCallContent[]</td><td>content | diff | terminal</td></tr><tr><td class="m">locations</td><td>ToolCallLocation[]</td><td>path + optional line</td></tr><tr><td class="m">rawInput</td><td>object</td><td>Raw tool parameters</td></tr><tr><td class="m">rawOutput</td><td>object</td><td>Raw tool result</td></tr><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div><h5>Chopsticks</h5><p class="hook-usage"><strong>Chopsticks:</strong> tool.started; also tool.completed/failed if status already terminal.</p>
+  </div>
+</article>
+<article class="hook-card use-used" id="acp-u-tool_call_update">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-u-tool_call_update"><code>sessionUpdate: tool_call_update</code></a>
+      <span class="tag t-used">Used</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Partial update on a tool call. All fields except toolCallId optional.</p>
+    <h5>Payload fields</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionUpdate</td><td>string (required)</td><td>"tool_call_update"</td></tr><tr><td class="m">toolCallId</td><td>ToolCallId (required)</td><td></td></tr><tr><td class="m">title</td><td>string | null</td><td></td></tr><tr><td class="m">kind</td><td>ToolKind | null</td><td></td></tr><tr><td class="m">status</td><td>ToolCallStatus | null</td><td>pending|in_progress|completed|failed</td></tr><tr><td class="m">content</td><td>ToolCallContent[] | null</td><td>Replace content collection</td></tr><tr><td class="m">locations</td><td>ToolCallLocation[] | null</td><td></td></tr><tr><td class="m">rawInput</td><td>object | null</td><td></td></tr><tr><td class="m">rawOutput</td><td>object | null</td><td></td></tr><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div><h5>Chopsticks</h5><p class="hook-usage"><strong>Chopsticks:</strong> tool.completed / tool.failed on terminal status; pending/in_progress ignored.</p>
+  </div>
+</article>
+<article class="hook-card use-unused" id="acp-u-plan">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-u-plan"><code>sessionUpdate: plan</code></a>
+      <span class="tag t-unused">Not used (native-event)</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Agent execution plan entries.</p>
+    <h5>Payload fields</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionUpdate</td><td>string (required)</td><td>"plan"</td></tr><tr><td class="m">entries</td><td>PlanEntry[] (required)</td><td>content, priority, status (pending|in_progress|completed)</td></tr><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div>
+  </div>
+</article>
+<article class="hook-card use-unused" id="acp-u-available_commands_update">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-u-available_commands_update"><code>sessionUpdate: available_commands_update</code></a>
+      <span class="tag t-unused">Not used (native-event)</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Available commands ready or changed.</p>
+    <h5>Payload fields</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionUpdate</td><td>string (required)</td><td>"available_commands_update"</td></tr><tr><td class="m">availableCommands</td><td>AvailableCommand[] (required)</td><td></td></tr><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div>
+  </div>
+</article>
+<article class="hook-card use-unused" id="acp-u-current_mode_update">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-u-current_mode_update"><code>sessionUpdate: current_mode_update</code></a>
+      <span class="tag t-unused">Not used (native-event)</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Agent changed session mode autonomously.</p>
+    <h5>Payload fields</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionUpdate</td><td>string (required)</td><td>"current_mode_update"</td></tr><tr><td class="m">currentModeId</td><td>SessionModeId (required)</td><td></td></tr><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div>
+  </div>
+</article>
+<article class="hook-card use-used" id="acp-u-config_option_update">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-u-config_option_update"><code>sessionUpdate: config_option_update</code></a>
+      <span class="tag t-used">Used</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Session configuration options updated.</p>
+    <h5>Payload fields</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionUpdate</td><td>string (required)</td><td>"config_option_update"</td></tr><tr><td class="m">configOptions</td><td>SessionConfigOption[] (required)</td><td>Full set and current values</td></tr><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div><h5>Chopsticks</h5><p class="hook-usage"><strong>Chopsticks:</strong> model-like select → environment.updated; else adapter.native-event.</p>
+  </div>
+</article>
+<article class="hook-card use-unused" id="acp-u-session_info_update">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-u-session_info_update"><code>sessionUpdate: session_info_update</code></a>
+      <span class="tag t-unused">Not used (native-event)</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Session metadata updated (title, timestamps, custom).</p>
+    <h5>Payload fields</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionUpdate</td><td>string (required)</td><td>"session_info_update"</td></tr><tr><td class="m">title / updatedAt / …</td><td>optional</td><td>Per schema metadata fields</td></tr><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div>
+  </div>
+</article>
+<article class="hook-card use-used" id="acp-u-usage_update">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#acp-u-usage_update"><code>sessionUpdate: usage_update</code></a>
+      <span class="tag t-used">Used</span>
+    </div>
+  </header>
+  <div class="hook-card-body">
+    <p>Context window and cost update for the session.</p>
+    <h5>Payload fields</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionUpdate</td><td>string (required)</td><td>"usage_update"</td></tr><tr><td class="m">used</td><td>number (required)</td><td>Non-null tokens used in current context</td></tr><tr><td class="m">size</td><td>number (required)</td><td>Non-null effective context capacity</td></tr><tr><td class="m">cost</td><td>Cost | null</td><td>Optional { amount, currency } ISO 4217</td></tr><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div><h5>Chopsticks</h5><p class="hook-usage"><strong>Chopsticks:</strong> context-window.updated. No invalidated event in plain ACP.</p>
+  </div>
+</article></div>
+          <h4>ContentBlock &amp; StopReason</h4>
+          <div class="prose-box">
+            <p><strong>ContentBlock</strong> (MCP-compatible): <code>text</code>, <code>image</code>, <code>audio</code>, <code>resource</code>, <code>resource_link</code> + optional annotations.</p>
+          </div>
+          <div class="scroll"><table class="def-table"><thead><tr><th>StopReason</th><th></th><th>Meaning</th></tr></thead><tbody><tr><td class="m">end_turn</td><td>—</td><td>Model finished without more tools</td></tr><tr><td class="m">max_tokens</td><td>—</td><td>Token limit</td></tr><tr><td class="m">max_turn_requests</td><td>—</td><td>Too many model requests in one turn</td></tr><tr><td class="m">refusal</td><td>—</td><td>Agent refuses</td></tr><tr><td class="m">cancelled</td><td>—</td><td>Client cancelled — agents MUST use this</td></tr></tbody></table></div>
+        </div>
+        <div class="gt-part" id="gt-ours">
+          <div class="gt-part-head part-ours">
+            <span class="part-num">2</span>
+            <div>
+              <h3>How chopsticks uses this surface</h3>
+              <p><code>connection.ts</code> · <code>driver.ts</code> · <code>normalizer.ts</code></p>
+            </div>
+          </div>
+          <pre class="flow">initialize → session/new|load
+  → session/update → AcpNotificationNormalizer
+  → session/request_permission → onApproval
+  → submitPrompt: turn.started → session/prompt → turn.completed|failed
+  → observationLevel: structured</pre>
+          <div class="scroll"><table class="def-table">
+            <thead><tr><th>Surface</th><th>Our mapping</th></tr></thead>
+            <tbody>
+              <tr><td class="m">initialize, session/new|load, session/prompt</td><td>Session + structured prompt</td></tr>
+              <tr><td class="m">session/request_permission</td><td>permission.requested / .resolved</td></tr>
+              <tr><td class="m">agent_message_chunk</td><td>assistant.message</td></tr>
+              <tr><td class="m">agent_thought_chunk</td><td>reasoning.started / progress</td></tr>
+              <tr><td class="m">tool_call / tool_call_update</td><td>tool.started / completed / failed</td></tr>
+              <tr><td class="m">usage_update</td><td>context-window.updated</td></tr>
+              <tr><td class="m">config_option_update</td><td>environment.model or native-event</td></tr>
+              <tr><td class="m">user_message_chunk</td><td>dropped</td></tr>
+              <tr><td class="m">other updates</td><td>adapter.native-event</td></tr>
+              <tr><td class="m">prompt stopReason</td><td>turn.completed / failed (driver)</td></tr>
+            </tbody>
+          </table></div>
+        </div>
+      </section>
+
+
+
+      <div class="note">
+        <strong>Half of this adapter's events are not observations.</strong> Turn boundaries and reasoning completion are
+        emitted by the <em>driver</em>, around our own <code>prompt()</code> call — not read from the agent. That has a
+        direct consequence: <strong>a turn the user starts by typing into the native TUI is invisible</strong>. The agent
+        keeps reading <span class="tag t-live">idle</span> while it works, because nothing told us a turn began.
+      </div>
+
+      <style>
+        .diagrams { margin: 26px 0 10px; }
+        .diagram { margin: 0 0 22px; padding: 16px 14px 10px; border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; }
+        .diagram > h3 { margin: 0 0 12px; font-size: 12px; font-weight: 700; letter-spacing: 0.05em;
+          text-transform: uppercase; color: var(--muted); }
+        .mermaid { display: flex; justify-content: center; min-width: 0; }
+      </style>
+
+      <h2>State machines</h2>
+      <div class="diagrams">
+        <div class="diagram">
+          <h3>Lifecycle — driven by our own calls, not by the agent</h3>
+          <pre class="mermaid">
+stateDiagram-v2
+  direction LR
+  [*] --> preparing
+  preparing --> ready : session/new returns
+  ready --> running : WE call prompt()
+  running --> ready : prompt() settles
+  ready --> exited : connection closes
+  running --> exited : connection closes
+  ready --> failed : connection closes (error)
+  exited --> [*]
+  failed --> [*]
+  note right of running
+    Only prompts WE submitted reach this
+    state. A turn the user types into the
+    native TUI leaves the agent reading
+    idle while it works.
+  end note
+          </pre>
+        </div>
+
+        <div class="diagram">
+          <h3>Visual status</h3>
+          <pre class="mermaid">
+stateDiagram-v2
+  direction LR
+  [*] --> working : registered, no state yet
+  working --> waiting : session/request_permission
+  waiting --> working : permission answered
+  working --> idle : prompt() settles, tools empty
+  idle --> working : prompt() · tool_call · agent_thought_chunk
+  idle --> waiting : session/request_permission
+  working --> dropped : process.exited
+  idle --> dropped : process.exited
+  waiting --> dropped : process.exited
+  dropped --> [*]
+  note right of idle
+    A user-typed turn never leaves idle —
+    nothing tells us it began.
+  end note
+          </pre>
+        </div>
+
+        <div class="diagram">
+          <h3>Observed vs derived — the split that defines this adapter</h3>
+          <pre class="mermaid">
+flowchart LR
+  UPD["session/update stream<br/>(observed)"] --> NRM["AcpNormalizer"]
+  OWN["our prompt() call<br/>(derived)"] --> DRV["driver"]
+  PRM["session/request_permission"] --> DRV
+  NRM --> RED["reduceSessionState"]
+  DRV --> RED
+  GIT["runtime git observer"] --> RED
+  NRM -.->|"unhandled kinds"| UNK["adapter.native-event"]
+  UNK --> RED
+  RED --> CLS{"classifyAgentStatus"}
+  CLS --> VIS["idle · working · waiting"]
+  CLS -.-> DROP["dropped"]
+  VIS --> SW["swarm"]
+  VIS --> LI["list"]
+  VIS --> RA["rain"]
+          </pre>
+        </div>
+      </div>
+      <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+          startOnLoad: true,
+          theme: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'neutral',
+        });
+      </script>
+
+      <h2>Tracked: observed from the agent (normalizer)</h2>
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr><th>session/update kind</th><th>Normalized AgentEvent</th><th>Runtime state fold</th><th>Visual status</th><th>What you see</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="m">agent_message_chunk</td>
+              <td class="m">assistant.message <span class="none">(accumulated, final: false)</span></td>
+              <td>lastAssistantMessage</td>
+              <td><span class="tag t-dead">none</span></td>
+              <td><strong>nothing</strong> — no view reads lastAssistantMessage</td>
+            </tr>
+            <tr>
+              <td class="m">user_message_chunk</td>
+              <td class="m"><span class="none">deliberately dropped</span></td>
+              <td>—</td>
+              <td><span class="tag t-dead">none</span></td>
+              <td>nothing — the driver already emitted turn.started carrying this text</td>
+            </tr>
+            <tr>
+              <td class="m">agent_thought_chunk</td>
+              <td class="m">reasoning.started <span class="none">(first)</span><br />reasoning.progress <span class="none">(subsequent)</span></td>
+              <td>activeReasoning set</td>
+              <td><span class="tag t-live">working</span></td>
+              <td>detail “thinking”</td>
+            </tr>
+            <tr>
+              <td class="m">tool_call</td>
+              <td class="m">tool.started<br />+ tool.completed / tool.failed <span class="none">if it arrives already resolved</span></td>
+              <td>tools += <code>state:'running'</code></td>
+              <td><span class="tag t-live">working</span></td>
+              <td>detail becomes the tool title</td>
+            </tr>
+            <tr>
+              <td class="m">tool_call_update</td>
+              <td class="m">tool.completed <span class="none">or</span> tool.failed</td>
+              <td>tools −=; counters.toolsCompleted / toolsFailed++</td>
+              <td><span class="tag t-live">→ idle</span></td>
+              <td>falls back to idle when nothing else is live</td>
+            </tr>
+            <tr>
+              <td class="m">usage_update</td>
+              <td class="m">context-window.updated</td>
+              <td>contextWindow</td>
+              <td><span class="tag t-dead">none</span></td>
+              <td>CTX badge, bubble fill height, rain tail length</td>
+            </tr>
+            <tr>
+              <td class="m">config_option_update</td>
+              <td class="m">session.environment.updated <span class="none">(if it names a model)</span><br />else adapter.native-event</td>
+              <td>environment.model</td>
+              <td><span class="tag t-dead">none</span></td>
+              <td>model label</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2>Tracked: derived from our own calls (driver)</h2>
+      <p>These are not the agent telling us anything. They are chopsticks narrating its own actions.</p>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Trigger</th><th>Normalized</th><th>Fold</th><th>Visual status</th><th>Honesty note</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="m">session/new returns</td>
+              <td class="m">session.started<br />session.environment.updated</td>
+              <td>lifecycle → <code>ready</code></td>
+              <td><span class="tag t-live">idle</span></td>
+              <td>—</td>
+            </tr>
+            <tr>
+              <td class="m">we call prompt()</td>
+              <td class="m">turn.started</td>
+              <td>lifecycle → <code>running</code>; activeTurn</td>
+              <td><span class="tag t-live">working</span></td>
+              <td><strong>only fires for prompts we submitted.</strong> User-typed turns never appear</td>
+            </tr>
+            <tr>
+              <td class="m">prompt() resolves</td>
+              <td class="m">reasoning.completed<br />turn.completed</td>
+              <td>activeReasoning + activeTurn cleared</td>
+              <td><span class="tag t-live">idle</span></td>
+              <td>reasoning.completed fires whether or not any reasoning occurred, at <code>confidence: derived</code></td>
+            </tr>
+            <tr>
+              <td class="m">prompt() rejects</td>
+              <td class="m">reasoning.completed<br />turn.failed</td>
+              <td>activeTurn cleared</td>
+              <td><span class="tag t-live">idle</span></td>
+              <td>a failed turn is visually identical to a completed one</td>
+            </tr>
+            <tr>
+              <td class="m">session/request_permission</td>
+              <td class="m">permission.requested → .resolved</td>
+              <td>permissions += / −=</td>
+              <td><span class="tag t-live">waiting</span></td>
+              <td>the only path to <span class="tag t-live">waiting</span>, and it is a real request id — better than Claude's synthesized one</td>
+            </tr>
+            <tr>
+              <td class="m">connection closes</td>
+              <td class="m">process.exited</td>
+              <td>lifecycle → <code>exited</code> | <code>failed</code></td>
+              <td><span class="tag t-dead">dropped</span></td>
+              <td>—</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2>Untracked</h2>
+      <p>
+        Any <code>session/update</code> kind outside the seven above hits the default branch and becomes
+        <code>adapter.native-event</code> — retained verbatim per ADR-008, counted in
+        <code>counters.unknownEvents</code>, invisible. In the ACP surface that includes plan updates, available-command
+        updates, and mode changes. Unrecognized JSON-RPC methods on the connection take the same path.
+      </p>
+
+      <h2>Gaps worth knowing</h2>
+      <p>
+        <strong>No <code>context-window.invalidated</code>.</strong> ACP is the only adapter that never emits it, so a
+        compaction leaves a stale CTX reading rather than clearing it — the badge keeps showing a number that is no
+        longer true.
+      </p>
+      <p>
+        <strong>Union members never produced:</strong> <code class="m">session.ready</code> ·
+        <code class="m">session.exited</code> · <code class="m">reasoning.summary</code> ·
+        <code class="m">tool.requested</code> · <code class="m">subagent.started</code> ·
+        <code class="m">subagent.stopped</code> · <code class="m">task.created</code> ·
+        <code class="m">task.completed</code> · <code class="m">context-window.invalidated</code> ·
+        <code class="m">process.started</code> · <code class="m">workspace.changed</code> ·
+        <code class="m">notification</code>.
+      </p>
+
+      <footer>Verify with <code>src/normalizer.ts</code> · <code>src/driver.ts</code>.</footer>
+    </main>
+  </body>
+</html>
