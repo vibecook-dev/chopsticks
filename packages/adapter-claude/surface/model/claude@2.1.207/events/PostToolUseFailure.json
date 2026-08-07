@@ -1,0 +1,73 @@
+{
+  "surface": "claude",
+  "surfaceVersion": "2.1.207",
+  "event": "PostToolUseFailure",
+  "channel": "hook",
+  "transport": "http",
+  "trigger": "an APPROVED tool executes and fails (exit != 0)",
+  "payloadSchema": {
+    "type": "object",
+    "required": [
+      "cwd",
+      "duration_ms",
+      "effort",
+      "error",
+      "hook_event_name",
+      "is_interrupt",
+      "permission_mode",
+      "prompt_id",
+      "session_id",
+      "tool_input",
+      "tool_name",
+      "tool_use_id",
+      "transcript_path"
+    ],
+    "properties": {
+      "cwd": {
+        "type": "string"
+      },
+      "duration_ms": {
+        "type": "number"
+      },
+      "effort": {
+        "type": "object"
+      },
+      "error": {
+        "type": "string"
+      },
+      "hook_event_name": {
+        "type": "string"
+      },
+      "is_interrupt": {
+        "type": "boolean"
+      },
+      "permission_mode": {
+        "type": "string"
+      },
+      "prompt_id": {
+        "type": "string"
+      },
+      "session_id": {
+        "type": "string"
+      },
+      "tool_input": {
+        "type": "object"
+      },
+      "tool_name": {
+        "type": "string"
+      },
+      "tool_use_id": {
+        "type": "string"
+      },
+      "transcript_path": {
+        "type": "string"
+      }
+    }
+  },
+  "firstSeen": "2.1.207",
+  "lastVerified": "2.1.207",
+  "fixture": "captures/claude@2.1.207/interactive/PostToolUseFailure.jsonl",
+  "confidence": "verified-interactive",
+  "timeoutSec": 5,
+  "notes": "error, is_interrupt; fires only for APPROVED tools that fail"
+}

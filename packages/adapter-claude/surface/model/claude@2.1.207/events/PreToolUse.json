@@ -1,0 +1,61 @@
+{
+  "surface": "claude",
+  "surfaceVersion": "2.1.207",
+  "event": "PreToolUse",
+  "channel": "hook",
+  "transport": "http",
+  "trigger": "a tool call is about to run (carries tool_use_id)",
+  "payloadSchema": {
+    "type": "object",
+    "required": [
+      "cwd",
+      "effort",
+      "hook_event_name",
+      "permission_mode",
+      "prompt_id",
+      "session_id",
+      "tool_input",
+      "tool_name",
+      "tool_use_id",
+      "transcript_path"
+    ],
+    "properties": {
+      "cwd": {
+        "type": "string"
+      },
+      "effort": {
+        "type": "object"
+      },
+      "hook_event_name": {
+        "type": "string"
+      },
+      "permission_mode": {
+        "type": "string"
+      },
+      "prompt_id": {
+        "type": "string"
+      },
+      "session_id": {
+        "type": "string"
+      },
+      "tool_input": {
+        "type": "object"
+      },
+      "tool_name": {
+        "type": "string"
+      },
+      "tool_use_id": {
+        "type": "string"
+      },
+      "transcript_path": {
+        "type": "string"
+      }
+    }
+  },
+  "firstSeen": "2.1.207",
+  "lastVerified": "2.1.207",
+  "fixture": "captures/claude@2.1.207/headless/PreToolUse.jsonl",
+  "confidence": "verified-headless",
+  "timeoutSec": 5,
+  "notes": "tool_name, tool_input, tool_use_id"
+}

@@ -1,0 +1,61 @@
+{
+  "surface": "claude",
+  "surfaceVersion": "2.1.207",
+  "event": "PermissionRequest",
+  "channel": "hook",
+  "transport": "http",
+  "trigger": "the permission dialog is shown (before approve/deny; no tool_use_id)",
+  "payloadSchema": {
+    "type": "object",
+    "required": [
+      "cwd",
+      "effort",
+      "hook_event_name",
+      "permission_mode",
+      "permission_suggestions",
+      "prompt_id",
+      "session_id",
+      "tool_input",
+      "tool_name",
+      "transcript_path"
+    ],
+    "properties": {
+      "cwd": {
+        "type": "string"
+      },
+      "effort": {
+        "type": "object"
+      },
+      "hook_event_name": {
+        "type": "string"
+      },
+      "permission_mode": {
+        "type": "string"
+      },
+      "permission_suggestions": {
+        "type": "array"
+      },
+      "prompt_id": {
+        "type": "string"
+      },
+      "session_id": {
+        "type": "string"
+      },
+      "tool_input": {
+        "type": "object"
+      },
+      "tool_name": {
+        "type": "string"
+      },
+      "transcript_path": {
+        "type": "string"
+      }
+    }
+  },
+  "firstSeen": "2.1.207",
+  "lastVerified": "2.1.207",
+  "fixture": "captures/claude@2.1.207/interactive/PermissionRequest.jsonl",
+  "confidence": "verified-interactive",
+  "timeoutSec": 5,
+  "notes": "NO tool_use_id/request id — correlate prompt_id+tool_name (FIFO); permission_suggestions[]; fires at dialog-show"
+}

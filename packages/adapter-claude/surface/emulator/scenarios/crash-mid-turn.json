@@ -1,0 +1,32 @@
+{
+  "name": "crash-mid-turn",
+  "on": { "channel": "terminal", "stimulus": "paste-submit" },
+  "then": [
+    {
+      "emit": {
+        "event": "UserPromptSubmit",
+        "with": {
+          "prompt": "$stimulus.text",
+          "prompt_id": "$uuid:prompt",
+          "session_title": "$sessionTitle",
+          "permission_mode": "$permissionMode"
+        }
+      }
+    },
+    {
+      "emit": {
+        "event": "PreToolUse",
+        "with": {
+          "prompt_id": "$uuid:prompt",
+          "tool_name": "Bash",
+          "tool_input": { "command": "make toast" },
+          "tool_use_id": "$uuid:tool",
+          "effort": { "level": "xhigh" },
+          "permission_mode": "$permissionMode"
+        }
+      }
+    },
+    { "delay": { "ms": 50 } },
+    { "fault": { "kind": "crash", "exitCode": 137, "partialTranscriptLine": "{\"type\":\"assis" } }
+  ]
+}

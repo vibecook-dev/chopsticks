@@ -1,5 +1,6 @@
 export const publicPackages = [
   ['packages/core', '@vibecook/chopsticks-core'],
+  ['packages/emulator', '@vibecook/chopsticks-emulator'],
   ['packages/record', '@vibecook/chopsticks-record'],
   ['packages/workspaces', '@vibecook/chopsticks-workspaces'],
   ['packages/adapter-acp', '@vibecook/chopsticks-adapter-acp'],

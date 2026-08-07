@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>chopsticks — emulator control</title>
+    <style>
+      :root { color-scheme: dark; }
+      body { font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: #14161a; color: #d7dce2; margin: 0; padding: 20px 24px; }
+      h1 { font-size: 15px; margin: 0 0 4px; }
+      h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #8b94a1; margin: 16px 0 8px; }
+      .muted { color: #8b94a1; }
+      .card { background: #1c1f26; border: 1px solid #2a2f3a; border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; }
+      .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+      select, input, textarea, button { font: inherit; background: #14161a; color: inherit; border: 1px solid #2a2f3a; border-radius: 5px; padding: 5px 8px; }
+      textarea { width: 100%; min-height: 72px; box-sizing: border-box; }
+      button { cursor: pointer; background: #232833; }
+      button:hover { background: #2c3342; }
+      button.primary { background: #2b4a72; border-color: #3a5f8a; }
+      button.primary:hover { background: #35598a; }
+      button.danger { border-color: #5c2e35; color: #e8a1a8; }
+      button.event { font-size: 12px; padding: 3px 9px; }
+      .pill { border: 1px solid #2a2f3a; border-radius: 999px; padding: 1px 8px; font-size: 11px; color: #9fb4d0; }
+      pre { background: #101216; border-radius: 6px; padding: 10px; max-height: 200px; overflow: auto; font-size: 12px; white-space: pre-wrap; }
+      .ok { color: #7dcfa3; } .err { color: #e8a1a8; }
+      #spawn { border-color: #3a5f8a; }
+    </style>
+  </head>
+  <body>
+    <h1>Emulator control</h1>
+    <div class="muted" id="status">connecting…</div>
+
+    <div class="card" id="spawn">
+      <h2>spawn emulated agent</h2>
+      <div class="row">
+        <select id="spawn-vendor"></select>
+        <button class="primary" id="spawn-button">spawn</button>
+        <span id="spawn-out" class="muted"></span>
+      </div>
+      <div class="row muted" style="font-size: 12px">
+        Center-owned sessions run through the real adapter (reducer state shown below). App-owned sessions
+        appear when a product app runs with CHOPSTICKS_CLAUDE_BIN=&lt;bin.mjs&gt; and creates sessions itself.
+      </div>
+    </div>
+
+    <div id="sessions"></div>
+
+    <script>
+      const TOKEN = '{TOKEN}';
+      const api = (path, body) =>
+        fetch(path, {
+          method: body === undefined ? 'GET' : 'POST',
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
+          body: body === undefined ? undefined : JSON.stringify(body),
+        }).then((r) => r.json());
+
+      const sessionsEl = document.getElementById('sessions');
+      const statusEl = document.getElementById('status');
+      const spawnVendor = document.getElementById('spawn-vendor');
+      const cards = new Map(); // sessionId -> card element (survives re-render)
+
+      // Fields the bin supplies from its launch envelope — not user input.
+      const ENVELOPE_FIELDS = new Set(['session_id', 'transcript_path', 'cwd', 'hook_event_name', 'permission_mode']);
+      const DEFAULTS = {
+        prompt_id: () => crypto.randomUUID(),
+        tool_use_id: () => `toolu_${crypto.randomUUID().replaceAll('-', '').slice(0, 20)}`,
+        agent_id: () => crypto.randomUUID().replaceAll('-', '').slice(0, 17),
+        message_id: () => `msg_${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}`,
+        turn_id: () => crypto.randomUUID(),
+        message: () => 'hello from emulator control',
+        notification_type: () => 'emulator',
+        tool_name: () => 'Bash',
+        tool_input: () => ({ command: 'echo hi' }),
+        tool_response: () => ({ output: 'ok' }),
+        session_title: () => 'emulator-session',
+        source: () => 'startup',
+        reason: () => 'other',
+        load_reason: () => 'session_start',
+        memory_type: () => 'User',
+        file_path: () => '/tmp/CLAUDE.md',
+        prompt: () => 'triggered by hand',
+        last_assistant_message: () => 'emulator: ok',
+        stop_hook_active: () => false,
+        background_tasks: () => [],
+        session_crons: () => [],
+        effort: () => ({ level: 'xhigh' }),
+        duration_ms: () => 42,
+        delta: () => '…',
+        index: () => 0,
+        final: () => true,
+        agent_type: () => 'general-purpose',
+        is_interrupt: () => false,
+        error: () => 'emulated error',
+        permission_suggestions: () => [],
+        agent_transcript_path: () => '/tmp/subagent.jsonl',
+      };
+      const defaultPayload = (fields) => {
+        const payload = {};
+        for (const field of fields || []) {
+          if (ENVELOPE_FIELDS.has(field)) continue;
+          payload[field] = (DEFAULTS[field] ?? (() => ''))();
+        }
+        return payload;
+      };
+
+      document.getElementById('spawn-button').onclick = async () => {
+        const out = document.getElementById('spawn-out');
+        out.textContent = 'spawning…';
+        out.className = 'muted';
+        const result = await api('/api/spawn', { vendor: spawnVendor.value });
+        out.textContent = result.sessionId ? `spawned ${result.sessionId.slice(0, 8)}…` : result.error || 'error';
+        out.className = result.sessionId ? 'ok' : 'err';
+        refresh();
+      };
+
+      async function loadSpawners() {
+        const { spawners } = await api('/api/spawners');
+        spawnVendor.replaceChildren(
+          ...spawners.map((s) => {
+            const option = document.createElement('option');
+            option.value = s.vendor;
+            option.textContent = s.label;
+            return option;
+          }),
+        );
+        document.getElementById('spawn').style.display = spawners.length ? '' : 'none';
+      }
+
+      function card(session) {
+        const el = document.createElement('div');
+        el.className = 'card';
+        const buttons = session.palette
+          .map((p) => `<button class="event" data-event="${p.event}">${p.event}</button>`)
+          .join(' ');
+        el.innerHTML = `
+          <div><strong>${session.vendor}</strong> <span class="muted">${session.sessionId}</span>
+            ${session.channels.map((c) => `<span class="pill">${c}</span>`).join(' ')}</div>
+          <h2>trigger event</h2>
+          <div class="row">${buttons}</div>
+          <div class="row"><textarea data-role="payload" spellcheck="false">{}</textarea></div>
+          <div class="row"><button data-role="fire">fire edited payload</button><span data-role="event-out" class="muted"></span></div>
+          <h2>scenario / fault</h2>
+          <div class="row">
+            <input data-role="scenario" placeholder="scenario name" size="22" />
+            <button data-role="run">run</button>
+            <button class="danger" data-role="crash">crash</button>
+            <button class="danger" data-role="exit">exit</button>
+            <button class="danger" data-role="hang">hang</button>
+            <span data-role="scenario-out" class="muted"></span>
+          </div>
+          <h2>session state <span class="muted">(center-owned only)</span></h2>
+          <pre data-role="state" class="muted">—</pre>
+          <h2>emitted log</h2>
+          <pre data-role="log" class="muted">—</pre>`;
+        const q = (role) => el.querySelector(`[data-role="${role}"]`);
+        let selected = session.palette[0]?.event;
+        const fire = async (event, payload) => {
+          const out = await api(`/api/sessions/${session.sessionId}/trigger`, { event, with: payload });
+          q('event-out').textContent = out.ok ? `${event} fired` : out.error || 'error';
+          q('event-out').className = out.ok ? 'ok' : 'err';
+        };
+        for (const button of el.querySelectorAll('button.event')) {
+          button.onclick = () => {
+            selected = button.dataset.event;
+            const entry = session.palette.find((p) => p.event === selected);
+            const payload = defaultPayload(entry ? entry.fields : []);
+            q('payload').value = JSON.stringify(payload, null, 2);
+            fire(selected, payload);
+          };
+        }
+        q('fire').onclick = () => {
+          let payload;
+          try { payload = JSON.parse(q('payload').value || '{}'); }
+          catch { q('event-out').textContent = 'invalid JSON'; q('event-out').className = 'err'; return; }
+          fire(selected, payload);
+        };
+        q('run').onclick = async () => {
+          const out = await api(`/api/sessions/${session.sessionId}/scenario`, { name: q('scenario').value });
+          q('scenario-out').textContent = out.ok ? 'ran' : out.error || 'error';
+          q('scenario-out').className = out.ok ? 'ok' : 'err';
+        };
+        for (const kind of ['crash', 'exit', 'hang']) {
+          q(kind).onclick = () => api(`/api/sessions/${session.sessionId}/fault`, { kind });
+        }
+        return el;
+      }
+
+      async function refreshPanels(session, el) {
+        const q = (role) => el.querySelector(`[data-role="${role}"]`);
+        const state = await api(`/api/sessions/${session.sessionId}/session-state`);
+        q('state').textContent = state.error
+          ? 'app-owned session — no reducer state here'
+          : `lifecycle: ${state.lifecycle}\nlastAssistantMessage: ${state.lastAssistantMessage ?? '—'}\ncontext: ${
+              state.contextWindow ? `${state.contextWindow.usedTokens}/${state.contextWindow.capacityTokens} tokens` : '—'
+            }\ntools in flight: ${Object.keys(state.tools ?? {}).length}`;
+        const log = await api(`/api/sessions/${session.sessionId}/log`);
+        q('log').textContent = (log.entries || []).map((e) => `${e.at.slice(11, 23)}  ${e.event}`).join('\n') || '(empty)';
+      }
+
+      async function refresh() {
+        try {
+          const { sessions } = await api('/api/sessions');
+          statusEl.textContent = `${sessions.length} emulated session(s) · plane ${location.host}`;
+          for (const session of sessions) {
+            if (!cards.has(session.sessionId)) cards.set(session.sessionId, card(session));
+            const el = cards.get(session.sessionId);
+            if (!el.isConnected) sessionsEl.append(el);
+            await refreshPanels(session, el);
+          }
+          for (const [id, el] of cards) {
+            if (!sessions.some((s) => s.sessionId === id)) {
+              el.remove();
+              cards.delete(id);
+            }
+          }
+          if (sessions.length === 0) {
+            sessionsEl.innerHTML =
+              '<div class="card muted">No emulated sessions. Spawn one above, or create a session in an app running with CHOPSTICKS_CLAUDE_BIN=&lt;…/surface/emulator/bin.mjs&gt;.</div>';
+          }
+        } catch (error) {
+          statusEl.textContent = `plane unreachable: ${error.message}`;
+        }
+      }
+      loadSpawners().then(refresh);
+      setInterval(refresh, 1500);
+    </script>
+  </body>
+</html>

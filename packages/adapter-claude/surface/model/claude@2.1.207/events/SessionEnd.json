@@ -1,0 +1,45 @@
+{
+  "surface": "claude",
+  "surfaceVersion": "2.1.207",
+  "event": "SessionEnd",
+  "channel": "hook",
+  "transport": "command",
+  "trigger": "session ends",
+  "payloadSchema": {
+    "type": "object",
+    "required": [
+      "cwd",
+      "hook_event_name",
+      "prompt_id",
+      "reason",
+      "session_id",
+      "transcript_path"
+    ],
+    "properties": {
+      "cwd": {
+        "type": "string"
+      },
+      "hook_event_name": {
+        "type": "string"
+      },
+      "prompt_id": {
+        "type": "string"
+      },
+      "reason": {
+        "type": "string"
+      },
+      "session_id": {
+        "type": "string"
+      },
+      "transcript_path": {
+        "type": "string"
+      }
+    }
+  },
+  "firstSeen": "2.1.207",
+  "lastVerified": "2.1.207",
+  "fixture": "captures/claude@2.1.207/headless/SessionEnd.jsonl",
+  "confidence": "verified-headless",
+  "timeoutSec": 5,
+  "notes": "reason"
+}

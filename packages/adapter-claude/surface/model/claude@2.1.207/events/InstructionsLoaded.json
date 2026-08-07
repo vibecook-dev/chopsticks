@@ -1,0 +1,49 @@
+{
+  "surface": "claude",
+  "surfaceVersion": "2.1.207",
+  "event": "InstructionsLoaded",
+  "channel": "hook",
+  "transport": "command",
+  "trigger": "memory/instructions load (load_reason e.g. session_start)",
+  "payloadSchema": {
+    "type": "object",
+    "required": [
+      "cwd",
+      "file_path",
+      "hook_event_name",
+      "load_reason",
+      "memory_type",
+      "session_id",
+      "transcript_path"
+    ],
+    "properties": {
+      "cwd": {
+        "type": "string"
+      },
+      "file_path": {
+        "type": "string"
+      },
+      "hook_event_name": {
+        "type": "string"
+      },
+      "load_reason": {
+        "type": "string"
+      },
+      "memory_type": {
+        "type": "string"
+      },
+      "session_id": {
+        "type": "string"
+      },
+      "transcript_path": {
+        "type": "string"
+      }
+    }
+  },
+  "firstSeen": "2.1.207",
+  "lastVerified": "2.1.207",
+  "fixture": "captures/claude@2.1.207/headless/InstructionsLoaded.jsonl",
+  "confidence": "verified-headless",
+  "timeoutSec": 5,
+  "notes": "file_path, memory_type, load_reason"
+}

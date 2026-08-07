@@ -1,5 +1,7 @@
 # Phase 0 — Hook Surface Findings
 
+> **Note (2026-08-07):** the captures referenced below moved to `packages/adapter-claude/surface/captures/claude@2.1.207/` (`headless/` + `interactive/`) and are now distilled into the ASM model at `packages/adapter-claude/surface/model/claude@2.1.207/` (draft/EMULATOR.md).
+
 **Probed:** 2026-07-12, Claude Code **2.1.207**, macOS (darwin)
 **Method:** `probe/generate-settings.mjs` → per-event command-hook captures under `probe/captures/`, plus a live loopback HTTP listener (`probe/http-listener.mjs`). Six headless (`-p`) sessions, runs A–F.
 **Plan reference:** `IMPLEMENTATION-PLAN.md` §5.

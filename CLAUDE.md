@@ -7,6 +7,9 @@ state from native side channels, never by reading the screen.
 
 `draft/DESIGN.md` is the canonical architecture (ADRs, §-numbered; comments across the codebase cite
 it). `draft/IMPLEMENTATION-PLAN.md` records what was scoped, deferred, and rejected, and why.
+`draft/EMULATOR.md` + `draft/ADAPTING-AN-AGENT.md` specify the Agent Surface Model (ASM), the
+emulator stack, and the standard six-step adapter workflow (P1 delivered: `packages/emulator` +
+`packages/adapter-claude/surface/`).
 
 ## Sibling repos (this is layer 2 of 3)
 
@@ -51,9 +54,20 @@ packages/
   adapter-acp/     generic ACP driver;  adapter-grok/ layers on it (--leader coexistence)
   workspaces/    direct | exclusive | worktree | copy isolation + final-diff metadata
   record/        append-only JSONL of runtime-owned actions;  testing/ fake agent + conformance
+  emulator/      ASM runtime + L1 engine (paste decoder, hook emitter, transcript writer, scenario
+                 runner) + control plane; self-contained modules — deep exports `…/model`, `…/engine`,
+                 `…/control` for .mjs
+
+`adapter-<vendor>/surface/` holds the adapter-owned ground truth (draft/EMULATOR.md):
+`model/<vendor>@<version>/` (ASM — canonical; registry.ts is GENERATED from it via
+`surface/generate-registry.mjs`), `captures/` (raw censuses, repo-only), `audit.mjs` (model ↔ captures
+diff — `pnpm --filter @vibecook/chopsticks-adapter-claude audit`), `emulator/bin.mjs` (the vendor
+stand-in; conformance runs against it hermetically). Surface .mjs scripts need node
+≥22.18 (type stripping) and import only self-contained modules.
 apps/
   godview/       current focus — Electron swarm view (matter.js bubbles, panes, usage panel)
   workbench/     the original dev app (agent chat panel, per-agent tabs)
+  emulator/      emulator control center (no ghosttea dep — builds anywhere; `pnpm emulator`)
 ```
 
 `packages/node` is **gone** (commit `1eea6db`) — the PTY spine moved to Ghosttea. Empty

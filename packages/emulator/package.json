@@ -1,19 +1,22 @@
 {
-  "name": "@vibecook/chopsticks-adapter-claude",
+  "name": "@vibecook/chopsticks-emulator",
   "version": "0.1.3",
   "type": "module",
-  "description": "Claude Code native adapter: hook registry, loopback hook bridge, event normalizer, settings generation.",
+  "description": "Agent Surface Model (ASM) runtime and vendor-neutral emulator engine: validate, load, audit, and emulate captured vendor surfaces (draft/EMULATOR.md).",
   "license": "MIT",
   "author": "James Yong",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jamesyong-42/chopsticks.git",
-    "directory": "packages/adapter-claude"
+    "directory": "packages/emulator"
   },
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./model": "./src/model.ts",
+    "./engine": "./src/engine.ts",
+    "./control": "./src/control.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
@@ -26,31 +29,33 @@
         "types": "./dist/index.d.ts",
         "import": "./dist/index.js"
       },
+      "./model": {
+        "types": "./dist/model.d.ts",
+        "import": "./dist/model.js"
+      },
+      "./engine": {
+        "types": "./dist/engine.d.ts",
+        "import": "./dist/engine.js"
+      },
+      "./control": {
+        "types": "./dist/control.d.ts",
+        "import": "./dist/control.js"
+      },
       "./package.json": "./package.json"
     }
   },
   "files": [
     "dist",
-    "surface/model"
+    "ui"
   ],
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "pnpm clean && tsc -p tsconfig.build.json",
     "prepack": "pnpm build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
-    "audit": "node surface/audit.mjs",
-    "generate:registry": "node surface/generate-registry.mjs"
+    "test": "vitest run"
   },
   "engines": {
     "node": ">=22"
-  },
-  "dependencies": {
-    "@vibecook/chopsticks-core": "workspace:*",
-    "@vibecook/spaghetti-sdk": "0.5.16"
-  },
-  "devDependencies": {
-    "@vibecook/chopsticks-emulator": "workspace:*",
-    "@vibecook/chopsticks-testing": "workspace:*"
   }
 }

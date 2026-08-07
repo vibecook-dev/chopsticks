@@ -1,0 +1,25 @@
+{
+  "channels": {
+    "argv": {
+      "kind": "argv-env",
+      "notes": "--session-id dictated at spawn is the chopsticks/spaghetti join contract; --settings carries the generated hooks; --resume continues a session in place (never combined with --session-id)."
+    },
+    "hook": {
+      "kind": "hook-http",
+      "fallback": "hook-command",
+      "notes": "Loopback bridge + bearer token interpolated via allowedEnvVars (token value never written to settings). Command transport is a curl forwarder relaying stdin JSON to the same bridge (DESIGN section 16.4 hybrid bridge)."
+    },
+    "transcript": {
+      "kind": "transcript",
+      "notes": "~/.claude/projects/<slug>/<uuid>.jsonl; path arrives on every hook envelope as transcript_path. Tailed via spaghetti SDK watchSessionTranscript - no second parser. Authoritative for message content; hooks stay authoritative for lifecycle."
+    },
+    "statusline": {
+      "kind": "statusline",
+      "notes": "Claude invokes the configured statusLine command with session JSON on stdin; carries rate_limits/usage data (src/statusline.ts)."
+    },
+    "terminal": {
+      "kind": "terminal",
+      "notes": "The native TUI. Guarded bracketed paste for prompt injection (DESIGN section 17); semantics are never derived from terminal text (ADR-003)."
+    }
+  }
+}

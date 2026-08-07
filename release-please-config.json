@@ -9,6 +9,7 @@
       "bump-patch-for-minor-pre-major": true,
       "extra-files": [
         { "type": "json", "path": "packages/core/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "packages/emulator/package.json", "jsonpath": "$.version" },
         { "type": "json", "path": "packages/record/package.json", "jsonpath": "$.version" },
         { "type": "json", "path": "packages/workspaces/package.json", "jsonpath": "$.version" },
         { "type": "json", "path": "packages/adapter-acp/package.json", "jsonpath": "$.version" },
