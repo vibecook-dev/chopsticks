@@ -20,6 +20,7 @@ const shellSession = {
   requestedTermination: null,
   exitOutcome: null,
   ownerId: null,
+  persistence: 'terminate-with-app',
   activity: unknownSessionActivity(),
 } satisfies SessionSummary;
 

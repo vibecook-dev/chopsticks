@@ -12,6 +12,7 @@ import {
   type SessionExitedEvent,
 } from '@vibecook/ghosttea-electron/main';
 import type { SessionSummary } from '@vibecook/ghosttea-protocol';
+import { ghostteadPath } from '@vibecook/ghosttead';
 import type { AgentHost, SessionRuntimeState } from '@vibecook/chopsticks-core';
 import { createActionRecorder } from '@vibecook/chopsticks-record';
 import {
@@ -58,7 +59,6 @@ const SPAWN_THROUGH_SMOKE = process.argv
   ?.slice('--spawn-through-smoke='.length) as BuiltinExecutableAgentKind | undefined;
 const appRoot = resolve(__dirname, '..');
 const repoRoot = resolve(appRoot, '../..');
-const ghostteaRoot = resolve(appRoot, '../../../../electron-ghostty');
 const nativeTabAddonPaths = [
   join(app.getAppPath(), 'dist', 'native', 'ghosttea_native_tabs.node'),
   join(process.resourcesPath, 'native', 'ghosttea_native_tabs.node'),
@@ -208,6 +208,17 @@ function discardAgentState(runtimeSessionId: string): void {
   for (const delivery of agentStateDeliveries.values()) delivery.queue.delete(runtimeSessionId);
 }
 
+function isReleasedGhostteaPipeCleanupError(error: unknown): boolean {
+  const failure = error as NodeJS.ErrnoException;
+  return (
+    process.platform === 'win32' &&
+    failure?.code === 'EBUSY' &&
+    failure.syscall === 'lstat' &&
+    typeof failure.path === 'string' &&
+    failure.path.startsWith('\\\\.\\pipe\\ghosttea-')
+  );
+}
+
 function backendOptions(): GhostteaElectronBackendOptions {
   const externalControl = process.env.GHOSTTEA_EXTERNAL_CONTROL_SOCKET;
   const externalFrames = process.env.GHOSTTEA_EXTERNAL_FRAME_SOCKET;
@@ -220,18 +231,19 @@ function backendOptions(): GhostteaElectronBackendOptions {
     };
   }
 
-  const configuredBinary =
+  const daemonBinary =
     process.env.GHOSTTEAD_BIN ??
     process.env.TERMINALD_BIN ??
     (app.isPackaged
       ? join(process.resourcesPath, 'bin', process.platform === 'win32' ? 'ghosttead.exe' : 'ghosttead')
-      : undefined);
+      : ghostteadPath());
   const truffle = workbenchTruffleConfig({
     appRoot,
     isPackaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
     userDataPath: app.getPath('userData'),
     platform: process.platform,
+    enabledByDefault: !SMOKE && !SPAWN_THROUGH_SMOKE,
   });
   remoteSessionsEnabled = truffle.enabled;
   const environment: NodeJS.ProcessEnv = {
@@ -241,13 +253,7 @@ function backendOptions(): GhostteaElectronBackendOptions {
   return {
     mode: 'managed',
     daemon: {
-      binary: configuredBinary
-        ? { kind: 'executable', path: configuredBinary }
-        : {
-            kind: 'cargo',
-            manifestPath: join(ghostteaRoot, 'native/ghosttead/Cargo.toml'),
-            release: (process.env.GHOSTTEA_DEV_PROFILE ?? process.env.TERMINALD_DEV_PROFILE) !== 'debug',
-          },
+      binary: { kind: 'executable', path: daemonBinary },
       environment,
     },
     bridge: { entryPoint: join(__dirname, 'bridge-entry.js') },
@@ -852,9 +858,12 @@ async function createWindow(options: CreateWindowOptions = {}): Promise<BrowserW
 
 async function runSmoke(): Promise<void> {
   await ensureBackend();
+  const smokeCommand =
+    process.platform === 'win32'
+      ? { executable: process.env.COMSPEC ?? 'cmd.exe', args: ['/d', '/s', '/c', 'echo SMOKE OK'] }
+      : { executable: '/bin/echo', args: ['SMOKE OK'] };
   const session = await backend!.automation.createSession({
-    executable: '/bin/echo',
-    args: ['SMOKE OK'],
+    ...smokeCommand,
     environment: { mode: 'inherit' },
     cols: 80,
     rows: 24,
@@ -981,7 +990,13 @@ function shutdown(): Promise<void> {
     }
     const finals = await agentRuntime.dispose();
     for (const final of finals) pushWorkspaceFinal(final);
-    backend?.stop();
+    try {
+      backend?.stop();
+    } catch (error) {
+      // Ghosttea 0.9.2 unlinks Windows named pipes even though the OS owns
+      // their lifecycle. The daemon is already stopped when this EBUSY lands.
+      if (!isReleasedGhostteaPipeCleanupError(error)) throw error;
+    }
     backend = undefined;
     await spawnThroughGateway?.close().catch(() => undefined);
     spawnThroughGateway = undefined;

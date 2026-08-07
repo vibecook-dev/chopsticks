@@ -6,20 +6,15 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { fileURLToPath } from 'node:url';
+import { addonPath } from '@vibecook/ghosttea-native-tabs';
+import { resolveSidecarPath } from '@vibecook/truffle';
 import { stageEsmRuntime } from '../../scripts/stage-esm-runtime.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const dist = join(root, 'dist');
-const ghostteaRoot = join(root, '..', '..', '..', '..', 'electron-ghostty');
-const nativeTabAddon = join(
-  ghostteaRoot,
-  'apps',
-  'desktop-experiment',
-  'native',
-  'build',
-  'Release',
-  'ghosttea_native_tabs.node',
-);
+const nativeTabAddon = addonPath();
+const truffleSidecar = resolveSidecarPath();
+const truffleSidecarName = process.platform === 'win32' ? 'sidecar-slim.exe' : 'sidecar-slim';
 const shared = { bundle: true, sourcemap: true, logLevel: 'info' };
 const requireFromWorkbench = createRequire(import.meta.url);
 const reactSingletonPlugin = {
@@ -79,12 +74,15 @@ await Promise.all([
 
 await Promise.all([
   cp(join(root, 'src/renderer/index.html'), join(dist, 'index.html')),
-  stageEsmRuntime(join(ghostteaRoot, 'packages', 'terminal-electron', 'dist', 'bridge-entry.js'), dist),
+  stageEsmRuntime(requireFromWorkbench.resolve('@vibecook/ghosttea-electron/bridge-entry'), dist),
   cp(
     requireFromWorkbench.resolve('@vibecook/ghosttea-react/terminal-render.worker.js'),
     join(dist, 'terminal-render.worker.js'),
   ),
-  ...(process.platform === 'darwin'
+  mkdir(join(dist, 'bin'), { recursive: true }).then(() =>
+    cp(truffleSidecar, join(dist, 'bin', truffleSidecarName)),
+  ),
+  ...(nativeTabAddon
     ? [
         mkdir(join(dist, 'native'), { recursive: true }).then(() =>
           cp(nativeTabAddon, join(dist, 'native', 'ghosttea_native_tabs.node')),

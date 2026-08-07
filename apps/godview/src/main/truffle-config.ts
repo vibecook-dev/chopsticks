@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { hostname } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 
 export interface GodviewTruffleConfigOptions {
   appRoot: string;
@@ -8,6 +8,7 @@ export interface GodviewTruffleConfigOptions {
   resourcesPath: string;
   userDataPath: string;
   platform: NodeJS.Platform;
+  enabledByDefault?: boolean;
   environment?: NodeJS.ProcessEnv;
   pathExists?: (path: string) => boolean;
   hostname?: string;
@@ -48,15 +49,12 @@ export function godviewTruffleConfig(options: GodviewTruffleConfigOptions): Godv
   const environment = options.environment ?? process.env;
   const pathExists = options.pathExists ?? existsSync;
   const enabledSetting =
-    nonempty(environment, 'GHOSTTEA_TRUFFLE_ENABLED', 'TERMINALD_TRUFFLE_ENABLED') ?? 'true';
+    nonempty(environment, 'GHOSTTEA_TRUFFLE_ENABLED', 'TERMINALD_TRUFFLE_ENABLED') ??
+    String(options.enabledByDefault ?? true);
   const enabled = booleanSetting(enabledSetting);
   const sidecarName = options.platform === 'win32' ? 'sidecar-slim.exe' : 'sidecar-slim';
   const bundledSidecar = join(options.resourcesPath, 'bin', sidecarName);
-  const developmentSidecar = resolve(
-    options.appRoot,
-    '../../../truffle/packages/sidecar-slim',
-    sidecarName,
-  );
+  const developmentSidecar = join(options.appRoot, 'dist', 'bin', sidecarName);
   const explicitSidecar = nonempty(environment, 'TRUFFLE_SIDECAR_PATH');
   const discoveredSidecar = options.isPackaged ? bundledSidecar : developmentSidecar;
   const sidecarPath = explicitSidecar ?? (pathExists(discoveredSidecar) ? discoveredSidecar : undefined);
