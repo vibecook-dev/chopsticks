@@ -4,9 +4,19 @@
  */
 
 import { execFile } from 'node:child_process';
+import { normalize } from 'node:path';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * Git reports paths with forward slashes on every platform, Windows included.
+ * Rewrite them to the platform separator before comparing against anything
+ * Node produced (realpath, join, …), which uses backslashes on win32.
+ */
+export function gitPath(value: string): string {
+  return normalize(value);
+}
 
 export async function git(cwd: string, ...args: string[]): Promise<string> {
   const { stdout } = await execFileAsync('git', ['-C', cwd, ...args], { maxBuffer: 16 * 1024 * 1024 });

@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync, watch, type FSWatcher } from 'node:fs';
 import { realpath } from 'node:fs/promises';
-import { dirname, isAbsolute, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { AgentGitState } from '@vibecook/chopsticks-core';
 
@@ -24,16 +24,25 @@ async function git(cwd: string, args: readonly string[]): Promise<string | undef
   }
 }
 
+/**
+ * Git reports paths with forward slashes on every platform, Windows included,
+ * so its output never matches a Node-derived path byte-for-byte until it is
+ * rewritten to the platform separator. `resolve` does that and anchors the
+ * relative forms `--git-path` can return, so it replaces the absolute check.
+ */
 function fromGitPath(cwd: string, value: string | undefined): string | undefined {
   if (!value) return undefined;
-  return isAbsolute(value) ? value : resolve(cwd, value);
+  return resolve(cwd, value);
 }
 
 /** Resolve branch/head facts for any directory, including worktrees, unborn branches, and detached HEADs. */
 export async function resolveGitState(cwd: string): Promise<AgentGitState | null> {
   const metadata = await git(cwd, ['rev-parse', '--show-toplevel', '--absolute-git-dir', '--git-common-dir']);
-  const [root, gitDir, commonDir] = metadata?.split(/\r?\n/) ?? [];
-  if (!root) return null;
+  const [toplevel, gitDir, commonDir] = metadata?.split(/\r?\n/) ?? [];
+  if (!toplevel) return null;
+  // `root` is public in AgentGitState, so it must carry platform separators
+  // like every other path the runtime hands out.
+  const root = resolve(cwd, toplevel);
 
   const [branch, headSha] = await Promise.all([
     git(cwd, ['symbolic-ref', '--quiet', '--short', 'HEAD']),

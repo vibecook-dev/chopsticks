@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -16,6 +16,23 @@ async function makeRepo(): Promise<string> {
 }
 
 const workspacesRoot = () => mkdtempSync(join(tmpdir(), 'ws-root-'));
+
+/**
+ * Windows only permits symlink creation under Developer Mode or elevation.
+ * Probe the capability instead of skipping the platform outright, so an
+ * elevated Windows shell still exercises the canonicalization contract.
+ */
+const canSymlink = ((): boolean => {
+  const probe = mkdtempSync(join(tmpdir(), 'ws-symlink-probe-'));
+  try {
+    symlinkSync(join(probe, 'target'), join(probe, 'link'));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(probe, { recursive: true, force: true });
+  }
+})();
 
 describe('worktree mode', () => {
   it('materializes an isolated worktree; writes never reach the source tree', async () => {
@@ -131,7 +148,7 @@ describe('in-place modes', () => {
     expect(existsSync(repo)).toBe(true);
   });
 
-  it('canonicalizes symlinks and repository subdirectories to one identity', async () => {
+  it.skipIf(!canSymlink)('canonicalizes symlinks and repository subdirectories to one identity', async () => {
     const repo = await makeRepo();
     const subdir = join(repo, 'nested');
     mkdirSync(subdir);
