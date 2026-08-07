@@ -28,6 +28,8 @@
     "godview:smoke": "pnpm --filter godview smoke",
     "godview:test": "pnpm --filter godview test",
     "godview:typecheck": "pnpm --filter godview typecheck",
+    "emulator": "pnpm --filter emulator start",
+    "emulator:smoke": "pnpm --filter emulator smoke",
     "pack:check": "pnpm build && node scripts/pack-check.mjs",
     "release:publish": "pnpm -r --filter './packages/**' typecheck && pnpm -r --filter './packages/**' test && pnpm -r --filter './packages/**' build && node scripts/publish-packages.mjs",
     "release:trust": "node scripts/trust-packages.mjs",

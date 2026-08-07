@@ -904,6 +904,41 @@ async function runSmoke(): Promise<void> {
   console.log('SMOKE OK');
 }
 
+/**
+ * Direct agent-session smoke (CHOPSTICKS_AGENT_SMOKE=<agent>): exercises the
+ * runtime createSession path — the one the emulator bin rides on. Pair with
+ * CHOPSTICKS_CLAUDE_BIN=<emulator bin> to smoke the emulator integration.
+ */
+async function runAgentSmoke(agent: BuiltinExecutableAgentKind): Promise<void> {
+  await ensureBackend();
+  const result = await createAgentSession({ agent, cwd: repoRoot });
+  if ('error' in result) throw new Error(`agent smoke createSession failed: ${result.error.code} ${result.error.message}`);
+  // Watch for the spawned process dying so the failure says WHY, not just none.
+  let exitInfo: string | undefined;
+  void backend!.automation.waitForExit(result.runtimeSessionId, 35_000).then(
+    (exit) => {
+      exitInfo = `process exited code=${exit.exitCode ?? 'null'} signal=${exit.exitSignal ?? 'null'}`;
+    },
+    () => undefined,
+  );
+  const deadline = Date.now() + 30_000;
+  let lifecycle: string | undefined;
+  while (Date.now() < deadline) {
+    lifecycle = agentRuntime.sessionState(result.runtimeSessionId)?.lifecycle;
+    if (lifecycle === 'ready' || lifecycle === 'failed' || lifecycle === 'exited') break;
+    if (exitInfo) break;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+  }
+  if (lifecycle !== 'ready') {
+    throw new Error(`${agent} did not become ready (lifecycle=${lifecycle ?? 'none'}; ${exitInfo ?? 'process alive'})`);
+  }
+  console.log(`AGENT SMOKE OK ${agent} ${result.sessionId}`);
+  // Diagnostic hold (CHOPSTICKS_AGENT_SMOKE_HOLD_MS): keep the session alive
+  // so external observers (e.g. the emulator control plane) can see it.
+  const holdMs = Number(process.env.CHOPSTICKS_AGENT_SMOKE_HOLD_MS ?? 0);
+  if (holdMs > 0) await new Promise((resolveDelay) => setTimeout(resolveDelay, holdMs));
+}
+
 async function runSpawnThroughSmoke(agent: BuiltinExecutableAgentKind): Promise<void> {
   if (!realAgentExecutables[agent]) throw new Error(`${agent} is not installed`);
   await ensureBackend();
@@ -1044,13 +1079,26 @@ app
     await initializeSpawnThrough();
     if (SMOKE || SPAWN_THROUGH_SMOKE) {
       if (SPAWN_THROUGH_SMOKE) await runSpawnThroughSmoke(SPAWN_THROUGH_SMOKE);
-      else await runSmoke();
+      else if (process.env.CHOPSTICKS_AGENT_SMOKE) {
+        await runAgentSmoke(process.env.CHOPSTICKS_AGENT_SMOKE as BuiltinExecutableAgentKind);
+      } else await runSmoke();
       await shutdown();
       app.exit(0);
       return;
     }
     accountUsageMonitor.start();
     await createWindow();
+    // Emulator/dev flow: CHOPSTICKS_AUTOCREATE_AGENTS=claude[,codex,…] creates
+    // agent sessions at startup. The shim spawn-through path is POSIX-only, so
+    // on Windows this is the way to get an agent session in the swarm.
+    for (const agent of (process.env.CHOPSTICKS_AUTOCREATE_AGENTS ?? '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)) {
+      void createAgentSession({ agent: agent as BuiltinExecutableAgentKind, cwd: repoRoot }).catch((error) =>
+        console.error(`[main] autocreate ${agent} failed`, error),
+      );
+    }
   })
   .catch((error) => {
     console.error(error);
