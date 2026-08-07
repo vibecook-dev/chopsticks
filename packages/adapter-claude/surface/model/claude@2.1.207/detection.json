@@ -1,0 +1,14 @@
+{
+  "executables": ["claude"],
+  "envVar": "CHOPSTICKS_CLAUDE_BIN",
+  "versionFlag": "--version",
+  "versionPattern": "(\\d+\\.\\d+\\.\\d+(?:[-.][0-9A-Za-z]+)*)",
+  "helpFlag": "--help",
+  "probedFlags": {
+    "sessionId": "--session-id",
+    "settings": "--settings",
+    "name": "-n, --name",
+    "permissionMode": "--permission-mode"
+  },
+  "notes": "Missing flags degrade observation with warnings, never throw (DESIGN section 10 capability-probe). Mirrors src/detection.ts."
+}

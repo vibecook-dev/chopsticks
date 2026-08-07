@@ -1,0 +1,77 @@
+{
+  "surface": "claude",
+  "surfaceVersion": "2.1.207",
+  "event": "SubagentStop",
+  "channel": "hook",
+  "transport": "http",
+  "trigger": "a subagent stops; re-entrant: 1x stop_hook_active:false then Nx true",
+  "payloadSchema": {
+    "type": "object",
+    "required": [
+      "agent_id",
+      "agent_transcript_path",
+      "agent_type",
+      "background_tasks",
+      "cwd",
+      "effort",
+      "hook_event_name",
+      "last_assistant_message",
+      "permission_mode",
+      "prompt_id",
+      "session_crons",
+      "session_id",
+      "stop_hook_active",
+      "transcript_path"
+    ],
+    "properties": {
+      "agent_id": {
+        "type": "string"
+      },
+      "agent_transcript_path": {
+        "type": "string"
+      },
+      "agent_type": {
+        "type": "string"
+      },
+      "background_tasks": {
+        "type": "array"
+      },
+      "cwd": {
+        "type": "string"
+      },
+      "effort": {
+        "type": "object"
+      },
+      "hook_event_name": {
+        "type": "string"
+      },
+      "last_assistant_message": {
+        "type": "string"
+      },
+      "permission_mode": {
+        "type": "string"
+      },
+      "prompt_id": {
+        "type": "string"
+      },
+      "session_crons": {
+        "type": "array"
+      },
+      "session_id": {
+        "type": "string"
+      },
+      "stop_hook_active": {
+        "type": "boolean"
+      },
+      "transcript_path": {
+        "type": "string"
+      }
+    }
+  },
+  "firstSeen": "2.1.207",
+  "lastVerified": "2.1.207",
+  "fixture": "captures/claude@2.1.207/interactive/SubagentStop.jsonl",
+  "confidence": "verified-interactive",
+  "timeoutSec": 5,
+  "notes": "RE-ENTRANT: 1× stop_hook_active:false then N× true; agent_transcript_path"
+}

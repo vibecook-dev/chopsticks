@@ -1,0 +1,61 @@
+{
+  "surface": "claude",
+  "surfaceVersion": "2.1.207",
+  "event": "MessageDisplay",
+  "channel": "hook",
+  "transport": "http",
+  "trigger": "assistant message streams (deltas keyed by message_id; final marks completion)",
+  "payloadSchema": {
+    "type": "object",
+    "required": [
+      "cwd",
+      "delta",
+      "final",
+      "hook_event_name",
+      "index",
+      "message_id",
+      "prompt_id",
+      "session_id",
+      "transcript_path",
+      "turn_id"
+    ],
+    "properties": {
+      "cwd": {
+        "type": "string"
+      },
+      "delta": {
+        "type": "string"
+      },
+      "final": {
+        "type": "boolean"
+      },
+      "hook_event_name": {
+        "type": "string"
+      },
+      "index": {
+        "type": "number"
+      },
+      "message_id": {
+        "type": "string"
+      },
+      "prompt_id": {
+        "type": "string"
+      },
+      "session_id": {
+        "type": "string"
+      },
+      "transcript_path": {
+        "type": "string"
+      },
+      "turn_id": {
+        "type": "string"
+      }
+    }
+  },
+  "firstSeen": "2.1.207",
+  "lastVerified": "2.1.207",
+  "fixture": "captures/claude@2.1.207/headless/MessageDisplay.jsonl",
+  "confidence": "verified-headless",
+  "timeoutSec": 2,
+  "notes": "STREAMING: delta, index, final, turn_id, message_id"
+}

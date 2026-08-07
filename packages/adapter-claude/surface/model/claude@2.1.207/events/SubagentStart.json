@@ -1,0 +1,49 @@
+{
+  "surface": "claude",
+  "surfaceVersion": "2.1.207",
+  "event": "SubagentStart",
+  "channel": "hook",
+  "transport": "http",
+  "trigger": "the Task tool spawns a subagent",
+  "payloadSchema": {
+    "type": "object",
+    "required": [
+      "agent_id",
+      "agent_type",
+      "cwd",
+      "hook_event_name",
+      "prompt_id",
+      "session_id",
+      "transcript_path"
+    ],
+    "properties": {
+      "agent_id": {
+        "type": "string"
+      },
+      "agent_type": {
+        "type": "string"
+      },
+      "cwd": {
+        "type": "string"
+      },
+      "hook_event_name": {
+        "type": "string"
+      },
+      "prompt_id": {
+        "type": "string"
+      },
+      "session_id": {
+        "type": "string"
+      },
+      "transcript_path": {
+        "type": "string"
+      }
+    }
+  },
+  "firstSeen": "2.1.207",
+  "lastVerified": "2.1.207",
+  "fixture": "captures/claude@2.1.207/interactive/SubagentStart.jsonl",
+  "confidence": "verified-interactive",
+  "timeoutSec": 5,
+  "notes": "agent_id (17-hex), agent_type"
+}

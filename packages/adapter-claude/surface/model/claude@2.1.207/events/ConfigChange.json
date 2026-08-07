@@ -1,0 +1,9 @@
+{
+  "surface": "claude",
+  "surfaceVersion": "2.1.207",
+  "event": "ConfigChange",
+  "channel": "hook",
+  "transport": "command",
+  "confidence": "unverified",
+  "timeoutSec": 5
+}

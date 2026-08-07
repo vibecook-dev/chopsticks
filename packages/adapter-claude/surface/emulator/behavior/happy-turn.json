@@ -1,0 +1,75 @@
+{
+  "name": "happy-turn",
+  "reply": "emulator: ok",
+  "statusLine": {
+    "modelId": "claude-sonnet-4-5",
+    "modelDisplayName": "Sonnet (emulator)",
+    "capacityTokens": 200000,
+    "tokensPerTurn": 12400,
+    "rateLimits": {
+      "five_hour": { "used_percentage": 12, "resetsInSeconds": 14400 },
+      "seven_day": { "used_percentage": 3, "resetsInSeconds": 518400 }
+    }
+  },
+  "on": { "channel": "terminal", "stimulus": "paste-submit" },
+  "then": [
+    {
+      "emit": {
+        "event": "UserPromptSubmit",
+        "with": {
+          "prompt": "$stimulus.text",
+          "prompt_id": "$uuid:prompt",
+          "session_title": "$sessionTitle",
+          "permission_mode": "$permissionMode"
+        }
+      }
+    },
+    {
+      "transcript": {
+        "record": {
+          "type": "user",
+          "uuid": "$uuid:user",
+          "promptId": "$uuid:prompt",
+          "sessionId": "$sessionId",
+          "timestamp": "$now",
+          "cwd": "$cwd",
+          "version": "2.1.207",
+          "message": { "role": "user", "content": "$stimulus.text" }
+        }
+      }
+    },
+    {
+      "transcript": {
+        "record": {
+          "type": "assistant",
+          "uuid": "$uuid:assistant",
+          "sessionId": "$sessionId",
+          "timestamp": "$now",
+          "cwd": "$cwd",
+          "version": "2.1.207",
+          "message": {
+            "id": "$uuid:message",
+            "role": "assistant",
+            "model": "emulator",
+            "content": [{ "type": "text", "text": "$reply" }]
+          }
+        }
+      }
+    },
+    { "delay": { "ms": 50 } },
+    {
+      "emit": {
+        "event": "Stop",
+        "with": {
+          "prompt_id": "$uuid:prompt",
+          "last_assistant_message": "$reply",
+          "stop_hook_active": false,
+          "background_tasks": [],
+          "session_crons": [],
+          "effort": { "level": "xhigh" },
+          "permission_mode": "$permissionMode"
+        }
+      }
+    }
+  ]
+}

@@ -12,9 +12,10 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { constants, accessSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { generateHookSettings } from './settings.js';
 import {
   CLAUDE_STATUS_LINE_FORWARDER_SOURCE,
@@ -63,6 +64,32 @@ export interface PreparedClaudeSession {
   settingsPath: string;
   statusLineForwarderPath?: string;
   filesToCleanup: string[];
+}
+
+// A script executable (the emulator bin, PATH shims) is not directly
+// exec-able: POSIX needs an exec bit the repo can't guarantee, Windows has
+// no shebang handling. Run it under node so the recipe is a real binary on
+// every platform and through every spawn path (PTY spawn, spawn-through
+// execve, test harnesses). Under Electron `process.execPath` is the electron
+// binary, so resolve a real node from PATH instead (electron-as-node has
+// stdin/event-loop quirks that break the bin's control channel — probed
+// 2026-08-07); ELECTRON_RUN_AS_NODE is the documented fallback.
+const SCRIPT_EXECUTABLE = /\.(mjs|cjs|js|ts)$/;
+
+function resolveNodeBinary(): string | undefined {
+  const names = process.platform === 'win32' ? ['node.exe', 'node'] : ['node'];
+  for (const directory of (process.env.PATH ?? '').split(delimiter)) {
+    for (const name of names) {
+      const candidate = join(directory, name);
+      try {
+        accessSync(candidate, constants.X_OK);
+        return candidate;
+      } catch {
+        // next PATH entry
+      }
+    }
+  }
+  return undefined;
 }
 
 export async function prepareClaudeSession(options: PrepareClaudeSessionOptions): Promise<PreparedClaudeSession> {
@@ -115,13 +142,21 @@ export async function prepareClaudeSession(options: PrepareClaudeSessionOptions)
   if (options.model !== undefined) args.push('--model', options.model);
   args.push('--settings', settingsPath, '--permission-mode', options.permissionMode ?? 'default');
 
+  const executable = options.executable ?? 'claude';
+  const isScript = SCRIPT_EXECUTABLE.test(executable);
+  const resolvedNode = process.versions.electron !== undefined ? resolveNodeBinary() : undefined;
+  const electronAsNodeFallback = process.versions.electron !== undefined && resolvedNode === undefined;
+  const nodeRunner = resolvedNode ?? process.execPath;
+  const command = isScript ? nodeRunner : executable;
+
   return {
     sessionId,
-    command: options.executable ?? 'claude',
-    args,
+    command,
+    args: isScript ? [executable, ...args] : args,
     cwd: options.cwd,
     env: {
       [options.tokenEnvVar]: options.token,
+      ...(isScript && electronAsNodeFallback ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
       ...(options.statusLineEndpoint
         ? {
             CHOPSTICKS_STATUSLINE_ENDPOINT: options.statusLineEndpoint,

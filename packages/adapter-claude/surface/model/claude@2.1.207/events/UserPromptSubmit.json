@@ -1,0 +1,53 @@
+{
+  "surface": "claude",
+  "surfaceVersion": "2.1.207",
+  "event": "UserPromptSubmit",
+  "channel": "hook",
+  "transport": "http",
+  "trigger": "user submits a prompt in the TUI",
+  "payloadSchema": {
+    "type": "object",
+    "required": [
+      "cwd",
+      "hook_event_name",
+      "permission_mode",
+      "prompt",
+      "prompt_id",
+      "session_id",
+      "session_title",
+      "transcript_path"
+    ],
+    "properties": {
+      "cwd": {
+        "type": "string"
+      },
+      "hook_event_name": {
+        "type": "string"
+      },
+      "permission_mode": {
+        "type": "string"
+      },
+      "prompt": {
+        "type": "string"
+      },
+      "prompt_id": {
+        "type": "string"
+      },
+      "session_id": {
+        "type": "string"
+      },
+      "session_title": {
+        "type": "string"
+      },
+      "transcript_path": {
+        "type": "string"
+      }
+    }
+  },
+  "firstSeen": "2.1.207",
+  "lastVerified": "2.1.207",
+  "fixture": "captures/claude@2.1.207/headless/UserPromptSubmit.jsonl",
+  "confidence": "verified-headless",
+  "timeoutSec": 5,
+  "notes": "prompt (verbatim — injection confirmation), prompt_id"
+}
