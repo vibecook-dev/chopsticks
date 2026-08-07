@@ -47,16 +47,27 @@ if (tagCommit !== headCommit) {
   }
 }
 
+/**
+ * npm and pnpm are .cmd shims on Windows, which Node refuses to execute
+ * without a shell (bare name → ENOENT, explicit .cmd → EINVAL, since the
+ * CVE-2024-27980 hardening). Passing argv alongside `shell: true` concatenates
+ * it unescaped and drops anything after a space in a path, so build one quoted
+ * line instead. POSIX keeps the plain shell-free argv. Inlined rather than
+ * shared because release.yml restores this file on its own during a retry.
+ */
+function runPackageManager(command, args, options) {
+  if (process.platform !== 'win32') return spawnSync(command, args, options);
+  const line = [command, ...args.map((arg) => (/[\s"]/.test(arg) ? `"${arg}"` : arg))].join(' ');
+  return spawnSync(line, { ...options, shell: true });
+}
+
 function isPublished(packageName) {
-  try {
-    execFileSync('npm', ['view', `${packageName}@${version}`, 'version', '--registry=https://registry.npmjs.org/'], {
-      cwd: root,
-      stdio: 'ignore',
-    });
-    return true;
-  } catch {
-    return false;
-  }
+  const result = runPackageManager(
+    'npm',
+    ['view', `${packageName}@${version}`, 'version', '--registry=https://registry.npmjs.org/'],
+    { cwd: root, stdio: 'ignore' },
+  );
+  return result.status === 0;
 }
 
 async function waitForPublished(packageName) {
@@ -121,7 +132,7 @@ for (const [directory, expectedName] of publicPackages) {
   let result;
 
   try {
-    const packResult = spawnSync('pnpm', ['--dir', directory, 'pack', '--pack-destination', packDirectory], {
+    const packResult = runPackageManager('pnpm', ['--dir', directory, 'pack', '--pack-destination', packDirectory], {
       cwd: root,
       stdio: 'inherit',
     });
@@ -138,7 +149,7 @@ for (const [directory, expectedName] of publicPackages) {
     const tarballPath = join(packDirectory, tarballs[0]);
     validatePackedManifest(tarballPath, expectedName);
 
-    result = spawnSync('npm', ['publish', tarballPath, '--access', 'public'], {
+    result = runPackageManager('npm', ['publish', tarballPath, '--access', 'public'], {
       cwd: root,
       stdio: 'inherit',
     });
