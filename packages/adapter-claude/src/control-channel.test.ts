@@ -108,6 +108,24 @@ describe('emulator control channel', () => {
     const envelope = await notification;
     expect(envelope.event.type === 'notification' && envelope.event.message).toBe('hello from the control center');
 
+    // Unknown names travel through a known hook transport in emulator mode,
+    // proving ADR-008 retention across the real bridge/normalizer boundary.
+    const unknown = new Promise<AgentEventEnvelope>((resolve) => {
+      const off = session!.onEvent((candidate) => {
+        if (candidate.event.type === 'adapter.native-event' && candidate.event.nativeType === 'FutureHookEvent') {
+          off();
+          resolve(candidate);
+        }
+      });
+    });
+    const future = await planeApi(`/api/sessions/${session.sessionId}/trigger`, {
+      event: 'FutureHookEvent',
+      with: { future_field: 'preserve me' },
+    });
+    expect(future.status).toBe(200);
+    const unknownEnvelope = await unknown;
+    expect(unknownEnvelope.nativeEvent).toMatchObject({ future_field: 'preserve me' });
+
     // The emitted log is visible through the plane.
     const log = (await (await planeApi(`/api/sessions/${session.sessionId}/log`)).json()) as {
       entries: Array<{ event: string }>;

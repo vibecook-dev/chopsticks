@@ -12,10 +12,10 @@
 
 Two reference adaptations exist and define the families discovered so far:
 
-| Family | Reference | Native surface |
-|---|---|---|
-| hook + transcript | `adapter-claude` | argv/settings → hook events (HTTP/command) + transcript JSONL + statusline |
-| structured protocol | `adapter-codex` | JSON-RPC app-server (methods, notifications, server requests) + optional TUI attach |
+| Family              | Reference        | Native surface                                                                      |
+| ------------------- | ---------------- | ----------------------------------------------------------------------------------- |
+| hook + transcript   | `adapter-claude` | argv/settings → hook events (HTTP/command) + transcript JSONL + statusline          |
+| structured protocol | `adapter-codex`  | JSON-RPC app-server (methods, notifications, server requests) + optional TUI attach |
 
 A third family (e.g. ACP's negotiated-capability model — `adapter-grok` layers on it) reuses the same six steps; only the channel kinds differ.
 
@@ -23,14 +23,14 @@ A third family (e.g. ACP's negotiated-capability model — `adapter-grok` layers
 
 ## 1. The pipeline at a glance
 
-| Step | Name | Output artifact | Exit gate |
-|---|---|---|---|
-| 1 | **Survey** | `surface/captures/` + findings doc | every channel the adapter will rely on has a capture; go/no-go per channel recorded |
-| 2 | **Model** | `surface/model/<vendor>@<version>/` | ASM validates; every captured event has an event file with a confidence level |
-| 3 | **Emulate** | `surface/emulator/` (bin, behavior, scenarios) | replay-diff against captures is clean; stub scenarios run standalone |
-| 4 | **Adapt** | `src/` normalizer + driver + detection | registry/settings generated **from the model**; unit tests green against L0/L1 |
-| 5 | **Conform** | `conformance.test.ts` + provider wiring | shared conformance suite green **on the emulator** in CI; live lane scheduled |
-| 6 | **Reconcile** | nightly audit workflow | first reconciliation recorded; `lastVerified` current; drift triage loop proven |
+| Step | Name          | Output artifact                                | Exit gate                                                                           |
+| ---- | ------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------- |
+| 1    | **Survey**    | `surface/captures/` + findings doc             | every channel the adapter will rely on has a capture; go/no-go per channel recorded |
+| 2    | **Model**     | `surface/model/<vendor>@<version>/`            | ASM validates; every captured event has an event file with a confidence level       |
+| 3    | **Emulate**   | `surface/emulator/` (bin, behavior, scenarios) | replay-diff against captures is clean; stub scenarios run standalone                |
+| 4    | **Adapt**     | `src/` normalizer + driver + detection         | registry/settings generated **from the model**; unit tests green against L0/L1      |
+| 5    | **Conform**   | `conformance.test.ts` + provider wiring        | shared conformance suite green **on the emulator** in CI; live lane scheduled       |
+| 6    | **Reconcile** | nightly audit workflow                         | first reconciliation recorded; `lastVerified` current; drift triage loop proven     |
 
 Steps 1–3 establish truth; step 4 builds on it; steps 5–6 keep it true. **Never invert the order** — an adapter written from docs instead of captures repeats the pre-Phase-0 mistake (DESIGN's unverified hook-surface assumptions), and an emulator written from the adapter instead of the model makes the two wrong together.
 
@@ -50,7 +50,8 @@ packages/adapter-<vendor>/
     *.live.test.ts           # opt-in real-vendor tests (nightly lane only)
   surface/
     model/<vendor>@<version>/
-    captures/<vendor>@<version>/
+    captures/<vendor>@<version>/       # sanitized, shape-faithful fixtures (tracked)
+    captures-raw/<vendor>@<version>/   # verbatim evidence (gitignored/private)
     emulator/{bin.mjs, behavior/, scenarios/}
     audit.mjs
 ```
@@ -66,12 +67,14 @@ Registration in the product (per the repo's provider-seam convention): one `Agen
 **Goal:** replace every assumption about the vendor's surface with an observation.
 
 **Do:**
+
 - Probe the binary: `--help`, `--version`, flag shapes, settings-schema acceptance (feed a generated settings file and observe accept/warn/reject).
 - Census every candidate channel. Headless where possible; drive a real PTY (or the vendor's own attach protocol) for what headless can't produce — permission dialogs, interrupts, notifications.
-- Keep raw captures verbatim under `surface/captures/<vendor>@<version>/`, one JSONL per event/method.
+- Keep raw captures verbatim under the gitignored `surface/captures-raw/<vendor>@<version>/` (or an access-controlled artifact store), one JSONL per event/method. Never commit prompts, responses, home-directory paths, tokens, or account identifiers.
+- Produce deterministic, shape-faithful fixtures under tracked `surface/captures/<vendor>@<version>/` with the adapter's sanitizer, then run its privacy check before review. The sanitizer preserves types, event names, known structural enums, and cross-line pseudonymous IDs while conservatively redacting free-form content.
 - Write the findings doc (`draft/<VENDOR>-SURFACE-FINDINGS.md`): verdict table, common envelope, per-event fields, adapter implications, open items.
 
-**Exit:** each channel the adapter will rely on has at least one capture and a go/no-go verdict; known-unknowns are listed as open items, not silently absent. (Reference: HOOK-SURFACE-FINDINGS §1 verdicts, CODEX-SURFACE-FINDINGS §0.)
+**Exit:** each channel the adapter will rely on has protected raw evidence plus at least one sanitized fixture and a go/no-go verdict; the privacy check is clean; known-unknowns are listed as open items, not silently absent. (Reference: HOOK-SURFACE-FINDINGS §1 verdicts, CODEX-SURFACE-FINDINGS §0.)
 
 **Don't:** read vendor docs as truth. Docs are leads to verify — Phase 0 found DESIGN's hook assumptions wrong on arrival.
 
@@ -89,7 +92,7 @@ Registration in the product (per the repo's provider-seam convention): one `Agen
 
 **Do:** behavior rules for the organic flows (paste → prompt events → transcript → stop), the required scenario set (happy turn, permission allow/deny, late/duplicate/out-of-order events, unknown event, flood, crash mid-turn, channel drop), and `bin.mjs` branching on argv like the vendor (incl. the detection surface).
 
-**Exit:** replay-diff clean — replaying captures through the emulator produces channel outputs that match the captures; `bin.mjs` runs standalone (no control center) and passes the stub scenarios. Reference implementation: `packages/adapter-claude/surface/emulator/` (happy-turn behavior + crash-mid-turn scenario; the conformance suite runs against it hermetically).
+**Exit:** replay-diff clean — replaying captures through the emulator produces channel outputs that match the captures; `bin.mjs` runs standalone (no control center) and passes the stub scenarios. Reference implementation: `packages/adapter-claude/surface/emulator/` (happy-turn behavior, the full starter scenario set, and hermetic conformance; captured-session replay/diff is still explicitly pending).
 
 ### Step 4 — Adapt
 
@@ -119,7 +122,7 @@ Registration in the product (per the repo's provider-seam convention): one `Agen
 
 ## 4. Machine-checked completeness
 
-The conformance suite asserts the *process artifacts*, not just runtime behavior. An adapter package is complete when:
+The conformance suite asserts the _process artifacts_, not just runtime behavior. An adapter package is complete when:
 
 - [ ] `surface/model/` validates against the ASM schema, and every captured event is modeled
 - [ ] `surface/emulator/bin.mjs` answers `detection.json`'s probes and serves the control API

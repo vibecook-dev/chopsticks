@@ -86,7 +86,7 @@ describe('createHookEmitter', () => {
                 {
                   type: 'http',
                   url: endpoint,
-                  headers: { Authorization: 'Bearer $CHOPSTICKS_HOOK_TOKEN' },
+                  headers: { Authorization: 'Bearer $CHOPSTICKS_HOOK_TOKEN', 'X-Hidden': '$UNGRANTED_SECRET' },
                   allowedEnvVars: ['CHOPSTICKS_HOOK_TOKEN'],
                   timeout: 5,
                 },
@@ -95,11 +95,11 @@ describe('createHookEmitter', () => {
           ],
         },
       },
-      env: { CHOPSTICKS_HOOK_TOKEN: 'sekrit' },
+      env: { CHOPSTICKS_HOOK_TOKEN: 'sekrit', UNGRANTED_SECRET: 'must-not-leak' },
     });
     await emitter.emit('Stop', { session_id: 'abc', stop_hook_active: false });
     expect(received).toHaveLength(1);
-    expect(received[0]!.headers).toMatchObject({ authorization: 'Bearer sekrit' });
+    expect(received[0]!.headers).toMatchObject({ authorization: 'Bearer sekrit', 'x-hidden': '$UNGRANTED_SECRET' });
     expect(JSON.parse(received[0]!.body)).toEqual({
       session_id: 'abc',
       stop_hook_active: false,
@@ -127,6 +127,15 @@ describe('createHookEmitter', () => {
     await emitter.emit('StopFailure', { session_id: 'abc' });
     expect(received).toHaveLength(0);
     expect(dropped[0]).toContain('StopFailure');
+  });
+
+  it('can route an unknown native name through a known transport for retention tests', async () => {
+    const emitter = createHookEmitter({
+      settings: { hooks: { Notification: [{ hooks: [{ type: 'http', url: endpoint, headers: {} }] }] } },
+      env: {},
+    });
+    await emitter.emit('FutureHookEvent', { future_field: true }, 'Notification');
+    expect(JSON.parse(received[0]!.body)).toEqual({ future_field: true, hook_event_name: 'FutureHookEvent' });
   });
 
   it('serializes emissions in call order', async () => {
@@ -209,6 +218,50 @@ describe('createScenarioRunner', () => {
       validate: (event) => (event === 'Stop' ? ['missing required field "prompt_id"'] : []),
     });
     await expect(runner.run([{ emit: { event: 'Stop', with: {} } }])).rejects.toThrow(/off-model/);
+  });
+
+  it('runs documented at/do timelines and rejects out-of-order timestamps', async () => {
+    const emitted: string[] = [];
+    const runner = createScenarioRunner({
+      emit: async (event) => {
+        emitted.push(event);
+      },
+      transcript: createTranscriptWriter(join(dir, 't.jsonl')),
+    });
+    await runner.run([
+      { at: 0, do: { emit: { event: 'First' } } },
+      { at: 0, do: { emit: { event: 'Second', afterMs: 0 } } },
+    ]);
+    expect(emitted).toEqual(['First', 'Second']);
+    await expect(
+      runner.run(
+        [
+          { at: 2, do: { emit: { event: 'First' } } },
+          { at: 1, do: { emit: { event: 'Second' } } },
+        ],
+        undefined,
+        { speed: 100 },
+      ),
+    ).rejects.toThrow(/timeline/);
+  });
+
+  it('rejects empty and multi-action scenario steps', async () => {
+    const emitted: string[] = [];
+    const runner = createScenarioRunner({
+      emit: async (event) => {
+        emitted.push(event);
+      },
+      transcript: createTranscriptWriter(join(dir, 't.jsonl')),
+    });
+    await expect(runner.run([{}])).rejects.toThrow(/exactly one action/);
+    await expect(runner.run([{ delay: { ms: 0 }, emit: { event: 'Stop' } }])).rejects.toThrow(/exactly one action/);
+    await expect(runner.run([{ delay: { ms: 300_001 } }])).rejects.toThrow(/scenario delay/);
+    await expect(runner.run([{ fault: { kind: 'flood', count: 10_001 } }])).rejects.toThrow(/fault count/);
+    await expect(runner.run([{ emit: { event: 'Stop', with: [] as never } }])).rejects.toThrow(/emit.with/);
+    await expect(runner.run([{ emit: { event: 'MustNotEmit' } }, { delay: { ms: 300_001 } }])).rejects.toThrow(
+      /scenario delay/,
+    );
+    expect(emitted).toEqual([]);
   });
 
   it('crash fault writes the partial line then crashes', async () => {

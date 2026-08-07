@@ -8,7 +8,7 @@
  * tokens.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -56,8 +56,11 @@ interface EmulatorHarness extends AgentSessionHarness {
 
 /** Drive a live ClaudeSession backed by the emulator bin as a real subprocess. */
 async function emulatorHarness(): Promise<EmulatorHarness> {
-  const cwd = mkdtempSync(join(tmpdir(), 'chopsticks-emulator-cwd-'));
-  const emulatorHome = mkdtempSync(join(tmpdir(), 'chopsticks-emulator-home-'));
+  // macOS exposes /var through /private/var; the child reports its canonical
+  // process.cwd(), so canonicalize the test contract too.
+  const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'chopsticks-emulator-cwd-')));
+  const emulatorHome = realpathSync(mkdtempSync(join(tmpdir(), 'chopsticks-emulator-home-')));
+  homes.add(cwd);
   homes.add(emulatorHome);
   let child: ChildProcess | undefined;
 

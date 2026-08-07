@@ -39,11 +39,13 @@
     "prepack": "pnpm build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "audit": "node surface/audit.mjs",
+    "surface:audit": "node surface/audit.mjs",
+    "surface:privacy": "node surface/sanitize-captures.mjs --check surface/captures/claude@2.1.207",
+    "surface:sanitize": "node surface/sanitize-captures.mjs surface/captures-raw/claude@2.1.207 surface/captures/claude@2.1.207",
     "generate:registry": "node surface/generate-registry.mjs"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.18.0"
   },
   "dependencies": {
     "@vibecook/chopsticks-core": "workspace:*",

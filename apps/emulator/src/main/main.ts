@@ -21,26 +21,54 @@ export function loadConsoleUi(): string {
 const smoke = process.argv.includes('--smoke');
 const claudeSpawner = createClaudeSpawner();
 const plane = createControlPlane({ uiHtml: loadConsoleUi(), spawners: [claudeSpawner] });
+let quitReady = false;
+let shutdownPromise: Promise<void> | undefined;
+let mainWindow: BrowserWindow | undefined;
+
+function shutdown(): Promise<void> {
+  shutdownPromise ??= (async () => {
+    await claudeSpawner.disposeAll();
+    await plane.stop();
+  })();
+  return shutdownPromise;
+}
 
 // Only the electron main process boots the window shell; vitest imports this
 // module for loadConsoleUi and has no electron runtime.
 if (process.type === 'browser') {
-  app.whenReady().then(async () => {
-    await plane.start();
-    if (smoke) {
-      console.log(`emulator control plane at ${plane.url}`);
-      await plane.stop();
-      app.exit(0);
-      return;
-    }
-    const window = new BrowserWindow({ width: 1280, height: 840, title: 'chopsticks — emulator control' });
-    window.removeMenu();
-    await window.loadURL(plane.url);
-  });
+  app
+    .whenReady()
+    .then(async () => {
+      await plane.start();
+      if (smoke) {
+        console.log(`emulator control plane at ${plane.url}`);
+        await shutdown();
+        quitReady = true;
+        app.exit(0);
+        return;
+      }
+      mainWindow = new BrowserWindow({ width: 1280, height: 840, title: 'chopsticks — emulator control' });
+      mainWindow.on('closed', () => {
+        mainWindow = undefined;
+      });
+      mainWindow.removeMenu();
+      await mainWindow.loadURL(plane.consoleUrl);
+    })
+    .catch((error) => {
+      console.error(error);
+      void shutdown().finally(() => {
+        quitReady = true;
+        app.exit(1);
+      });
+    });
 
-  app.on('before-quit', async () => {
-    await claudeSpawner.disposeAll();
-    await plane.stop();
+  app.on('before-quit', (event) => {
+    if (quitReady) return;
+    event.preventDefault();
+    void shutdown().finally(() => {
+      quitReady = true;
+      app.quit();
+    });
   });
   app.on('window-all-closed', () => {
     app.quit();

@@ -23,7 +23,8 @@ describe('control center plane', () => {
     const plane = createControlPlane({ stateFile, uiHtml: loadConsoleUi() });
     await plane.start();
     try {
-      const html = await (await fetch(`${plane.url}/`)).text();
+      expect((await fetch(`${plane.url}/`)).status).toBe(401);
+      const html = await (await fetch(plane.consoleUrl)).text();
       expect(html).toContain('<title>chopsticks — emulator control</title>');
       expect(html).toContain(plane.token);
 

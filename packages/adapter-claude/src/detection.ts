@@ -13,6 +13,28 @@
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import detectionSurface from '../surface/model/claude@2.1.207/detection.json' with { type: 'json' };
+
+interface DetectionSurface {
+  executables: string[];
+  envVar: string;
+  versionFlag: string;
+  versionPattern: string;
+  helpFlag: string;
+  probedFlags: Record<keyof ClaudeFlagSupport, string>;
+}
+
+const surface = detectionSurface as DetectionSurface;
+const versionPattern = new RegExp(surface.versionPattern);
+const flags = Object.fromEntries(
+  Object.entries(surface.probedFlags).map(([key, value]) => [
+    key,
+    value
+      .split(',')
+      .map((flag) => flag.trim())
+      .filter(Boolean),
+  ]),
+) as Record<keyof ClaudeFlagSupport, string[]>;
 
 /** Injected process runner; the default wraps node:child_process execFile. */
 export type ClaudeExec = (file: string, args: string[]) => Promise<{ stdout: string }>;
@@ -52,7 +74,7 @@ function errMessage(err: unknown): string {
 
 /** `2.1.207 (Claude Code)` → `2.1.207`; undefined when no semver is present. */
 function parseVersion(stdout: string): string | undefined {
-  return stdout.match(/(\d+\.\d+\.\d+(?:[-.][0-9A-Za-z]+)*)/)?.[1];
+  return stdout.match(versionPattern)?.[1];
 }
 
 /**
@@ -69,42 +91,42 @@ function helpHasFlag(help: string, flag: string): boolean {
 export async function detectClaude(options: DetectClaudeOptions = {}): Promise<ClaudeDetection> {
   const exec = options.exec ?? defaultExec;
   // Resolution order: explicit option → env override → PATH lookup of `claude`.
-  const executable = options.executable ?? process.env.CHOPSTICKS_CLAUDE_BIN ?? 'claude';
+  const executable = options.executable ?? process.env[surface.envVar] ?? surface.executables[0] ?? 'claude';
   const warnings: string[] = [];
 
   let version: string | undefined;
   try {
-    const { stdout } = await exec(executable, ['--version']);
+    const { stdout } = await exec(executable, [surface.versionFlag]);
     version = parseVersion(stdout);
-    if (!version) warnings.push(`could not parse version from \`${executable} --version\`: ${stdout.trim()}`);
+    if (!version) {
+      warnings.push(`could not parse version from \`${executable} ${surface.versionFlag}\`: ${stdout.trim()}`);
+    }
   } catch (err) {
-    warnings.push(`\`${executable} --version\` failed: ${errMessage(err)}`);
+    warnings.push(`\`${executable} ${surface.versionFlag}\` failed: ${errMessage(err)}`);
   }
 
   let help = '';
   try {
-    help = (await exec(executable, ['--help'])).stdout;
+    help = (await exec(executable, [surface.helpFlag])).stdout;
   } catch (err) {
-    warnings.push(`\`${executable} --help\` failed: ${errMessage(err)}`);
+    warnings.push(`\`${executable} ${surface.helpFlag}\` failed: ${errMessage(err)}`);
   }
 
-  const flags: ClaudeFlagSupport = {
-    sessionId: helpHasFlag(help, '--session-id'),
-    settings: helpHasFlag(help, '--settings'),
-    name: helpHasFlag(help, '--name') || helpHasFlag(help, '-n'),
-    permissionMode: helpHasFlag(help, '--permission-mode'),
+  const supported: ClaudeFlagSupport = {
+    sessionId: flags.sessionId.some((flag) => helpHasFlag(help, flag)),
+    settings: flags.settings.some((flag) => helpHasFlag(help, flag)),
+    name: flags.name.some((flag) => helpHasFlag(help, flag)),
+    permissionMode: flags.permissionMode.some((flag) => helpHasFlag(help, flag)),
   };
 
-  const required: [keyof ClaudeFlagSupport, string][] = [
-    ['sessionId', '--session-id'],
-    ['settings', '--settings'],
-    ['name', '--name/-n'],
-    ['permissionMode', '--permission-mode'],
-  ];
-  for (const [key, label] of required) {
-    if (!flags[key])
-      warnings.push(`\`${executable} --help\` does not advertise ${label}; native driver capability degraded`);
+  for (const key of Object.keys(supported) as Array<keyof ClaudeFlagSupport>) {
+    if (!supported[key]) {
+      const label = flags[key].join('/');
+      warnings.push(
+        `\`${executable} ${surface.helpFlag}\` does not advertise ${label}; native driver capability degraded`,
+      );
+    }
   }
 
-  return { executable, version, flags, warnings };
+  return { executable, version, flags: supported, warnings };
 }

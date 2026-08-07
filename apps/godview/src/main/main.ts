@@ -663,9 +663,7 @@ function recoverBackend(): Promise<void> {
 const RESTORABLE_AGENTS: readonly string[] = ['claude', 'codex', 'grok', 'acp'];
 
 function defaultShell(): string {
-  return process.platform === 'win32'
-    ? (process.env.COMSPEC ?? 'powershell.exe')
-    : (process.env.SHELL ?? '/bin/zsh');
+  return process.platform === 'win32' ? (process.env.COMSPEC ?? 'powershell.exe') : (process.env.SHELL ?? '/bin/zsh');
 }
 
 /**
@@ -1256,7 +1254,8 @@ async function runRestoreSmoke(): Promise<void> {
 async function runAgentSmoke(agent: BuiltinExecutableAgentKind): Promise<void> {
   await ensureBackend();
   const result = await createAgentSession({ agent, cwd: repoRoot });
-  if ('error' in result) throw new Error(`agent smoke createSession failed: ${result.error.code} ${result.error.message}`);
+  if ('error' in result)
+    throw new Error(`agent smoke createSession failed: ${result.error.code} ${result.error.message}`);
   // Watch for the spawned process dying so the failure says WHY, not just none.
   let exitInfo: string | undefined;
   void backend!.automation.waitForExit(result.runtimeSessionId, 35_000).then(

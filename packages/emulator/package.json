@@ -1,13 +1,13 @@
 {
   "name": "@vibecook/chopsticks-emulator",
-  "version": "0.1.3",
+  "version": "0.1.8",
   "type": "module",
   "description": "Agent Surface Model (ASM) runtime and vendor-neutral emulator engine: validate, load, audit, and emulate captured vendor surfaces (draft/EMULATOR.md).",
   "license": "MIT",
   "author": "James Yong",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jamesyong-42/chopsticks.git",
+    "url": "git+https://github.com/vibecook-dev/chopsticks.git",
     "directory": "packages/emulator"
   },
   "main": "./src/index.ts",
@@ -56,6 +56,6 @@
     "test": "vitest run"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.18.0"
   }
 }

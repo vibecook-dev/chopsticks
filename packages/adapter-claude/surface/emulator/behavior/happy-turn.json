@@ -33,7 +33,7 @@
           "sessionId": "$sessionId",
           "timestamp": "$now",
           "cwd": "$cwd",
-          "version": "2.1.207",
+          "version": "$vendorVersion",
           "message": { "role": "user", "content": "$stimulus.text" }
         }
       }
@@ -46,7 +46,7 @@
           "sessionId": "$sessionId",
           "timestamp": "$now",
           "cwd": "$cwd",
-          "version": "2.1.207",
+          "version": "$vendorVersion",
           "message": {
             "id": "$uuid:message",
             "role": "assistant",

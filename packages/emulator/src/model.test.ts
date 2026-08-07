@@ -88,7 +88,16 @@ function writeModel(modelDir: string, events: Record<string, unknown>[]): void {
 }
 
 function eventFile(overrides: Record<string, unknown>): Record<string, unknown> {
-  return { surface: 'fake', surfaceVersion: '1.0.0', channel: 'hook', confidence: 'verified-headless', ...overrides };
+  return {
+    surface: 'fake',
+    surfaceVersion: '1.0.0',
+    channel: 'hook',
+    confidence: 'verified-headless',
+    fixture: 'captures/fake.jsonl',
+    firstSeen: '1.0.0',
+    lastVerified: '1.0.0',
+    ...overrides,
+  };
 }
 
 describe('loadModel', () => {
@@ -111,6 +120,32 @@ describe('loadModel', () => {
       JSON.stringify({ asmVersion: 99, vendor: 'fake', vendorVersion: '1.0.0', generatedAt: '2026-08-07' }),
     );
     expect(() => loadModel(dir)).toThrow(/asmVersion/);
+  });
+
+  it('rejects cross-document identity and channel drift', () => {
+    writeModel(dir, [eventFile({ event: 'Stop', surfaceVersion: '2.0.0' })]);
+    expect(() => loadModel(dir)).toThrow(/surface identity/);
+
+    writeModel(dir, [eventFile({ event: 'Stop', channel: 'transcript' })]);
+    expect(() => loadModel(dir)).toThrow(/unknown channel/);
+  });
+
+  it('rejects malformed payload schemas before they reach an audit', () => {
+    writeModel(dir, [
+      eventFile({
+        event: 'Stop',
+        payloadSchema: { type: 'object', required: ['session_id'], properties: {} },
+      }),
+    ]);
+    expect(() => loadModel(dir)).toThrow(/required payload field "session_id"/);
+  });
+
+  it('rejects unknown confidence values and incomplete verification evidence', () => {
+    writeModel(dir, [eventFile({ event: 'Stop', confidence: 'probably-verified' })]);
+    expect(() => loadModel(dir)).toThrow(/confidence must be/);
+
+    writeModel(dir, [eventFile({ event: 'Stop', lastVerified: undefined })]);
+    expect(() => loadModel(dir)).toThrow(/fixture, firstSeen, and lastVerified/);
   });
 });
 
@@ -141,10 +176,27 @@ describe('buildReport', () => {
     expect(stop.fields).toEqual({ extra: 1, hook_event_name: 2, session_id: 2, stop_hook_active: 2 });
   });
 
-  it('falls back to the file basename and counts unparsable lines', () => {
+  it('falls back to the file basename', () => {
     writeCaptures(dir, { 'Custom.jsonl': [{ no_event_name: true }] });
     const report = buildReport(dir);
     expect(report.events[0]!.event).toBe('Custom');
+  });
+
+  it('records invalid JSON and envelopes without retaining payload values', () => {
+    writeFileSync(join(dir, 'Broken.jsonl'), '{not json}\n42\n');
+    const report = buildReport(dir);
+    expect(report.unparsedLines).toBe(2);
+    expect(report.issues.map((issue) => issue.kind)).toEqual(['invalid-json', 'invalid-envelope']);
+    expect(JSON.stringify(report.issues)).not.toContain('{not json}');
+  });
+
+  it('flags empty or misplaced event names in fixture files', () => {
+    writeCaptures(dir, {
+      'Stop.jsonl': [{ hook_event_name: '' }, { hook_event_name: 'Notification' }],
+    });
+    const report = buildReport(dir);
+    expect(report.issues.map((issue) => issue.kind)).toEqual(['invalid-envelope', 'invalid-envelope']);
+    expect(report.issues[1]!.message).toContain('fixture filename "Stop"');
   });
 });
 
@@ -236,5 +288,45 @@ describe('diffModelVsReport', () => {
     const drift = diffModelVsReport(model, buildReport(capturesDir));
     expect(drift.map((entry) => entry.kind)).toEqual(['unmodeled-field']);
     expect(drift[0]!.message).toContain('brand_new');
+  });
+
+  it('validates the type and enum of every captured payload', () => {
+    const model = modelWith([
+      eventFile({
+        event: 'Stop',
+        payloadSchema: {
+          type: 'object',
+          properties: {
+            hook_event_name: { type: 'string', enum: ['Stop'] },
+            session_id: { type: 'string' },
+            mode: { type: 'string', enum: ['default', 'plan'] },
+          },
+        },
+      }),
+    ]);
+    const capturesDir = join(dir, 'captures');
+    writeCaptures(capturesDir, {
+      'Stop.jsonl': [
+        { hook_event_name: 'Stop', session_id: 42, mode: 'surprise' },
+        { hook_event_name: 'NotStop', session_id: 'a' },
+      ],
+    });
+    const report = buildReport(capturesDir, model);
+    const drift = diffModelVsReport(model, report);
+    expect(report.validatedAgainst).toEqual({ vendor: 'fake', vendorVersion: '1.0.0' });
+    expect(drift.some((entry) => entry.kind === 'schema-mismatch' && entry.message.includes('expected string'))).toBe(
+      true,
+    );
+    expect(drift.some((entry) => entry.kind === 'schema-mismatch' && entry.message.includes('not in enum'))).toBe(true);
+    expect(drift.some((entry) => entry.kind === 'observed-unmodeled' && entry.event === 'NotStop')).toBe(true);
+  });
+
+  it('fails drift when any capture line is malformed', () => {
+    const model = modelWith([eventFile({ event: 'Stop' })]);
+    const capturesDir = join(dir, 'captures');
+    mkdirSync(capturesDir, { recursive: true });
+    writeFileSync(join(capturesDir, 'Stop.jsonl'), '{broken}\n');
+    const drift = diffModelVsReport(model, buildReport(capturesDir, model));
+    expect(drift.some((entry) => entry.kind === 'invalid-capture')).toBe(true);
   });
 });

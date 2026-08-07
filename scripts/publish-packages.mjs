@@ -1,10 +1,11 @@
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { publicPackages } from './public-packages.mjs';
+import { spawnPackageManager } from './package-manager.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const rootManifest = JSON.parse(readFileSync(`${root}/package.json`, 'utf8'));
@@ -12,6 +13,7 @@ const version = rootManifest.version;
 const expectedTag = `v${version}`;
 const publicPackageNames = new Set(publicPackages.map(([, packageName]) => packageName));
 const releaseToolingFiles = new Set([
+  'scripts/package-manager.mjs',
   'scripts/publish-errors.mjs',
   'scripts/publish-errors.test.mjs',
   'scripts/publish-packages.mjs',
@@ -47,22 +49,8 @@ if (tagCommit !== headCommit) {
   }
 }
 
-/**
- * npm and pnpm are .cmd shims on Windows, which Node refuses to execute
- * without a shell (bare name → ENOENT, explicit .cmd → EINVAL, since the
- * CVE-2024-27980 hardening). Passing argv alongside `shell: true` concatenates
- * it unescaped and drops anything after a space in a path, so build one quoted
- * line instead. POSIX keeps the plain shell-free argv. Inlined rather than
- * shared because release.yml restores this file on its own during a retry.
- */
-function runPackageManager(command, args, options) {
-  if (process.platform !== 'win32') return spawnSync(command, args, options);
-  const line = [command, ...args.map((arg) => (/[\s"]/.test(arg) ? `"${arg}"` : arg))].join(' ');
-  return spawnSync(line, { ...options, shell: true });
-}
-
 function isPublished(packageName) {
-  const result = runPackageManager(
+  const result = spawnPackageManager(
     'npm',
     ['view', `${packageName}@${version}`, 'version', '--registry=https://registry.npmjs.org/'],
     { cwd: root, stdio: 'ignore' },
@@ -132,7 +120,7 @@ for (const [directory, expectedName] of publicPackages) {
   let result;
 
   try {
-    const packResult = runPackageManager('pnpm', ['--dir', directory, 'pack', '--pack-destination', packDirectory], {
+    const packResult = spawnPackageManager('pnpm', ['--dir', directory, 'pack', '--pack-destination', packDirectory], {
       cwd: root,
       stdio: 'inherit',
     });
@@ -149,7 +137,7 @@ for (const [directory, expectedName] of publicPackages) {
     const tarballPath = join(packDirectory, tarballs[0]);
     validatePackedManifest(tarballPath, expectedName);
 
-    result = runPackageManager('npm', ['publish', tarballPath, '--access', 'public'], {
+    result = spawnPackageManager('npm', ['publish', tarballPath, '--access', 'public'], {
       cwd: root,
       stdio: 'inherit',
     });

@@ -1,0 +1,27 @@
+{
+  "name": "late-after-exit",
+  "steps": [
+    {
+      "at": 0,
+      "do": {
+        "emit": {
+          "event": "SessionEnd",
+          "with": { "reason": "other", "prompt_id": "$uuid:prompt" }
+        }
+      }
+    },
+    {
+      "at": 50,
+      "do": {
+        "emit": {
+          "event": "Notification",
+          "with": {
+            "message": "late notification after SessionEnd",
+            "notification_type": "late-event",
+            "prompt_id": "$uuid:prompt"
+          }
+        }
+      }
+    }
+  ]
+}

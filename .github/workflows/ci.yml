@@ -15,7 +15,11 @@ concurrency:
 
 jobs:
   packages:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
 
@@ -25,7 +29,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 22.18.0
           cache: pnpm
 
       # The publishable library graph is intentionally independent of the
@@ -33,13 +37,19 @@ jobs:
       - run: pnpm install --frozen-lockfile --filter './packages/**'
 
       - run: pnpm format:check
+        if: runner.os == 'Linux'
+      - run: pnpm surface:audit
       - run: pnpm -r --filter './packages/**' typecheck
       - run: pnpm -r --filter './packages/**' test
       - run: pnpm -r --filter './packages/**' build
       - run: node scripts/pack-check.mjs
 
   apps:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
 
@@ -49,7 +59,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 22.18.0
           cache: pnpm
 
       # The apps became registry-only consumers when Ghosttea started publishing
@@ -65,4 +75,6 @@ jobs:
       # Linux has neither a native tabs prebuild nor a ghosttead one, so both
       # stages are skipped and this gates the bundle graph, not what ships.
       - run: pnpm godview:bundle
+        if: runner.os == 'Linux'
       - run: pnpm workbench:bundle
+        if: runner.os == 'Linux'

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -34,9 +34,9 @@ async function startPlane(): Promise<ControlPlane> {
   return plane;
 }
 
-function fakeEmulator(sessionId: string, emitted: Array<Record<string, unknown>>) {
+function fakeEmulator(sessionId: string, emitted: Array<Record<string, unknown>>, vendor = 'fake') {
   return createEmulatorControlServer({
-    vendor: 'fake',
+    vendor,
     sessionId,
     channels: ['hook', 'terminal'],
     palette: [{ event: 'Notification', fields: ['message'] }],
@@ -44,8 +44,8 @@ function fakeEmulator(sessionId: string, emitted: Array<Record<string, unknown>>
     emit: async (event, payload) => {
       emitted.push({ event, ...payload });
     },
-    runScenario: async (name) => {
-      if (name !== 'known') throw new Error(`no scenario named ${name}`);
+    runScenario: async (request) => {
+      if (request.name !== 'known') throw new Error(`no scenario named ${String(request.name)}`);
     },
     fault: () => {},
   });
@@ -91,6 +91,45 @@ describe('control plane + emulator control server', () => {
     ).toBe(401);
   });
 
+  it('rejects malformed and oversized JSON without crashing the plane', async () => {
+    await startPlane();
+    const malformed = await fetch(`${plane!.url}/api/spawn`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${plane!.token}`, 'content-type': 'application/json' },
+      body: '{broken',
+    });
+    expect(malformed.status).toBe(400);
+
+    const oversized = await api('/api/spawn', { vendor: 'x', padding: 'x'.repeat(300_000) });
+    expect(oversized.status).toBe(413);
+    expect((await api('/api/sessions')).status).toBe(200);
+  });
+
+  it('rejects registrations that point outside loopback', async () => {
+    await startPlane();
+    const response = await api('/register', {
+      vendor: 'fake',
+      sessionId: 'session',
+      pid: process.pid,
+      controlUrl: 'http://example.com',
+      controlToken: 'secret',
+      channels: [],
+      palette: [],
+    });
+    expect(response.status).toBe(400);
+  });
+
+  it('keys registrations by vendor and session id', async () => {
+    await startPlane();
+    const first = (await fakeEmulator('shared', [], 'one'))!;
+    const second = (await fakeEmulator('shared', [], 'two'))!;
+    controls.push(first, second);
+    const sessions = (await (await api('/api/sessions')).json()) as { sessions: unknown[] };
+    expect(sessions.sessions).toHaveLength(2);
+    expect((await api('/api/sessions/shared/log')).status).toBe(409);
+    expect((await api('/api/sessions/shared/log?vendor=one')).status).toBe(200);
+  });
+
   it('prunes sessions whose emulator stopped answering', async () => {
     await startPlane();
     const control = (await fakeEmulator('sess-1', []))!;
@@ -106,12 +145,35 @@ describe('control plane + emulator control server', () => {
     expect(control).toBeUndefined();
   });
 
+  it('refuses to overwrite a live plane and only removes state it owns', async () => {
+    const first = await startPlane();
+    const second = createControlPlane({ stateFile });
+    await expect(second.start()).rejects.toThrow(/another emulator control plane/);
+    await second.stop();
+    expect(existsSync(stateFile)).toBe(true);
+
+    writeFileSync(stateFile, '{"replaced":true}');
+    await first.stop();
+    plane = undefined;
+    expect(existsSync(stateFile)).toBe(true);
+  });
+
   it('proxies scenario errors as 404 and validates fault kinds', async () => {
     await startPlane();
     const control = (await fakeEmulator('sess-1', []))!;
     controls.push(control);
     expect((await api('/api/sessions/sess-1/scenario', { name: 'nope' })).status).toBe(404);
+    expect((await api('/api/sessions/sess-1/scenario', { name: 'known', script: { steps: [] } })).status).toBe(400);
     expect((await api('/api/sessions/sess-1/fault', { kind: 'explode' })).status).toBe(400);
+    expect(
+      (
+        await fetch(`${plane!.url}/api/sessions/sess-1/log`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${plane!.token}`, 'content-type': 'application/json' },
+          body: '{}',
+        })
+      ).status,
+    ).toBe(405);
   });
 
   it('exposes spawner routes: list, spawn, and center-owned session state', async () => {
@@ -146,9 +208,12 @@ describe('control plane + emulator control server', () => {
     expect((await api('/api/sessions/app-owned/session-state')).status).toBe(404);
   });
 
-  it('serves the console UI with the token injected and removes the state file on stop', async () => {
+  it('serves the console UI only through its authenticated URL and removes its state file on stop', async () => {
     const p = await startPlane();
-    const html = await (await fetch(`${p.url}/`)).text();
+    expect((await fetch(`${p.url}/`)).status).toBe(401);
+    const htmlResponse = await fetch(p.consoleUrl);
+    expect(htmlResponse.headers.get('cache-control')).toBe('no-store');
+    const html = await htmlResponse.text();
     expect(html).toContain(`token=${p.token}`);
     expect(existsSync(stateFile)).toBe(true);
     await p.stop();

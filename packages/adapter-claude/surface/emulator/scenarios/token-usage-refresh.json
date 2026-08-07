@@ -1,0 +1,33 @@
+{
+  "name": "token-usage-refresh",
+  "steps": [
+    {
+      "at": 0,
+      "do": {
+        "statusline": {
+          "with": {
+            "session_id": "$sessionId",
+            "transcript_path": "$transcriptPath",
+            "cwd": "$cwd",
+            "model": { "id": "$modelId", "display_name": "$modelId" },
+            "workspace": { "current_dir": "$cwd" },
+            "context_window": {
+              "total_input_tokens": 12400,
+              "context_window_size": "$capacityTokens",
+              "used_percentage": 6.2,
+              "current_usage": {
+                "input_tokens": 12400,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0
+              }
+            },
+            "rate_limits": {
+              "five_hour": { "used_percentage": 12, "resets_at": "$now" },
+              "seven_day": { "used_percentage": 3, "resets_at": "$now" }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

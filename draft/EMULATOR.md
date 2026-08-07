@@ -29,12 +29,12 @@ nightly: run the same scenario pack against the real CLI AND the emulator;
 
 Corollaries (do not relitigate):
 
-| Rule | Why |
-|---|---|
-| Truth flows real CLI → captures → model → emulator, never the reverse | A hand-written emulator embodies *beliefs*; when the vendor drifts, every test passes confidently on a wrong model |
-| The nightly live-reconciliation lane is not optional | It is the price of trusting the emulator everywhere else. Skip it and the edifice rots silently within a few vendor releases |
-| Emulator and normalizer must never be derived from the same unverified source | Otherwise they are wrong together in the same way and no test can see it. Both derive from — and diff against — captures |
-| The emulator is a *replacement* binary for dev/test, never a sidecar to a live session | ADR-002 (one native session = one agent process) is unaffected |
+| Rule                                                                                   | Why                                                                                                                          |
+| -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Truth flows real CLI → captures → model → emulator, never the reverse                  | A hand-written emulator embodies _beliefs_; when the vendor drifts, every test passes confidently on a wrong model           |
+| The nightly live-reconciliation lane is not optional                                   | It is the price of trusting the emulator everywhere else. Skip it and the edifice rots silently within a few vendor releases |
+| Emulator and normalizer must never be derived from the same unverified source          | Otherwise they are wrong together in the same way and no test can see it. Both derive from — and diff against — captures     |
+| The emulator is a _replacement_ binary for dev/test, never a sidecar to a live session | ADR-002 (one native session = one agent process) is unaffected                                                               |
 
 ---
 
@@ -53,8 +53,10 @@ packages/adapter-<vendor>/surface/
       channels.json               # channel ids → transport, addressing, lifecycle (§2.3)
       events/<Event>.json         # one file per native event/method/notification (§2.2)
   captures/
-    <vendor>@<version>/           # raw census output; today's probe/captures migrates here
+    <vendor>@<version>/           # sanitized, shape-faithful census fixtures (tracked)
       <Event>.jsonl
+  captures-raw/
+    <vendor>@<version>/           # verbatim census output (gitignored or private artifact store)
   emulator/
     bin.mjs                       # executable the adapter spawns in place of the vendor CLI (§4)
     behavior/*.json               # stimulus → response rules over the events in model/
@@ -62,7 +64,9 @@ packages/adapter-<vendor>/surface/
   audit.mjs                       # census → surface-report.json → diff against model/ (§7)
 ```
 
-`asmVersion` versions the *format*; the directory name versions the *vendor*. Multiple vendor versions may coexist side by side — `git diff` between two version directories **is** the vendor API changelog, mechanically derived.
+`asmVersion` versions the _format_; the directory name versions the _vendor_. Multiple vendor versions may coexist side by side — `git diff` between two version directories **is** the vendor API changelog, mechanically derived.
+
+Raw captures are evidence, but they routinely contain prompts, responses, tool arguments, account identifiers, and absolute workstation paths. They must not be committed. Each adapter owns a deterministic sanitizer and privacy check; only shape-faithful sanitized fixtures enter `captures/` and the model audit. Exact raw evidence stays gitignored locally or in an access-controlled artifact store long enough to reproduce the model.
 
 ### 2.2 Event file
 
@@ -94,18 +98,18 @@ packages/adapter-<vendor>/surface/
 
 ### 2.3 Channels
 
-A channel is one wire the adapter and vendor exchange semantics over. `channels.json` enumerates them; the emulator engine implements one simulator per channel *kind*, configured per vendor:
+A channel is one wire the adapter and vendor exchange semantics over. `channels.json` enumerates them; the emulator engine implements one simulator per channel _kind_, configured per vendor:
 
-| Channel kind | Vendor example | Simulator in engine |
-|---|---|---|
-| `argv-env` | claude `--session-id`, `--settings`, `--permission-mode` | argv/env parser + acceptance behavior (incl. silently-tolerated unknowns) |
-| `hook-http` | claude `type:"http"` hooks | loopback HTTP client POSTing to the adapter's real bridge |
-| `hook-command` | claude command hooks | spawn the configured forwarder command |
-| `transcript` | `~/.claude/projects/<slug>/<uuid>.jsonl` | JSONL writer emitting real record shapes, incl. partial-flush control |
-| `statusline` | claude statusline command | invokes the configured command with the real stdin JSON |
-| `jsonrpc-stdio` | codex `app-server` | JSON-RPC 2.0 endpoint: requests, responses, server requests, notifications |
-| `jsonrpc-ws-uds` | codex `--remote` attach | WebSocket-in-UDS listener |
-| `terminal` | the TUI itself | minimal stub: alt-screen, echo, bracketed-paste accept (§3) |
+| Channel kind     | Vendor example                                           | Simulator in engine                                                        |
+| ---------------- | -------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `argv-env`       | claude `--session-id`, `--settings`, `--permission-mode` | argv/env parser + acceptance behavior (incl. silently-tolerated unknowns)  |
+| `hook-http`      | claude `type:"http"` hooks                               | loopback HTTP client POSTing to the adapter's real bridge                  |
+| `hook-command`   | claude command hooks                                     | spawn the configured forwarder command                                     |
+| `transcript`     | `~/.claude/projects/<slug>/<uuid>.jsonl`                 | JSONL writer emitting real record shapes, incl. partial-flush control      |
+| `statusline`     | claude statusline command                                | invokes the configured command with the real stdin JSON                    |
+| `jsonrpc-stdio`  | codex `app-server`                                       | JSON-RPC 2.0 endpoint: requests, responses, server requests, notifications |
+| `jsonrpc-ws-uds` | codex `--remote` attach                                  | WebSocket-in-UDS listener                                                  |
+| `terminal`       | the TUI itself                                           | minimal stub: alt-screen, echo, bracketed-paste accept (§3)                |
 
 Detection (`detection.json`) covers what the adapter's probe relies on: binary resolution, `--version` output shape, and capability flags. The emulator bin must answer the detection surface plausibly (§4).
 
@@ -115,19 +119,19 @@ Detection (`detection.json`) covers what the adapter's probe relies on: binary r
 
 Three levels; each is validated against the one above.
 
-| Level | What | Status |
-|---|---|---|
-| **L0 — scripted transports** | In-memory JSON-RPC, scripted ACP connector. Unit-test doubles | **exists** (`adapter-codex` in-memory transport, `adapter-acp/scripted-connector.ts`) |
-| **L1 — behavioral emulator** | A real subprocess speaking the vendor's real channels, driven by the behavior pack; scenario-scriptable | this spec |
-| **L2 — recorded replay** | Real captured sessions replayed verbatim (hook timings, transcript bytes, notification sequences) | this spec; scenarios of kind `replay` |
+| Level                        | What                                                                                                    | Status                                                                                |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| **L0 — scripted transports** | In-memory JSON-RPC, scripted ACP connector. Unit-test doubles                                           | **exists** (`adapter-codex` in-memory transport, `adapter-acp/scripted-connector.ts`) |
+| **L1 — behavioral emulator** | A real subprocess speaking the vendor's real channels, driven by the behavior pack; scenario-scriptable | this spec                                                                             |
+| **L2 — recorded replay**     | Real captured sessions replayed verbatim (hook timings, transcript bytes, notification sequences)       | this spec; scenarios of kind `replay`                                                 |
 
-L1 exists only because chopsticks never parses terminal text (ADR-003/-004/-005): the entire semantic surface to reproduce faithfully is hooks, transcripts, statusline, and JSON-RPC — all file- or socket-based, all scriptable. The terminal channel is a stub by design. **Consequence (accepted):** in emulator mode an app's terminal pane shows the stub TUI, not the vendor's real interface; every semantic surface (state, events, panes, usage) behaves fully.
+L1 exists only because chopsticks never parses terminal text (ADR-003/-004/-005): the entire semantic surface to reproduce faithfully is hooks, transcripts, statusline, and JSON-RPC — all file- or socket-based, all scriptable. The terminal channel is a stub by design. **Consequence (accepted):** in emulator mode an app's terminal pane shows the stub TUI, not the vendor's real interface; the implemented semantic paths (state, events, panes, usage) remain testable without terminal scraping.
 
 ---
 
 ## 4. The emulator bin contract
 
-Each adapter ships `surface/emulator/bin.mjs` — a Node executable (shebang + platform shim generated by the engine; Windows gets a `.cmd` wrapper) that the adapter spawns **in place of the vendor CLI**, resolved through the existing seams: `CHOPSTICKS_{CLAUDE,CODEX,GROK}_BIN` or `BuiltinProviderOptions.executables`. No adapter code changes are required for basic emulation.
+Each adapter owns `surface/emulator/bin.mjs` — a Node executable that the adapter spawns **in place of the vendor CLI**, resolved through the existing seams: `CHOPSTICKS_{CLAUDE,CODEX,GROK}_BIN` or `BuiltinProviderOptions.executables`. Script recipes are invoked through a resolved real Node binary, so the same `.mjs` works on POSIX and Windows without shell or `.cmd` quoting. No adapter code changes are required for basic emulation.
 
 The bin MUST:
 
@@ -139,7 +143,7 @@ The bin MUST:
 
 The bin SHOULD treat unknown argv/env the way the real vendor does (claude silently tolerates unknown hook names; mirror that) — the ASM is where such quirks live, as data.
 
-**P2 delivery note (claude bin):** items 1–3 and 5 are delivered (`packages/adapter-claude/surface/emulator/bin.mjs`), including the statusline channel — the bin invokes the adapter's real forwarder script at boot (known-empty window) and after each turn (cumulative usage + `rate_limits`), so context-window, environment, and account-usage flows are exercised end to end. Item 4 lands with P3's control center. One documented compromise: the engine's hook emitter recognizes the repo's own generated curl-forwarder shape and delivers it as a direct POST with identical headers/body — byte-identical at the bridge, but independent of `sh`, which keeps command-transport events (SessionStart gates readiness) working on Windows dev machines. Unrecognized command handlers still run through `sh -c`.
+**P2/P3 delivery note (claude bin):** the five bin behaviors are implemented (`packages/adapter-claude/surface/emulator/bin.mjs`), including standalone mode, authenticated control registration, and the statusline channel. The bin invokes the adapter's real forwarder script at boot (known-empty window) and after each turn (cumulative usage + `rate_limits`), so context-window, environment, and account-usage flows are exercised end to end. Capture-backed transcript/statusline schemas and replay-diff are still required before claiming full fidelity. One documented compromise: the engine's hook emitter recognizes the repo's own generated curl-forwarder shape and delivers it as a direct POST with identical headers/body — byte-identical at the bridge, but independent of `sh`, which keeps command-transport events (SessionStart gates readiness) working on Windows dev machines. Other command handlers use the platform shell with a bounded timeout.
 
 ---
 
@@ -172,7 +176,10 @@ Named timelines for fault and stress cases the behavior rules don't cover organi
   "steps": [
     { "at": 0, "do": { "emit": { "channel": "hook", "event": "UserPromptSubmit", "with": { "prompt": "refactor" } } } },
     { "at": 300, "do": { "emit": { "channel": "hook", "event": "PreToolUse", "with": { "tool_name": "Bash" } } } },
-    { "at": 600, "do": { "fault": { "kind": "crash", "signal": "SIGKILL", "leaveTranscriptPartial": true } } }
+    {
+      "at": 600,
+      "do": { "fault": { "kind": "crash", "exitCode": 137, "partialTranscriptLine": "{\"type\":\"assistant\"" } }
+    }
   ]
 }
 ```
@@ -197,13 +204,13 @@ An Electron app on the same skeleton as `apps/workbench`/`apps/godview` — the 
 
 ### 6.2 Control API (served by each emulator)
 
-| Endpoint | Effect |
-|---|---|
-| `GET /state` | vendor, sessionId, live channels, cursor into the emitted log |
-| `GET /log` | everything emitted so far (assertion + debugging aid) |
-| `POST /trigger` | fire one event now: `{ channel, event, with }` — payload schema-validated |
-| `POST /scenario` | `{ name \| script, mode: play\|pause\|step, speed }` |
-| `POST /fault` | `{ kind: crash\|hang\|flood\|exit\|channel-drop, ... }` |
+| Endpoint         | Effect                                                                    |
+| ---------------- | ------------------------------------------------------------------------- |
+| `GET /state`     | vendor, sessionId, live channels, cursor into the emitted log             |
+| `GET /log`       | everything emitted so far (assertion + debugging aid)                     |
+| `POST /trigger`  | fire one event now: `{ channel, event, with }` — payload schema-validated |
+| `POST /scenario` | `{ name \| script, mode: play\|pause\|step, speed }`                      |
+| `POST /fault`    | `{ kind: crash\|hang\|flood\|exit\|channel-drop, ... }`                   |
 
 ### 6.3 UI panels
 
@@ -211,7 +218,7 @@ An Electron app on the same skeleton as `apps/workbench`/`apps/godview` — the 
 2. **Event palette** — generated from the ASM: one form per event, fields from `payloadSchema`, fire via `/trigger`.
 3. **Scenario runner** — pick a scenario, play/pause/step, watch emitted traffic live.
 
-The same app later gains **record**: attach to a *real* session's captures and save as a replay scenario — closing the record/replay loop without a second tool.
+The same app later gains **record**: attach to a _real_ session's captures and save as a replay scenario — closing the record/replay loop without a second tool.
 
 ### 6.4 Emulator mode in product apps
 
@@ -246,21 +253,21 @@ Scheduling: a nightly GitHub Actions workflow with the existing opt-in lanes ena
 ## 8. Limits and non-goals
 
 - The emulator **cannot detect vendor drift by itself.** Only reconciliation against the real binary can. There is no version of this system where the nightly lane is deleted.
-- The terminal channel is a stub (§3). Apps whose own features depend on terminal *pixels* still need real-vendor manual QA.
+- The terminal channel is a stub (§3). Apps whose own features depend on terminal _pixels_ still need real-vendor manual QA.
 - OAuth / account-usage flows are emulated at the HTTP layer (fake usage endpoint). The live `account-usage.live.test.ts` stays in the nightly lane forever.
-- Not a goal: emulating vendors' *model quality*. Prompts to an emulator get scripted responses; nothing here evaluates agent intelligence.
+- Not a goal: emulating vendors' _model quality_. Prompts to an emulator get scripted responses; nothing here evaluates agent intelligence.
 - Not a goal: a shadow process beside a live session (ADR-002). The emulator replaces the vendor binary; it never accompanies it.
 
 ---
 
 ## 9. Package and ownership summary
 
-| Piece | Location | Public? |
-|---|---|---|
-| Emulator engine (ASM validator/differ, channel simulators, scenario runner, control server) | `packages/emulator` — `@vibecook/chopsticks-emulator` | yes — consumers get hermetic integration tests of *their* apps too |
-| Conformance suite, fake agent, shared fixtures | `packages/testing` (unchanged charter; gains an emulator-backed mode) | yes |
-| Per-vendor ASM, captures, behavior packs, bins, audit scripts | `packages/adapter-<vendor>/surface/` | model ships inside each adapter package (`files: ["dist", "surface/model"]`); captures stay repo-only |
-| Control center | `apps/emulator` | private, like the other apps |
+| Piece                                                                                       | Location                                                              | Public?                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Emulator engine (ASM validator/differ, channel simulators, scenario runner, control server) | `packages/emulator` — `@vibecook/chopsticks-emulator`                 | yes — consumers get hermetic integration tests of _their_ apps too                                                                                                 |
+| Conformance suite, fake agent, shared fixtures                                              | `packages/testing` (unchanged charter; gains an emulator-backed mode) | yes                                                                                                                                                                |
+| Per-vendor ASM, captures, behavior packs, bins, audit scripts                               | `packages/adapter-<vendor>/surface/`                                  | model ships inside each adapter package (`files: ["dist", "surface/model"]`); sanitized captures and emulator harness stay repo-only; raw captures never enter Git |
+| Control center                                                                              | `apps/emulator`                                                       | private, like the other apps                                                                                                                                       |
 
 **Consumption constraint (learned in P1):** node type stripping does not remap `./x.js` → `./x.ts`, so `.mjs` surface scripts (audit, generation) cannot import modules that use the repo's `.js`-suffixed relative imports. Any module those scripts consume must be self-contained — hence the ASM runtime lives in one file, exposed as the deep export `@vibecook/chopsticks-emulator/model` (TS consumers use the barrel). Scripts require node ≥ 22.18 (type stripping; older 22.x: `--experimental-strip-types`). The emulator package's tsconfig sets `erasableSyntaxOnly` to keep this guaranteed.
 
@@ -270,11 +277,11 @@ Scheduling: a nightly GitHub Actions workflow with the existing opt-in lanes ena
 
 ## 10. Phasing
 
-| Phase | Contents | Exit | Status |
-|---|---|---|---|
-| **P1** | ASM format + validator in `packages/emulator`; adapter-claude as reference: distill `probe/captures` into `surface/model/claude@2.1.207`, migrate captures, `audit.mjs` | `registry.ts` generated from the model; audit diff clean against 2.1.207 captures | **delivered 2026-08-07** |
-| **P2** | Channel simulators + scenario runner + claude `bin.mjs` (hooks + transcript first — they feed the reducer); conformance suite gains emulator mode | `adapter-claude` conformance green hermetically in CI | **delivered 2026-08-07** (engine + bin + `conformance.emulator.test.ts`; control server deferred to P3) |
-| **P3** | `apps/emulator` control center + registration/control channel + godview emulator-mode flow | the §6.4 five-step flow works by hand | **delivered 2026-08-07** (scenario play-only — pause/step deferred; godview needs no changes, `CHOPSTICKS_CLAUDE_BIN` is the mode switch) |
-| **P4** | Codex behavior pack (fake app-server promoted from the existing in-memory transport to a real subprocess) + the nightly reconciliation workflow; then grok/acp packs | nightly lane files (or doesn't) its first drift issue | |
+| Phase  | Contents                                                                                                                                                                | Exit                                                                              | Status                                                                                                                                                           |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **P1** | ASM format + validator in `packages/emulator`; adapter-claude as reference: distill `probe/captures` into `surface/model/claude@2.1.207`, migrate captures, `audit.mjs` | `registry.ts` generated from the model; audit diff clean against 2.1.207 captures | **substantially delivered 2026-08-07** (hook model/captures/registry audit complete; capture-backed transcript and statusline schemas remain)                    |
+| **P2** | Channel simulators + scenario runner + claude `bin.mjs` (hooks + transcript first — they feed the reducer); conformance suite gains emulator mode                       | `adapter-claude` conformance green hermetically in CI                             | **substantially delivered 2026-08-07** (engine + bin + full starter scenario set + `conformance.emulator.test.ts`; captured-session replay/diff remains P4 work) |
+| **P3** | `apps/emulator` control center + registration/control channel + godview emulator-mode flow                                                                              | the §6.4 five-step flow works by hand                                             | **substantially delivered 2026-08-07** (named/inline play with speed and stimulus; pause/step and a recorded manual §6.4 run remain)                             |
+| **P4** | Codex behavior pack (fake app-server promoted from the existing in-memory transport to a real subprocess) + the nightly reconciliation workflow; then grok/acp packs    | nightly lane files (or doesn't) its first drift issue                             |                                                                                                                                                                  |
 
 P1 unblocks P2; P3 is independent of P4. Each phase is shippable and useful on its own.

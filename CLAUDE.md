@@ -60,8 +60,9 @@ packages/
 
 `adapter-<vendor>/surface/` holds the adapter-owned ground truth (draft/EMULATOR.md):
 `model/<vendor>@<version>/` (ASM — canonical; registry.ts is GENERATED from it via
-`surface/generate-registry.mjs`), `captures/` (raw censuses, repo-only), `audit.mjs` (model ↔ captures
-diff — `pnpm --filter @vibecook/chopsticks-adapter-claude audit`), `emulator/bin.mjs` (the vendor
+`surface/generate-registry.mjs`), `captures/` (sanitized census fixtures, repo-only), `captures-raw/`
+(verbatim evidence, gitignored/private), `audit.mjs` (model + schema + privacy ↔ captures
+diff — `pnpm --filter @vibecook/chopsticks-adapter-claude run surface:audit`), `emulator/bin.mjs` (the vendor
 stand-in; conformance runs against it hermetically). Surface .mjs scripts need node
 ≥22.18 (type stripping) and import only self-contained modules.
 apps/
