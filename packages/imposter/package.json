@@ -1,0 +1,53 @@
+{
+  "name": "@vibecook/chopsticks-imposter",
+  "version": "0.1.8",
+  "type": "module",
+  "description": "One executable that impersonates every coding agent: speaks each vendor's real machine surfaces (hooks, transcripts, statuslines, JSON-RPC) from its captured Agent Surface Model (draft/IMPOSTER.md).",
+  "license": "MIT",
+  "author": "James Yong",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vibecook-dev/chopsticks.git",
+    "directory": "packages/imposter"
+  },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./package.json": "./package.json"
+    }
+  },
+  "files": [
+    "dist",
+    "bin",
+    "personas"
+  ],
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "pnpm clean && tsc -p tsconfig.build.json",
+    "prepack": "pnpm build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@vibecook/chopsticks-surface": "workspace:*"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "devDependencies": {
+    "@vibecook/chopsticks-adapter-claude": "workspace:*"
+  }
+}

@@ -257,6 +257,16 @@ importers:
 
   packages/emulator: {}
 
+  packages/imposter:
+    dependencies:
+      '@vibecook/chopsticks-surface':
+        specifier: workspace:*
+        version: link:../surface
+    devDependencies:
+      '@vibecook/chopsticks-adapter-claude':
+        specifier: workspace:*
+        version: link:../adapter-claude
+
   packages/record: {}
 
   packages/runtime:

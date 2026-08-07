@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    // The imposter is SPAWNED as a process, and node's type stripping resolves
+    // `./x.ts` but not `./x.js` (probed 2026-08-07). Writing `.ts` extensions
+    // is therefore what lets `bin/ai.mjs` run multi-file TypeScript straight
+    // from src with no build step, exactly as every other package runs from
+    // src. `rewriteRelativeImportExtensions` rewrites them to `.js` on emit so
+    // the published dist is ordinary ESM. This is a deliberate, local
+    // departure from the repo's `.js`-suffix convention — see src/index.ts.
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true
+  },
+  "include": ["src"]
+}

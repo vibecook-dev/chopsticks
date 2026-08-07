@@ -312,12 +312,14 @@ Claude and Codex land **together**, before either is polished. A persona contrac
 | Phase | Contents | Exit | Status |
 | --- | --- | --- | --- |
 | **I0** | Extract `packages/surface` (ASM runtime) out of `packages/emulator`. Nothing else moves. | `pnpm test` green, `surface:audit` clean, PoC still runs end to end | **done 2026-08-07** |
-| **I1** | Imposter skeleton, persona loader, op timeline, headless mode, UDS client; `engine.ts` channels relocate here. Both persona definitions authored. | conformance green against `ai` instead of `bin.mjs` | |
+| **I1** | Imposter skeleton, channel modules, persona loader, op timeline, headless session, CLI. Both persona definitions authored. **No control channel yet.** | conformance green against `ai` instead of `bin.mjs` | |
 | **I2** | Claude **and** codex runtimes — hook/transcript/statusline channels, and the app-server JSON-RPC channel | Both conform hermetically in CI; ops map cleanly onto both families, or the vocabulary is revised until they do | |
-| **I3** | Plane rewritten for UDS **at its new home** in `apps/emulator`; delete state file, bin-side HTTP server, `prune()`, console poll. Push-based log. | §6.4 flow works over one socket; `scenario.control` pause/step lands | |
+| **I3** | Control channel, both sides at once: UDS client in the imposter **and** the plane rewritten at its new home in `apps/emulator`. Delete state file, bin-side HTTP server, `prune()`, console poll. Push-based log. | §6.4 flow works over one socket; `scenario.control` pause/step lands | |
 | **I4** | Ink TUI behind `isTTY`; `ai shims install`; delete `bin.mjs` and `packages/emulator`; absorb `fake-agent.mjs`; update EMULATOR.md + ADAPTING-AN-AGENT.md | godview panes show imposter chrome; no doc still describes per-adapter bins | |
 
 I0 is a refactor that can land on its own and de-risks everything after it. I1–I2 are load-bearing. I3 is mostly deletion. I4 is chrome plus paperwork.
+
+The control channel lands **whole** in I3 rather than client-first in I1, because a UDS client has nothing to dial until the plane is rewritten, and standalone is a first-class mode anyway (§4.2) — conformance runs the pipe-and-no-socket path, so I1 needs no control channel to prove itself. Until I3, `bin.mjs` and the frozen `packages/emulator` keep serving the control-center flow unchanged.
 
 Because I0 leaves the PoC working, there is a green baseline to bisect against for the whole sequence — and if I2 reveals the op vocabulary is wrong for codex, only I1's timeline needs rework.
 
