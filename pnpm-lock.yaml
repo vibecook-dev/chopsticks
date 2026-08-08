@@ -266,6 +266,12 @@ importers:
       '@vibecook/chopsticks-adapter-claude':
         specifier: workspace:*
         version: link:../adapter-claude
+      '@vibecook/chopsticks-core':
+        specifier: workspace:*
+        version: link:../core
+      '@vibecook/chopsticks-testing':
+        specifier: workspace:*
+        version: link:../testing
 
   packages/record: {}
 

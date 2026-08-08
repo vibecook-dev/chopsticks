@@ -1,0 +1,19 @@
+{
+  "name": "happy-turn",
+  "reply": "imposter: ok",
+  "statusLine": {
+    "modelId": "claude-sonnet-4-5",
+    "modelDisplayName": "Sonnet (imposter)",
+    "capacityTokens": 200000,
+    "tokensPerTurn": 12400,
+    "rateLimits": {
+      "five_hour": { "used_percentage": 12, "resetsInSeconds": 14400 },
+      "seven_day": { "used_percentage": 3, "resetsInSeconds": 518400 }
+    }
+  },
+  "ops": [
+    { "op": "turn.start", "with": { "text": "$stimulus.text" } },
+    { "op": "assistant.delta", "with": { "text": "$reply" } },
+    { "op": "turn.end", "with": { "text": "$reply" } }
+  ]
+}

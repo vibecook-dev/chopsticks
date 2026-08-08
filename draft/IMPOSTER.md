@@ -309,10 +309,19 @@ Two console defects to fix while moving `control.html`: Map-valued reducer state
 
 Claude and Codex land **together**, before either is polished. A persona contract validated against one vendor comes out shaped like that vendor; claude (hook + transcript) and codex (JSON-RPC app-server + `--remote` attach) are the two families `ADAPTING-AN-AGENT.md §0` already identifies, and they are the test.
 
+### 8.1 Blocker: codex has no ASM yet
+
+**Discovered 2026-08-07, during I1.** `packages/adapter-claude/surface/model/claude@2.1.207` is the *only* ASM in the repo — codex, grok, and acp have no `surface/` directory at all. §3.2's claim that "the adapter author has already done this work" holds for claude and for nobody else.
+
+The codex persona therefore cannot be authored yet, and specifically **must not be hand-written from `adapter-codex/src/normalizer.ts`**, however tempting its method names are. `EMULATOR.md §1` names that exact failure: *emulator and normalizer must never be derived from the same unverified source, or they are wrong together in the same way and no test can see it.* A persona built from the adapter would make the imposter agree with the adapter about a surface neither has observed.
+
+What codex actually needs first is `ADAPTING-AN-AGENT.md` steps 1–2 — survey and model — against the real binary, in the `CODEX_LIVE=1` lane. Until that census exists, I2 cannot start, and the op vocabulary stays validated against one family only. The method names quoted in §2 came from the adapter and are illustrative of the *shape* problem (§2.1); they are not a substitute for captures.
+
 | Phase | Contents | Exit | Status |
 | --- | --- | --- | --- |
 | **I0** | Extract `packages/surface` (ASM runtime) out of `packages/emulator`. Nothing else moves. | `pnpm test` green, `surface:audit` clean, PoC still runs end to end | **done 2026-08-07** |
-| **I1** | Imposter skeleton, channel modules, persona loader, op timeline, headless session, CLI. Both persona definitions authored. **No control channel yet.** | conformance green against `ai` instead of `bin.mjs` | |
+| **I1** | Imposter skeleton, channel modules, persona loader, op timeline, headless session, CLI, claude persona. **No control channel yet.** | conformance green against `ai` instead of `bin.mjs` | **done 2026-08-07** |
+| **I1.5** | Codex survey + model (`ADAPTING-AN-AGENT.md` steps 1–2) in the `CODEX_LIVE=1` lane — the census §8.1 shows does not exist | `surface/model/codex@<version>` validates; captures sanitized and committed | **blocks I2** |
 | **I2** | Claude **and** codex runtimes — hook/transcript/statusline channels, and the app-server JSON-RPC channel | Both conform hermetically in CI; ops map cleanly onto both families, or the vocabulary is revised until they do | |
 | **I3** | Control channel, both sides at once: UDS client in the imposter **and** the plane rewritten at its new home in `apps/emulator`. Delete state file, bin-side HTTP server, `prune()`, console poll. Push-based log. | §6.4 flow works over one socket; `scenario.control` pause/step lands | |
 | **I4** | Ink TUI behind `isTTY`; `ai shims install`; delete `bin.mjs` and `packages/emulator`; absorb `fake-agent.mjs`; update EMULATOR.md + ADAPTING-AN-AGENT.md | godview panes show imposter chrome; no doc still describes per-adapter bins | |

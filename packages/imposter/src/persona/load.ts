@@ -8,7 +8,7 @@
  * drift from it.
  */
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -27,6 +27,39 @@ export function personaDirectory(vendor: string): string {
     throw new Error(`persona name must be lowercase letters, digits, and hyphens (got "${vendor}")`);
   }
   return join(personasRoot(), vendor);
+}
+
+/** Persona directory names, sorted. Cheap: one readdir, no JSON parsed. */
+export function availablePersonas(root = personasRoot()): string[] {
+  try {
+    return readdirSync(root, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && PERSONA_NAME.test(entry.name))
+      .map((entry) => entry.name)
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Shim name → vendor, e.g. `claude` → `claude`. Built by reading each
+ * persona.json, which is what `ai shims install` writes symlinks from, so
+ * argv0 dispatch (§6) and shim installation can never disagree.
+ */
+export function shimNameMap(root = personasRoot()): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const vendor of availablePersonas(root)) {
+    try {
+      const document = parsePersonaDocument(
+        join(root, vendor, 'persona.json'),
+        readJson(join(root, vendor, 'persona.json')),
+      );
+      for (const name of document.shimNames) map.set(name, vendor);
+    } catch {
+      // A malformed persona must not make every other persona unreachable.
+    }
+  }
+  return map;
 }
 
 function readJson(path: string): unknown {

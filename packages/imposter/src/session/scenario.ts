@@ -13,6 +13,7 @@
  */
 
 import type { TranscriptWriter } from './channels/transcript.ts';
+import { substitute } from './template.ts';
 
 export interface ScenarioAction {
   emit?: { channel?: string; event: string; with?: Record<string, unknown>; afterMs?: number };
@@ -61,43 +62,6 @@ export interface ScenarioRunner {
 
 const MAX_DELAY_MS = 5 * 60 * 1000;
 const MAX_STEPS = 10_000;
-
-/** Replace "$stimulus.text", "$uuid:name", "$now", and option-provided bindings. */
-function substitute(
-  value: unknown,
-  stimulus: Record<string, unknown>,
-  bindings: Record<string, unknown>,
-  uuids: Map<string, string>,
-): unknown {
-  if (typeof value === 'string') {
-    if (value.startsWith('$stimulus.')) {
-      const key = value.slice('$stimulus.'.length);
-      return stimulus[key];
-    }
-    if (value.startsWith('$uuid')) {
-      const name = value.includes(':') ? value.slice(value.indexOf(':') + 1) : value;
-      let uuid = uuids.get(name);
-      if (!uuid) {
-        uuid = crypto.randomUUID();
-        uuids.set(name, uuid);
-      }
-      return uuid;
-    }
-    if (value === '$now') return new Date().toISOString();
-    if (value in bindings) return bindings[value];
-    return value;
-  }
-  if (Array.isArray(value)) return value.map((entry) => substitute(entry, stimulus, bindings, uuids));
-  if (value !== null && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
-        key,
-        substitute(entry, stimulus, bindings, uuids),
-      ]),
-    );
-  }
-  return value;
-}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -199,12 +163,11 @@ export function createScenarioRunner(options: ScenarioRunnerOptions): ScenarioRu
           // Validate exactly the payload that will hit the wire, with template
           // bindings already resolved — an off-model scenario must fail before
           // it emits anything at all.
-          const preview = substitute(
-            action.emit.with ?? {},
-            stimulus,
-            options.bindings ?? {},
-            validationUuids,
-          ) as Record<string, unknown>;
+          const preview = substitute(action.emit.with ?? {}, {
+            scopes: { stimulus },
+            bindings: options.bindings,
+            uuids: validationUuids,
+          }) as Record<string, unknown>;
           const violations = options.validate?.(action.emit.event, preview) ?? [];
           if (violations.length > 0) {
             throw new Error(`imposter emitted off-model payload for ${action.emit.event}: ${violations.join('; ')}`);
@@ -290,22 +253,29 @@ export function createScenarioRunner(options: ScenarioRunnerOptions): ScenarioRu
         if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs / speed));
         if (action.delay !== undefined) continue;
         if (action.emit !== undefined) {
-          const payload = substitute(action.emit.with ?? {}, stimulus, options.bindings ?? {}, uuids) as Record<
-            string,
-            unknown
-          >;
+          const payload = substitute(action.emit.with ?? {}, {
+            scopes: { stimulus },
+            bindings: options.bindings,
+            uuids,
+          }) as Record<string, unknown>;
           await options.emit(action.emit.event, payload);
           continue;
         }
         if (action.transcript !== undefined) {
           options.transcript.append(
-            substitute(action.transcript.record, stimulus, options.bindings ?? {}, uuids) as Record<string, unknown>,
+            substitute(action.transcript.record, { scopes: { stimulus }, bindings: options.bindings, uuids }) as Record<
+              string,
+              unknown
+            >,
           );
           continue;
         }
         if (action.statusline !== undefined) {
           await options.statusline!(
-            substitute(action.statusline.with, stimulus, options.bindings ?? {}, uuids) as Record<string, unknown>,
+            substitute(action.statusline.with, { scopes: { stimulus }, bindings: options.bindings, uuids }) as Record<
+              string,
+              unknown
+            >,
           );
           continue;
         }
