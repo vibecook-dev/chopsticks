@@ -49,14 +49,24 @@ async function waitFor(predicate: () => boolean, label: string, timeoutMs = 8000
   throw new Error(`timed out waiting for ${label}`);
 }
 
+interface Started {
+  session: CodexSession;
+  events: AgentEventEnvelope[];
+  /** Approval decisions the adapter was asked for, in order. */
+  approvals: string[];
+}
+
 /** Spawn `ai --codex app-server` and drive it with the real adapter. */
-async function imposterSession(): Promise<{ session: CodexSession; events: AgentEventEnvelope[] }> {
+async function imposterSession(
+  decision: 'approved' | 'denied' = 'approved',
+  behavior = 'happy-turn',
+): Promise<Started> {
   const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'chopsticks-codex-imposter-')));
   temporaries.add(cwd);
 
   // The adapter's own transport, pointed at `ai`: it appends `app-server` and
   // speaks NDJSON over stdio, exactly as it does to the real binary.
-  const child = spawn(process.execPath, [AI, '--codex', 'app-server'], {
+  const child = spawn(process.execPath, [AI, '--codex', 'app-server', '--behavior', behavior], {
     cwd,
     stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...process.env, CHOPSTICKS_IMPOSTER_HOME: cwd },
@@ -91,10 +101,18 @@ async function imposterSession(): Promise<{ session: CodexSession; events: Agent
     close: () => child.kill('SIGKILL'),
   };
 
-  const live = await createCodexSession({ cwd, transport });
+  const approvals: string[] = [];
+  const live = await createCodexSession({
+    cwd,
+    transport,
+    onApproval: async ({ method }) => {
+      approvals.push(method);
+      return decision;
+    },
+  });
   const events: AgentEventEnvelope[] = [];
   live.onEvent((envelope) => events.push(envelope));
-  return { session: live, events };
+  return { session: live, events, approvals };
 }
 
 describe('the codex imposter, driven by the real adapter', () => {
@@ -128,6 +146,43 @@ describe('the codex imposter, driven by the real adapter', () => {
     // boot-ready notification and the persona does not invent one.
     expect(session.state().lifecycle).toBe('ready');
     expect(session.state().lastAssistantMessage).toBe('imposter: ok');
+  });
+
+  it('completes an approval round-trip when the client allows it', async () => {
+    // The gap that stayed open from 2026-07-13 to now: an imposter that ISSUES
+    // a server request, an adapter that answers it, and a turn that continues
+    // past the answer. `await: true` on the binding is what suspends the op.
+    const started = await imposterSession('approved', 'approval-turn');
+    session = started.session;
+    await waitFor(() => started.events.some((e) => e.event.type === 'session.started'), 'session.started');
+
+    await session.submitPrompt({ text: 'fetch a page' });
+    await waitFor(() => started.events.some((e) => e.event.type === 'turn.completed'), 'turn.completed');
+
+    expect(started.approvals).toEqual(['item/commandExecution/requestApproval']);
+    const outcomes = started.events
+      .filter((envelope) => envelope.event.type === 'permission.resolved')
+      .map((envelope) => (envelope.event as { outcome: string }).outcome);
+    expect(outcomes).toEqual(['allowed']);
+    // The turn ran ON past the approval, which is the whole point of awaiting.
+    expect(session.state().lastAssistantMessage).toBe('imposter: command finished');
+  });
+
+  it('completes the same round-trip when the client denies it', async () => {
+    const started = await imposterSession('denied', 'approval-turn');
+    session = started.session;
+    await waitFor(() => started.events.some((e) => e.event.type === 'session.started'), 'session.started');
+
+    await session.submitPrompt({ text: 'fetch a page' });
+    await waitFor(() => started.events.some((e) => e.event.type === 'turn.completed'), 'turn.completed');
+
+    const outcomes = started.events
+      .filter((envelope) => envelope.event.type === 'permission.resolved')
+      .map((envelope) => (envelope.event as { outcome: string }).outcome);
+    // `decline` rather than `cancel`: both are accepted by the real vendor, but
+    // cancel ends the turn and decline lets the agent continue (findings C1d).
+    expect(outcomes).toEqual(['denied']);
+    expect(session.state().lifecycle).toBe('ready');
   });
 
   it('keeps the reply ahead of the notifications it triggers', async () => {

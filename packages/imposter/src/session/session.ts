@@ -237,6 +237,29 @@ export function createImposterSession(options: ImposterSessionOptions): Imposter
     return options.jsonrpc.request(method, wire);
   };
 
+  /**
+   * Route a raw emission to the channel the ASM says the event belongs to.
+   *
+   * Scenarios and the control centre's trigger address events by NAME, never by
+   * channel, so with two families in play something has to decide the wire. The
+   * ASM already knows: every event declares its vendor channel, and
+   * `channelFor` maps that to a delivery kind. Without this every codex
+   * scenario would be posted to a hook channel codex does not have.
+   */
+  const routeFor = (event: string): 'hook' | 'jsonrpc' => {
+    const declared = persona.model.events.find((entry) => entry.event === event)?.channel;
+    if (declared !== undefined) {
+      if (declared === persona.channelFor('jsonrpc')) return 'jsonrpc';
+      if (declared === persona.channelFor('hook')) return 'hook';
+    }
+    // An event the model has never seen still has to reach a wire for ADR-008
+    // retention to be testable; send it down whichever one this vendor has.
+    return persona.channelFor('hook') === undefined ? 'jsonrpc' : 'hook';
+  };
+
+  const emitAny = async (event: string, payload: Record<string, unknown>): Promise<void> =>
+    routeFor(event) === 'jsonrpc' ? emitRpc(event, payload) : emit(event, payload);
+
   const status = behavior.statusLine ?? {};
   const modelId =
     flagValue(argv, persona.flagsFor('model', '--model')) ?? status.modelId ?? `${persona.vendor}-imposter`;
@@ -381,7 +404,8 @@ export function createImposterSession(options: ImposterSessionOptions): Imposter
   };
 
   const runner: ScenarioRunner = createScenarioRunner({
-    emit,
+    emit: emitAny,
+    request: requestRpc,
     transcript: guardedTranscript,
     statusline: (payload) => invokeStatusLine(payload),
     // Pre-flight validation sees exactly the wire payload `emit` will build,
@@ -405,7 +429,7 @@ export function createImposterSession(options: ImposterSessionOptions): Imposter
     timeline,
     bindings,
     transcript: guardedTranscript,
-    emit,
+    emit: emitAny,
     statusPayload,
     invokeStatusLine,
     dropChannel(channel) {

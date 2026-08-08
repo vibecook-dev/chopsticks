@@ -16,7 +16,19 @@ import type { TranscriptWriter } from './channels/transcript.ts';
 import { substitute } from './template.ts';
 
 export interface ScenarioAction {
-  emit?: { channel?: string; event: string; with?: Record<string, unknown>; afterMs?: number };
+  emit?: {
+    channel?: string;
+    event: string;
+    with?: Record<string, unknown>;
+    afterMs?: number;
+    /**
+     * Send as a SERVER request and wait for the client's answer, rather than as
+     * a notification. Codex's approvals genuinely are requests with ids — a
+     * scenario that emitted one as a notification would be scripting traffic
+     * the vendor never produces, and the adapter would never reply to it.
+     */
+    request?: boolean;
+  };
   transcript?: { record: Record<string, unknown> };
   statusline?: { with: Record<string, unknown> };
   delay?: { ms: number };
@@ -44,6 +56,8 @@ export type ScenarioFault = NonNullable<ScenarioAction['fault']>;
 
 export interface ScenarioRunnerOptions {
   emit: (event: string, payload: Record<string, unknown>) => Promise<void>;
+  /** Server-initiated request, for `emit.request` (the JSON-RPC family only). */
+  request?: (event: string, payload: Record<string, unknown>) => Promise<unknown>;
   transcript: TranscriptWriter;
   /** ASM payload validation; violations fail the run before anything is emitted. */
   validate?: (event: string, payload: Record<string, unknown>) => string[];
@@ -234,7 +248,13 @@ export function createScenarioRunner(options: ScenarioRunnerOptions): ScenarioRu
 
       if (action.emit !== undefined) {
         if (!isRecord(action.emit)) throw new Error('scenario emit must be an object');
-        rejectUnknownFields(action.emit, ['channel', 'event', 'with', 'afterMs'], 'scenario emit');
+        rejectUnknownFields(action.emit, ['channel', 'event', 'with', 'afterMs', 'request'], 'scenario emit');
+        if (action.emit.request !== undefined && typeof action.emit.request !== 'boolean') {
+          throw new Error('scenario emit.request must be a boolean');
+        }
+        if (action.emit.request === true && !options.request) {
+          throw new Error('scenario emit.request needs a server-request handler');
+        }
         if (typeof action.emit.event !== 'string' || action.emit.event.length === 0 || action.emit.event.length > 256) {
           throw new Error('scenario emit.event must be a non-empty string of at most 256 characters');
         }
@@ -353,7 +373,8 @@ export function createScenarioRunner(options: ScenarioRunnerOptions): ScenarioRu
               bindings: options.bindings,
               uuids,
             }) as Record<string, unknown>;
-            await options.emit(action.emit.event, payload);
+            if (action.emit.request) await options.request!(action.emit.event, payload);
+            else await options.emit(action.emit.event, payload);
             continue;
           }
           if (action.transcript !== undefined) {

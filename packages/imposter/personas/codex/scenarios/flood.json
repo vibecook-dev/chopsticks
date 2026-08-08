@@ -1,0 +1,6 @@
+{
+  "name": "flood",
+  "then": [
+    { "at": 0, "do": { "fault": { "kind": "flood", "count": 200, "event": "thread/status/changed", "with": { "threadId": "$threadId", "status": { "type": "active", "activeFlags": [] } } } } }
+  ]
+}

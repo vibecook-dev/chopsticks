@@ -1,0 +1,9 @@
+{
+  "name": "permission-deny",
+  "then": [
+    { "at": 0, "do": { "emit": { "event": "turn/started", "with": { "threadId": "$threadId", "turn": { "id": "$uuid:turn", "status": "inProgress" } } } } },
+    { "at": 20, "do": { "emit": { "request": true, "event": "item/commandExecution/requestApproval", "with": { "threadId": "$threadId", "turnId": "$uuid:turn", "itemId": "$uuid:item", "startedAtMs": "$nowMs", "command": "rm -rf /", "cwd": "$threadCwd", "availableDecisions": ["accept", "cancel"] } } } },
+    { "at": 40, "do": { "emit": { "event": "item/completed", "with": { "threadId": "$threadId", "turnId": "$uuid:turn", "completedAtMs": "$nowMs", "item": { "type": "commandExecution", "id": "$uuid:item", "command": "rm -rf /", "cwd": "$threadCwd", "status": "declined", "exitCode": null } } } } },
+    { "at": 60, "do": { "emit": { "event": "turn/completed", "with": { "threadId": "$threadId", "turn": { "id": "$uuid:turn", "status": "completed", "error": null } } } } }
+  ]
+}
