@@ -51,6 +51,12 @@ export type OpChannel = 'hook' | 'transcript' | 'statusline' | 'jsonrpc';
  */
 export interface OpBinding {
   channel: OpChannel;
+  /**
+   * Send as a SERVER request and suspend the op until the client replies,
+   * binding the reply as `$response` for the ops that follow. Only meaningful
+   * on the jsonrpc channel; this is how an approval resolves (§9.3).
+   */
+  await?: boolean;
   /** Hook event name, or JSON-RPC method. Absent for pure transcript writes. */
   event?: string;
   with?: Record<string, unknown>;

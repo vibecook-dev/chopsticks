@@ -177,13 +177,23 @@ function parseOpsDocument(path: string, value: unknown, knownEvents: ReadonlySet
         throw new Error(`imposter: ${path} op "${op}" field "event" must be a non-empty string`);
       }
       if (binding.with !== undefined) requireRecord(path, binding.with, `op "${op}" field "with"`);
+      if (binding.await !== undefined && typeof binding.await !== 'boolean') {
+        throw new Error(`imposter: ${path} op "${op}" field "await" must be a boolean`);
+      }
+      if (binding.await === true && channel !== 'jsonrpc') {
+        throw new Error(`imposter: ${path} op "${op}" sets "await" on the ${channel} channel, which cannot reply`);
+      }
       // An op bound to a hook event the ASM has never seen would emit an
       // unmodeled payload, which is exactly what §7.3 item 3 forbids.
       if (channel === 'hook' && typeof binding.event === 'string' && !knownEvents.has(binding.event)) {
         throw new Error(`imposter: ${path} op "${op}" binds hook event "${binding.event}", which is not in the ASM`);
       }
+      if (binding.await !== undefined && typeof binding.await !== 'boolean') {
+        throw new Error(`imposter: ${path} op "${op}" field "await" must be a boolean`);
+      }
       return {
         channel: channel as OpBinding['channel'],
+        ...(binding.await === undefined ? {} : { await: binding.await as boolean }),
         ...(binding.event === undefined ? {} : { event: binding.event as string }),
         ...(binding.with === undefined ? {} : { with: binding.with as Record<string, unknown> }),
       };

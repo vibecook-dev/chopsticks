@@ -38,6 +38,8 @@ export interface OpTimelineOptions {
   transcript: TranscriptWriter;
   statusline?: (payload: Record<string, unknown>) => Promise<void>;
   emitJsonRpc?: (method: string, params: Record<string, unknown>) => Promise<void>;
+  /** Server-initiated request; resolves with the client's reply (§9.3). */
+  requestJsonRpc?: (method: string, params: Record<string, unknown>) => Promise<unknown>;
   /** Presentation sink: the headless log, or the Ink TUI once it lands. */
   present?: (frame: PresentationFrame) => void;
   /** Session-scoped bindings ($sessionId, $cwd, $permissionMode, …). */
@@ -104,6 +106,20 @@ export function createOpTimeline(options: OpTimelineOptions): OpTimeline {
         }
         case 'jsonrpc': {
           if (!binding.event) throw new Error(`op ${invocation.op} binds the jsonrpc channel without a method`);
+          if (binding.await) {
+            if (!options.requestJsonRpc) {
+              log(`op ${invocation.op} wants a server request, which is not configured`);
+              break;
+            }
+            // A server request suspends the op until the client answers, and
+            // binds the reply as `$response` for the ops that follow — which is
+            // how `permission.ask` resolves into an allow or a deny (§9.3).
+            // `runAll` already awaits sequentially, so no timeline surgery was
+            // needed for this: only somewhere to put the answer.
+            const response = await options.requestJsonRpc(binding.event, payload ?? {});
+            if (options.bindings) options.bindings.$response = response;
+            break;
+          }
           if (!options.emitJsonRpc) {
             log(`op ${invocation.op} wants the jsonrpc channel, which is not configured`);
             break;
