@@ -310,17 +310,32 @@ item echoed into `response.completed.output`. In every case codex accepts the
 stream and completes the turn cleanly, but emits only `userMessage` and
 `agentMessage` items — the call is silently not executed, with no error.
 
-Untested hypotheses, in rough order of promise:
-1. `exec` may need the code-mode host running; `code_mode_host` is a stable
-   feature but the host may not come up against a fake provider.
-2. The call may need to name the namespaced tool (`functions.exec`) rather than
-   the bare name.
-3. The item may need additional fields (`status`, or `arguments` alongside
-   `input`) that the vendor's own client sends.
+RULED OUT (each tested against 0.147.0, all producing the same result — turn
+completes cleanly, only `userMessage`/`agentMessage` items, no error):
+
+1. Tool type — custom (`exec`) AND plain function (`request_user_input`).
+2. Plan mode vs default mode.
+3. Preceding `response.output_item.added`, present and absent.
+4. The item echoed into `response.completed.output` vs an empty array.
+5. `status: completed` on the item.
+6. `--disable code_mode_host` — the declared tool list is unchanged, so
+   `exec` is unconditional in this version.
+7. Namespaced call names — `functions.request_user_input` and
+   `functions_request_user_input`.
+8. The `response.function_call_arguments.delta`/`.done` sequence the real
+   streaming API emits for a function call.
+
+The diagnostic that matters: **message items parse correctly** (the assistant
+message from turn 2 always arrives) and codex proceeds to a SECOND provider
+request after the tool call, so the stream is accepted rather than rejected. The
+call is being silently discarded specifically in non-message item parsing.
 
 **Consequence for the plan:** the hermetic lane can capture a full turn, token
 usage and rate limits today, which is most of a behaviour census. Approvals and
 tool items — the highest-value scenarios (IMPOSTER.md §9.7) — remain blocked on
-the above. If it stays blocked, the fallback is one credentialed turn in a
-sandbox: it costs tokens and gives up hermeticity, but it is the only other way
-to observe an approval round-trip.
+the above. Recommended next move, and it is a BOOTSTRAP rather than a fallback: run ONE
+credentialed turn that uses a tool, and record the provider's exact SSE bytes.
+That yields the ground truth for the fake provider, after which the hermetic
+lane replays those bytes forever at zero cost. Reading codex's own response
+parser in openai/codex is the alternative, and is determinate rather than
+guesswork — but the recorded bytes are useful regardless.
