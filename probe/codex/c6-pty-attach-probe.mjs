@@ -3,7 +3,7 @@
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { appendFileSync } from 'node:fs';
-const require = createRequire('/Users/jamesyong/Projects/project100/p008/chopsticks/packages/node/');
+const require = createRequire(new URL('../../packages/node/', import.meta.url));
 const pty = require('node-pty');
 const LOG = new URL('./c6-pty2.log', import.meta.url).pathname;
 appendFileSync(LOG, '\n==== ' + new Date().toISOString() + ' ====\n');

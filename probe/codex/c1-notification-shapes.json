@@ -1,18 +1,18 @@
 {
   "remoteControl/status/changed": {
     "status": "disabled",
-    "serverName": "Jamess-MacBook-Pro-9.local",
-    "installationId": "33dd9f00-3399-4a62-8fe3-0dd23055b087",
+    "serverName": "<redacted:serverName>",
+    "installationId": "a11a5ed0-652e-4959-acaf-d9146cfa0080",
     "environmentId": null
   },
   "thread/started": {
     "thread": {
-      "id": "019f5d86-423a-7083-ab79-2deb044599c1",
+      "id": "a11a5ed0-40bf-4570-bd0d-26003ecee58d",
       "extra": null,
-      "sessionId": "019f5d86-423a-7083-ab79-2deb044599c1",
+      "sessionId": "a11a5ed0-40bf-4570-bd0d-26003ecee58d",
       "forkedFromId": null,
       "parentThreadId": null,
-      "preview": "",
+      "preview": "<redacted:preview>",
       "ephemeral": false,
       "historyMode": "legacy",
       "modelProvider": "openai",
@@ -22,8 +22,8 @@
       "status": {
         "type": "idle"
       },
-      "path": "/Users/jamesyong/.codex/sessions/2026/07/13/rollout-2026-07-13T15-08-27-019f5d86-423a-7083-ab79-2deb044599c1.jsonl",
-      "cwd": "/private/tmp/claude-501/-Users-jamesyong-Projects-project100-p008-spaghetti/0cbc35e6-3c4b-4b58-8b3c-c6736b522a61/scratchpad/c1-cwd",
+      "path": "/workspace/redacted-file",
+      "cwd": "/workspace",
       "cliVersion": "0.144.2",
       "source": "vscode",
       "threadSource": null,
@@ -35,23 +35,23 @@
     }
   },
   "mcpServer/startupStatus/updated": {
-    "threadId": "019f5d86-423a-7083-ab79-2deb044599c1",
+    "threadId": "a11a5ed0-40bf-4570-bd0d-26003ecee58d",
     "name": "node_repl",
     "status": "starting",
     "error": null,
     "failureReason": null
   },
   "thread/status/changed": {
-    "threadId": "019f5d86-423a-7083-ab79-2deb044599c1",
+    "threadId": "a11a5ed0-40bf-4570-bd0d-26003ecee58d",
     "status": {
       "type": "active",
       "activeFlags": []
     }
   },
   "turn/started": {
-    "threadId": "019f5d86-423a-7083-ab79-2deb044599c1",
+    "threadId": "a11a5ed0-40bf-4570-bd0d-26003ecee58d",
     "turn": {
-      "id": "019f5d86-42e2-7a03-844c-0de529f5ae8d",
+      "id": "a11a5ed0-bcb5-40f4-8c89-ecb2cbac2eb1",
       "items": [],
       "itemsView": "notLoaded",
       "status": "inProgress",
@@ -64,46 +64,46 @@
   "item/started": {
     "item": {
       "type": "userMessage",
-      "id": "019f5d86-46ef-7db2-bde0-eac915e62d86",
+      "id": "a11a5ed0-29ea-428c-bd60-5c90bbd00129",
       "clientId": null,
       "content": [
         {
           "type": "text",
-          "text": "Reply with exactly the single word: pong. Do not run any commands or use any tools.",
+          "text": "<redacted:text>",
           "text_elements": []
         }
       ]
     },
-    "threadId": "019f5d86-423a-7083-ab79-2deb044599c1",
-    "turnId": "019f5d86-42e2-7a03-844c-0de529f5ae8d",
+    "threadId": "a11a5ed0-40bf-4570-bd0d-26003ecee58d",
+    "turnId": "a11a5ed0-bcb5-40f4-8c89-ecb2cbac2eb1",
     "startedAtMs": 1783980508911
   },
   "item/completed": {
     "item": {
       "type": "userMessage",
-      "id": "019f5d86-46ef-7db2-bde0-eac915e62d86",
+      "id": "a11a5ed0-29ea-428c-bd60-5c90bbd00129",
       "clientId": null,
       "content": [
         {
           "type": "text",
-          "text": "Reply with exactly the single word: pong. Do not run any commands or use any tools.",
+          "text": "<redacted:text>",
           "text_elements": []
         }
       ]
     },
-    "threadId": "019f5d86-423a-7083-ab79-2deb044599c1",
-    "turnId": "019f5d86-42e2-7a03-844c-0de529f5ae8d",
+    "threadId": "a11a5ed0-40bf-4570-bd0d-26003ecee58d",
+    "turnId": "a11a5ed0-bcb5-40f4-8c89-ecb2cbac2eb1",
     "completedAtMs": 1783980508911
   },
   "item/agentMessage/delta": {
-    "threadId": "019f5d86-423a-7083-ab79-2deb044599c1",
-    "turnId": "019f5d86-42e2-7a03-844c-0de529f5ae8d",
-    "itemId": "msg_03ea82984e64b11a016a5561de1a4c8198a0861b2e87ca80af",
-    "delta": "pong"
+    "threadId": "a11a5ed0-40bf-4570-bd0d-26003ecee58d",
+    "turnId": "a11a5ed0-bcb5-40f4-8c89-ecb2cbac2eb1",
+    "itemId": "msg_a11a5ed048173f29ea006cccbab8c4a4075587ddf023b20579",
+    "delta": "<redacted:delta>"
   },
   "thread/tokenUsage/updated": {
-    "threadId": "019f5d86-423a-7083-ab79-2deb044599c1",
-    "turnId": "019f5d86-42e2-7a03-844c-0de529f5ae8d",
+    "threadId": "a11a5ed0-40bf-4570-bd0d-26003ecee58d",
+    "turnId": "a11a5ed0-bcb5-40f4-8c89-ecb2cbac2eb1",
     "tokenUsage": {
       "total": {
         "totalTokens": 13505,
@@ -124,7 +124,7 @@
   },
   "account/rateLimits/updated": {
     "rateLimits": {
-      "limitId": "codex",
+      "limitId": "anon-57de4cf40144bdf7",
       "limitName": null,
       "primary": {
         "usedPercent": 14,
@@ -139,9 +139,9 @@
     }
   },
   "turn/completed": {
-    "threadId": "019f5d86-423a-7083-ab79-2deb044599c1",
+    "threadId": "a11a5ed0-40bf-4570-bd0d-26003ecee58d",
     "turn": {
-      "id": "019f5d86-42e2-7a03-844c-0de529f5ae8d",
+      "id": "a11a5ed0-bcb5-40f4-8c89-ecb2cbac2eb1",
       "items": [],
       "itemsView": "notLoaded",
       "status": "completed",

@@ -20,7 +20,9 @@ describe('correlation — the property that makes a fixture replayable', () => {
     >;
     const values = [out.id, out.sessionId, out.threadId, (out.nested as Record<string, unknown>).turnId];
     expect(new Set(values).size).toBe(1);
-    expect(values[0]).toMatch(/^anon-[a-f0-9]{16}$/);
+    // Shape-faithful: a uuid in yields a uuid out, so fixtures keep the
+    // vendor format downstream tests legitimately assert on.
+    expect(values[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   });
 
   it('leaves numeric JSON-RPC ids untouched, so request↔response joins survive', () => {
@@ -42,9 +44,9 @@ describe('regressions from the real codex capture (2026-08-07)', () => {
   const leaky = {
     threadId: '019f5d86-423a-7083-ab79-2deb044599c1',
     installationId: '33dd9f00-3399-4a62-8fe3-0dd23055b087',
-    serverName: 'Jamess-MacBook-Pro-9.local',
+    serverName: 'Operators-MacBook-Pro.local',
     userAgent: 'probe/0.144.2 (Mac OS 26.5.1; arm64) ghostty/1.3.1',
-    codexHome: '/Users/jamesyong/.codex',
+    codexHome: '/Users/operator/.codex',
     diskCheck: 'rollout session_meta.session_id=019f5d86-423a-7083-ab79-2deb044599c1 :: matches',
     params: { input: [{ type: 'text', text: 'Reply with exactly the single word: pong.' }] },
     tmp: '/var/folders/hs/j754ys991yd3bss5c87lf0m40000gn/T/probe',
@@ -60,14 +62,16 @@ describe('regressions from the real codex capture (2026-08-07)', () => {
 
   it('the redactor removes them, and the detector then passes', () => {
     const clean = JSON.stringify(sanitizeRecord(leaky));
-    expect(clean).not.toContain('Jamess-MacBook');
+    expect(clean).not.toContain('Operators-MacBook-Pro');
     expect(clean).not.toContain('ghostty/');
-    expect(clean).not.toContain('/Users/jamesyong');
+    expect(clean).not.toContain('/Users/operator');
     expect(clean).not.toContain('Reply with exactly');
     expect(clean).not.toContain('33dd9f00-3399');
     expect(clean).not.toContain('var/folders/hs');
-    // No bare UUID anywhere — UUIDv7 encodes wall-clock capture time.
-    expect(clean).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);
+    // The ORIGINAL uuid is gone, and what replaces it is v4-shaped: never
+    // v7, whose leading bits would re-encode the capture time.
+    expect(clean).not.toContain('019f5d86-423a-7083');
+    expect(clean).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-/i);
     expect(checkRecord(sanitizeRecord(clean === '' ? {} : JSON.parse(clean)))).toEqual([]);
   });
 

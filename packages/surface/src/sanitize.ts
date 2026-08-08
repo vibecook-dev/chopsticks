@@ -89,7 +89,7 @@ export const defaultRules: SanitizerRules = {
   sensitiveContainer: /^(?:tool_input|tool_response)$/i,
   structuralEnumKey: /^(?:type|kind|role|status|mode|behavior|destination)$/i,
   alreadyRedacted:
-    /^(?:<redacted(?::[^>\r\n]+)?>|anon-[a-f0-9]{16}|\/workspace|\/workspace\/(?:CLAUDE\.md|redacted-(?:file|path)|transcripts\/anon-[a-f0-9]{16}\.jsonl)|https:\/\/example\.invalid\/(?:redacted)?)$/,
+    /^(?:<redacted(?::[^>\r\n]+)?>|anon-[a-f0-9]{16}|a11a5ed0[0-9a-f-]*|[a-z]+_a11a5ed0[0-9a-f]*|\/workspace|\/workspace\/(?:CLAUDE\.md|redacted-(?:file|path)|transcripts\/[A-Za-z0-9_-]+\.jsonl)|https:\/\/example\.invalid\/(?:redacted)?)$/,
   unsafeTextPatterns: [
     /\/Users\/[^/\s"']+/,
     /\/home\/(?!user(?:\/|\b))[^/\s"']+/,
@@ -98,6 +98,12 @@ export const defaultRules: SanitizerRules = {
     /\b(?:sk|sess|pat|ghp|github_pat)-[A-Za-z0-9_-]{12,}\b/,
     // macOS per-user temp roots embed a user-specific hash.
     /\/(?:private\/)?var\/folders\/[^\s"']+/,
+    // SLUG-ENCODED home paths. Claude derives project directory names by
+    // replacing every non-alphanumeric character with `-`, so `/Users/alice`
+    // becomes `-Users-alice-`. A real capture carried
+    // `/private/tmp/…/-Users-alice-Projects-…` which every `/Users/`
+    // pattern above walks straight past — the slashes are gone.
+    /-(?:Users|home)-[A-Za-z0-9_.]+-/,
     // Bearer/JWT-shaped credentials the `sk-|ghp-` list misses entirely.
     /\bey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\./,
   ],
@@ -133,14 +139,66 @@ function jsonlFiles(directory: string): string[] {
 }
 
 /**
+ * The detector also reads plain `.json`, which the redactor deliberately does
+ * not: rewriting those would reformat hand-maintained documents. The asymmetry
+ * is intentional — a capture directory once held a `*-shapes.json` companion
+ * carrying a full home path that a `.jsonl`-only scan never looked at, so the
+ * DETECTOR must be broader than the redactor even where it can only complain.
+ */
+function jsonDocuments(directory: string): string[] {
+  const files: string[] = [];
+  for (const entry of readdirSync(directory)) {
+    const path = join(directory, entry);
+    if (statSync(path).isDirectory()) files.push(...jsonDocuments(path));
+    else if (entry.endsWith('.json')) files.push(path);
+  }
+  return files.sort();
+}
+
+/**
  * Value-keyed, NOT key-keyed: one entity gets one pseudonym across every line
  * and every field, so request↔response correlation and thread joins survive
  * sanitisation. A transcript whose ids stop matching is unreplayable, which
  * makes it useless as a fixture. Do not "harden" this into a per-key salt.
  */
+/**
+ * Hex-safe marker identifying an id this function already produced.
+ *
+ * Needed because format-preserving output is indistinguishable from real input
+ * by shape alone — claude's own session ids are v4 UUIDs, so "looks like a v4"
+ * cannot mean "already redacted". Without the marker `alias(alias(x))` would
+ * re-hash and every re-sanitisation would churn every id, which breaks both
+ * idempotence and cross-fixture correlation.
+ */
+const ALIAS_MARKER = 'a11a5ed0';
+
 export function alias(value: string): string {
   if (/^anon-[a-f0-9]{16}$/.test(value)) return value;
-  return `anon-${createHash('sha256').update(value).digest('hex').slice(0, 16)}`;
+  if (value.startsWith(ALIAS_MARKER) || value.includes(`_${ALIAS_MARKER}`)) return value;
+  const digest = createHash('sha256').update(value).digest('hex');
+
+  // SHAPE-FAITHFUL by requirement, not preference: ADAPTING-AN-AGENT step 1
+  // asks for fixtures that preserve types and formats, and downstream tests
+  // legitimately assert that a claude session_id looks like a UUID and a
+  // tool_use_id starts with `toolu_`. Flattening every id to `anon-…` destroys
+  // exactly the surface knowledge the capture exists to record.
+  if (BARE_UUID.test(value)) {
+    // Emitted as v4 (version nibble 4, variant 8-b) NEVER v7, because v7's
+    // leading 48 bits are a millisecond timestamp — reproducing the input's
+    // version would re-introduce the clock this function exists to destroy.
+    const variant = '89ab'[parseInt(digest[16]!, 16) % 4];
+    return `${ALIAS_MARKER}-${digest.slice(0, 4)}-4${digest.slice(5, 8)}-${variant}${digest.slice(9, 12)}-${digest.slice(12, 24)}`;
+  }
+
+  // Vendor-prefixed ids (`toolu_…`, `msg_…`, `agent_…`) keep prefix and length.
+  const prefixed = /^([a-z]+_)(.+)$/.exec(value);
+  if (prefixed) {
+    const [, prefix, body] = prefixed;
+    const marked = `${ALIAS_MARKER}${digest}`;
+    return `${prefix}${marked.slice(0, Math.max(body!.length, ALIAS_MARKER.length))}`;
+  }
+
+  return `anon-${digest.slice(0, 16)}`;
 }
 
 function safeStructuralEnum(value: string, key: string, rules: SanitizerRules): boolean {
@@ -151,7 +209,24 @@ function sanitizeString(value: string, key: string, inContainer: boolean, rules:
   if (rules.alreadyRedacted.test(value)) return value;
   if (rules.idKey.test(key) || BARE_UUID.test(value)) return alias(value);
   if (rules.pathKey.test(key)) {
-    if (/transcript/i.test(key)) return `/workspace/transcripts/${alias(value)}.jsonl`;
+    if (/transcript/i.test(key)) {
+      // Alias the BASENAME, not the whole path. A transcript is named after the
+      // id that owns it — session_id for a session, agent_id for a subagent —
+      // and the adapter joins on exactly that. Hashing the whole string would
+      // give the path a pseudonym unrelated to the id's, silently breaking the
+      // join the fixture exists to demonstrate. Using the basename rather than
+      // a uuid match keeps this working for non-uuid ids too (claude's
+      // agent_id is a bare 17-char hex string).
+      // Alias the id TOKENS inside the basename and keep everything around
+      // them: claude names a session transcript `<uuid>.jsonl` but a subagent's
+      // `agent-<agent_id>.jsonl`, so aliasing the whole stem would break the
+      // agent join while fixing the session one.
+      const stem = basename(value).replace(/\.[A-Za-z0-9]+$/, '');
+      const joined = stem
+        .replace(EMBEDDED_UUID, (match) => alias(match))
+        .replace(/(?<![0-9a-f])[0-9a-f]{16,}(?![0-9a-f])/gi, (match) => alias(match));
+      return `/workspace/transcripts/${joined.length > 0 ? joined : alias(value)}.jsonl`;
+    }
     if (key === 'cwd') return '/workspace';
     return `/workspace/${basename(value) === 'CLAUDE.md' ? 'CLAUDE.md' : 'redacted-file'}`;
   }
@@ -164,6 +239,7 @@ function sanitizeString(value: string, key: string, inContainer: boolean, rules:
     // even inside free-text diagnostics. `alias` is value-keyed, so the same
     // uuid yields the same pseudonym here as when it appears bare under a key.
     .replace(EMBEDDED_UUID, (match) => alias(match))
+    .replace(/-(?:Users|home)-[A-Za-z0-9_.]+-/g, '-Users-<redacted>-')
     .replace(/\/(?:private\/)?var\/folders\/[^\s"']+/g, '/workspace/redacted-path')
     .replace(/\/Users\/[^/\s"']+(?:\/[^\s"']*)?/g, '/workspace/redacted-path')
     .replace(/\/home\/(?!user(?:\/|\b))[^/\s"']+(?:\/[^\s"']*)?/g, '/workspace/redacted-path')
@@ -242,7 +318,7 @@ function inspect(
     }
     // `String.match` with a /g regex does not carry lastIndex between calls,
     // unlike `RegExp.test`; using `.test` here would skip every other hit.
-    if (value.match(EMBEDDED_UUID)) {
+    if (value.replace(new RegExp(ALIAS_MARKER + '[0-9a-f-]*', 'g'), '').match(EMBEDDED_UUID)) {
       issues.push(`${location}: raw UUID at ${key} (UUIDv7 encodes capture wall-clock time)`);
     }
     if (
@@ -269,6 +345,36 @@ function inspect(
   }
 }
 
+/**
+ * Detect inside ONE file, `.jsonl` (per line) or `.json` (whole document).
+ *
+ * Exists so a caller can drive the scan from `git ls-files` rather than from
+ * the filesystem: the gate's job is to stop a leak reaching a COMMIT, and a
+ * gitignored local artefact failing the build is noise. `label` names the file
+ * in the resulting issues.
+ */
+export function checkCaptureFile(path: string, label = path, rules: SanitizerRules = defaultRules): string[] {
+  const issues: string[] = [];
+  const contents = readFileSync(path, 'utf8');
+  if (path.endsWith('.jsonl')) {
+    for (const [index, line] of contents.split('\n').entries()) {
+      if (!line.trim()) continue;
+      try {
+        inspect(JSON.parse(line), issues, `${label}:${index + 1}`, '', false, rules);
+      } catch {
+        // Parse failures are reported by the ASM audit, not duplicated here.
+      }
+    }
+    return issues;
+  }
+  try {
+    inspect(JSON.parse(contents), issues, label, '', false, rules);
+  } catch {
+    // Not a JSON document we can inspect.
+  }
+  return issues;
+}
+
 /** Detect what the sanitiser should have removed. The audit gates on this. */
 export function checkCaptureDirectory(directory: string, rules: SanitizerRules = defaultRules): string[] {
   const issues: string[] = [];
@@ -280,6 +386,13 @@ export function checkCaptureDirectory(directory: string, rules: SanitizerRules =
       } catch {
         // Parse failures are reported by the ASM audit, not duplicated here.
       }
+    }
+  }
+  for (const file of jsonDocuments(directory)) {
+    try {
+      inspect(JSON.parse(readFileSync(file, 'utf8')), issues, relative(directory, file), '', false, rules);
+    } catch {
+      // Not a JSON document we can inspect; the audit reports parse failures.
     }
   }
   return issues;

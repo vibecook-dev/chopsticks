@@ -259,7 +259,7 @@ C0's protocol reading was sound; the adapter built from it has since drifted.
 ## Privacy — `probe/codex/c1-appserver-capture.jsonl`
 
 That capture is **committed raw to a public repo** (`origin/main` + 4 branches). It contains
-`/Users/jamesyong/.codex`, hostname `Jamess-MacBook-Pro-9.local`, `installationId`, the prompt and
+`/Users/<user>/.codex`, hostname `<hostname>.local`, `installationId`, the prompt and
 reply, and a `userAgent` carrying OS version and terminal emulator. No credentials. `.gitignore`
 covers `packages/adapter-*/surface/captures-raw/` but not `probe/`.
 
