@@ -1,11 +1,13 @@
 /**
  * Persona selection and vendor argv parsing (draft/IMPOSTER.md §6).
  *
- * Resolution order is argv0 → `--<vendor>` → `AI_PERSONA`, and argv0 comes
- * first for a reason: shims are how product apps reach the imposter. Godview's
- * adapter spawns plain `claude` with the vendor's own launch recipe, so the
- * imposter must be selectable WITHOUT any flag of its own. `ai --claude` is
- * the ergonomic hand-run form layered on top.
+ * Resolution order is argv0 → `--<vendor>` → `AI_PERSONA`. `ai --claude` is
+ * the form to reach for; the other two exist because an adapter owns argv and
+ * cannot be handed a flag of ours. A session launched by an app selects its
+ * persona from the environment (§11.2), and a symlink named after the vendor
+ * selects it from argv0 — one `ln -s`, no install command, since the two that
+ * existed were deleted on 2026-08-08 for reimplementing things that already
+ * worked.
  *
  * Everything after selection belongs to the vendor and is parsed with that
  * persona's flag aliases from `detection.json` — the imposter never invents
@@ -64,7 +66,7 @@ export function selectPersona(argv: readonly string[], options: SelectPersonaOpt
 
   throw new PersonaSelectionError(
     `no persona selected. Use one of --${[...known].sort().join(' / --')}, set AI_PERSONA, ` +
-      `or invoke through an installed shim (\`ai shims install\`).`,
+      `or invoke through a symlink named after the vendor.`,
   );
 }
 

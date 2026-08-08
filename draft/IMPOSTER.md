@@ -97,7 +97,6 @@ packages/imposter/                      @vibecook/chopsticks-imposter
   bin/ai.mjs                            entry; resolves persona, then delegates
   src/
     cli/argv.ts                         persona from argv0 | --<vendor> | AI_PERSONA
-    cli/shims.ts                        `ai shims install --dir <d>`  (§6)
     persona/load.ts                     ASM (adapter) + persona data → Persona
     session/timeline.ts                 the op timeline (§2)
     session/scenario.ts                 raw/adversarial layer beneath the ops
@@ -272,13 +271,21 @@ The browser console keeps HTTP; it has to. The plane translates. Browser ⇄ HTT
 
 Persona resolution, in order: **argv0** → `--<vendor>` flag → `AI_PERSONA` env. Everything after persona selection is handed to the persona's argv parser, so the adapter's real launch recipe (`--session-id`, `--settings`, `--permission-mode`, …) is consumed exactly as the vendor would.
 
-`ai shims install --dir <d>` writes `claude`, `codex`, … symlinks pointing at `ai`. Prepend that directory to PATH and **godview needs no changes at all** — the adapter's normal recipe finds `claude`, detection probes answer from `detection.json`, and the session spawns. Those names shadow the real binaries, which is the point of that mode and the reason it is opt-in.
+**`ai` has no subcommands.** That is a property worth defending: everything after the persona selector belongs to the vendor, so there is nothing of ours for a vendor's own argv to collide with.
 
-Getting `ai` ITSELF onto PATH is not this tool's job: `pnpm add --global ./packages/imposter` from a checkout, or an ordinary global install once published, both work off the package's `bin` field. See §11.1; the serve/interactive fork also comes from argv rather than from the persona.
+Getting `ai` onto PATH is the package manager's job — `pnpm add --global ./packages/imposter` from a checkout, or an ordinary global install once published, both working off the `bin` field the package declares. Wanting a VENDOR name to reach the imposter is one line:
 
-`apps/godview/src/shim/agent-shim.ts` is the working reference: argv0 dispatch (`shimPath.split('/').at(-1)`), PATH cleaning to avoid recursion, `process.execve` replacement. Reuse its shape; note it is POSIX-only (`execve`), so the imposter's shims spawn rather than exec on Windows.
+```sh
+ln -s "$PWD/packages/imposter/bin/ai.mjs" ~/somewhere-on-PATH/claude
+```
 
-**Naming.** `ai` collides with the npm package `ai` and is a common shell alias. Publish as `@vibecook/chopsticks-imposter` with `bin: { "ai": …, "imposter": … }` and let the shims carry the real ergonomics.
+argv0 dispatch does the rest (`process.argv[1]` through a symlink is the symlink path), and it is POSIX-only: Windows needs a `.cmd` wrapper passing `--<vendor>` explicitly.
+
+Link `bin/ai.mjs` itself, **not** `$(command -v ai)`. A package manager's global `ai` is a wrapper that resolves its payload relative to its own location, so symlinking the wrapper somewhere else makes it look for the package under the new directory and fail with `MODULE_NOT_FOUND` (verified 2026-08-08, two minutes after this paragraph first claimed otherwise).
+
+Two install commands existed for these and both were deleted on 2026-08-08 (§11.1). `ai link` reimplemented the package manager. `ai shims install` wrote the symlink above into a managed directory, with conflict detection, idempotency, a Windows wrapper, `--force`, and a `list` subcommand — a hundred lines and its own test file to save one `ln -s`, in service of a "product apps need no changes" claim that §11.2 retired: an app that wants an imposted session now passes `executable` per session, which is finer-grained, needs no PATH manipulation at all, and cannot leak into a shell the user did not intend.
+
+**Naming.** `ai` collides with the npm package `ai` and is a common shell alias. Publish as `@vibecook/chopsticks-imposter` with `bin: { "ai": …, "imposter": … }`, and let anyone who dislikes the name alias it themselves.
 
 ---
 
@@ -371,7 +378,7 @@ The full design is §9. The sequencing that replaces the old "blocked" note is �
 | **I1.5** | Codex survey + model (§9). Ordered: capture envelope + sanitizer → committed harness → hermetic capture (approvals and tools FIRST) → `generate-model.mjs` → `surface/model/codex@0.147.0`. **Hermetic, not `CODEX_LIVE`** — a fake local provider drives a full turn offline. | Model validates; approval round-trip captured; harness committed; `diff(vendor schema, model)` clean | **done 2026-08-08** |
 | **I2** | Claude **and** codex runtimes — hook/transcript/statusline channels, and the app-server JSON-RPC channel | Both conform hermetically in CI; ops map cleanly onto both families, or the vocabulary is revised until they do | **done 2026-08-08** |
 | **I3** | Control channel, both sides at once: UDS client in the imposter **and** the plane rewritten at its new home in `apps/emulator`. Delete state file, bin-side HTTP server, `prune()`, console poll. Push-based log. | §6.4 flow works over one socket; `scenario.control` pause/step lands | **done 2026-08-08** |
-| **I4** | Ink TUI behind `isTTY`; `ai shims install`; delete `bin.mjs` and `packages/emulator`; a `synthetic` persona (**not** an absorbed `fake-agent.mjs` — see §7.4); update EMULATOR.md + ADAPTING-AN-AGENT.md | godview panes show imposter chrome; no doc still describes per-adapter bins | **done 2026-08-08** |
+| **I4** | Ink TUI behind `isTTY`; shim installer (since deleted, §6); delete `bin.mjs` and `packages/emulator`; a `synthetic` persona (**not** an absorbed `fake-agent.mjs` — see §7.4); update EMULATOR.md + ADAPTING-AN-AGENT.md | godview panes show imposter chrome; no doc still describes per-adapter bins | **done 2026-08-08** |
 | **I5** | The lifecycle machine (§11) and the console rebuilt around it; `ai` on PATH + serve mode from argv (§11.1); `ai --claude` in a Godview pane (§11.2); the chrome redrawn — rounded frame, ghost, violet/blue | Clicking an op in the console transitions the graph and the reducer sees the traffic; the drawing cannot disagree with the machine | **done 2026-08-08** |
 
 I0 is a refactor that can land on its own and de-risks everything after it. I1–I2 are load-bearing. I3 is mostly deletion. I4 is chrome plus paperwork.
@@ -621,7 +628,7 @@ Two changes make `ai` a command you can actually run.
 
 An `ai link` command lived here for a few hours and was deleted. It wrote symlinks into `~/.chopsticks/bin`, reasoning that a directory of our own shadows nothing — correct constraint, wrong conclusion, since `ai` and `imposter` shadow nothing *wherever* they live. The shadowing `~/.chopsticks/shims` exists to contain is a property of the VENDOR names. So the isolation bought nothing and cost the only thing that mattered: `ai: command not found` immediately followed a successful link (reported 2026-08-08). Rewriting it to guess a directory already on PATH only made it worse — it squatted in pnpm's global bin behind pnpm's back. The lesson is narrow and worth keeping: **do not reimplement the package manager**; a `bin` field and one install command already solve this.
 
-`ai shims install` stays, because no package manager does that job: it puts VENDOR names on PATH so an unmodified product app launches the imposter through its own launch recipe.
+`ai shims install` went the same way an hour later, for the same reason applied one level up: it existed to put VENDOR names on PATH so an unmodified app would launch the imposter, and §11.2's per-session `executable` override does that better — per session rather than per shell, with no PATH manipulation to leak. What remains of the capability is argv0 dispatch and one `ln -s` (§6).
 
 ### 11.2 Godview panes
 

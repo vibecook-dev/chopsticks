@@ -66,8 +66,9 @@ packages/
                  ONLY on a TTY — it costs ~40 MB of RSS, and `CHOPSTICKS_IMPOSTER_TUI=off` forces the
                  append-only sink). Relative imports end in `.ts` here, NOT `.js` — see
                  packages/imposter/src/index.ts for why. `ai` reaches PATH through the package
-                 manager (`pnpm ai:link`), NOT a bespoke command; `ai shims install` writes `claude`/…
-                 symlinks, which deliberately DO shadow the real vendors
+                 manager (`pnpm ai:link`) and has NO subcommands — two install commands were built
+                 and deleted the same day (draft/IMPOSTER.md §6); a vendor name reaching the imposter
+                 is one `ln -s`, and an app does it per session via `agentOptions.executable`
 
 `adapter-<vendor>/surface/` holds the adapter-owned ground truth (draft/EMULATOR.md):
 `model/<vendor>@<version>/` (ASM — canonical; registry.ts is GENERATED from it via

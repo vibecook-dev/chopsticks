@@ -13,12 +13,13 @@
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { imposterBinPath } from '../cli/shims.ts';
 import { createImposterSession, type BehaviorDocument } from '../session/session.ts';
 import { loadPersona, personaDirectory } from './load.ts';
 
+const AI = join(dirname(dirname(dirname(fileURLToPath(import.meta.url)))), 'bin', 'ai.mjs');
 const persona = loadPersona('synthetic');
 const behavior = JSON.parse(
   readFileSync(join(personaDirectory('synthetic'), 'behavior', 'happy-turn.json'), 'utf8'),
@@ -117,7 +118,7 @@ describe('the synthetic persona', () => {
   });
 
   it('answers its own detection surface through the CLI', () => {
-    const output = execFileSync(process.execPath, [imposterBinPath(), '--synthetic', '-V'], {
+    const output = execFileSync(process.execPath, [AI, '--synthetic', '-V'], {
       encoding: 'utf8',
     });
     expect(output.trim()).toBe('synthetic 0.0.0 (not a real agent)');

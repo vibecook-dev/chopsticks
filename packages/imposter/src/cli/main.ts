@@ -19,8 +19,7 @@ import { createPasteDecoder } from '../session/channels/terminal.ts';
 import { createServeDispatcher } from '../session/serve.ts';
 import { createImposterSession, type BehaviorDocument } from '../session/session.ts';
 import { createPresentation, type Presentation } from '../tui/mount.ts';
-import { flagValue, hasFlag, PersonaSelectionError, selectPersona, shimIdentity } from './argv.ts';
-import { runShimsCommand } from './shims.ts';
+import { flagValue, hasFlag, PersonaSelectionError, selectPersona } from './argv.ts';
 
 const SAFE_NAME = /^[a-z0-9][a-z0-9-]{0,127}$/i;
 
@@ -56,15 +55,10 @@ function detectionText(persona: Persona, field: string, fallback: string): strin
 }
 
 export async function main(argv: readonly string[], argv0?: string): Promise<number> {
+  // `ai` has no subcommands of its own. Everything after persona selection
+  // belongs to the vendor, which is what lets the adapter's real launch recipe
+  // through untouched — and is why the tool has nothing to collide with.
   const shims = shimNameMap();
-
-  // `shims` is the tool's own subcommand, so it is only reachable when the tool
-  // was invoked by its own name. Through an installed shim every argument
-  // belongs to the vendor, and a vendor is free to have a `shims` command of
-  // its own.
-  if (argv[0] === 'shims' && !shims.has(shimIdentity(argv0 ?? ''))) {
-    return runShimsCommand(argv.slice(1));
-  }
 
   let selection;
   try {
