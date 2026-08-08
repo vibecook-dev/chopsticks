@@ -12,6 +12,8 @@ import type { PresentationFrame } from '../session/timeline.ts';
 export interface TuiSnapshot {
   channels: readonly string[];
   lines: readonly string[];
+  /** Lifecycle state id from the session's machine, e.g. `turn.thinking`. */
+  state: string;
   /** Pasted-but-not-submitted text, shown at the prompt. */
   staged: string;
   notice: string;
@@ -22,6 +24,7 @@ export interface TuiStore {
   subscribe(listener: (snapshot: TuiSnapshot) => void): () => void;
   line(text: string): void;
   channels(channels: readonly string[]): void;
+  state(state: string): void;
   staged(text: string): void;
   notice(text: string): void;
 }
@@ -33,15 +36,18 @@ const MAX_LINES = 500;
  * One line per op or event, identical in both modes. Cosmetic only — nothing
  * ever parses this back, which is the whole reason the TUI is allowed to be a
  * summary rather than a faithful reproduction (§4).
+ *
+ * A silent op is still shown: it happened, the persona just binds no channel
+ * for it, and seeing the gap is the point (see the note in timeline.ts).
  */
 export function formatFrame(frame: PresentationFrame): string {
   const at = frame.at.slice(11, 23);
   const detail = frame.with.text ?? frame.with.tool ?? frame.with.reason ?? '';
-  return `${at}  ${frame.op}${detail ? `  ${JSON.stringify(detail)}` : ''}`;
+  return `${at}  ${frame.op}${detail ? `  ${JSON.stringify(detail)}` : ''}${frame.silent ? '  (unbound)' : ''}`;
 }
 
 export function createTuiStore(channels: readonly string[]): TuiStore {
-  let snapshot: TuiSnapshot = { channels: [...channels], lines: [], staged: '', notice: '' };
+  let snapshot: TuiSnapshot = { channels: [...channels], lines: [], state: 'starting', staged: '', notice: '' };
   const listeners = new Set<(snapshot: TuiSnapshot) => void>();
 
   const commit = (next: TuiSnapshot): void => {
@@ -61,6 +67,9 @@ export function createTuiStore(channels: readonly string[]): TuiStore {
     },
     channels(channels) {
       commit({ ...snapshot, channels: [...channels] });
+    },
+    state(state) {
+      commit({ ...snapshot, state });
     },
     staged(text) {
       commit({ ...snapshot, staged: text });

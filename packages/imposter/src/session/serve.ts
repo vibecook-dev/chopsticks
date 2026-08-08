@@ -40,9 +40,20 @@ export interface ServeEntry {
   then?: OpInvocation[] | '$behavior';
 }
 
+export interface ServeServer {
+  gate?: ServeGate;
+  /**
+   * The vendor subcommand that turns this binary into a server — `codex
+   * app-server`. Without it the invocation is interactive, exactly as the real
+   * CLI behaves, so `ai --codex` opens a screen and `ai --codex app-server`
+   * speaks the protocol.
+   */
+  command?: string;
+}
+
 export interface ServeDocument {
-  $server?: { gate?: ServeGate };
-  [method: string]: ServeEntry | { gate?: ServeGate } | undefined;
+  $server?: ServeServer;
+  [method: string]: ServeEntry | ServeServer | undefined;
 }
 
 export interface ServeDispatcherOptions {

@@ -7,14 +7,19 @@ import {
   INVALID_PARAMS,
   METHOD_NOT_FOUND,
   NOT_FOUND,
+  opsFromPersona,
   paletteFromModel,
   parseFault,
   parseHello,
+  parseMachine,
+  parseOpRequest,
   parseScenarioControl,
   parseScenarioRun,
   parseTrigger,
   REFUSED,
 } from './protocol.ts';
+
+const machine = { state: 'ready', enabled: ['turn.start'], offModel: 0, applied: 3, heartbeats: 1 };
 
 const hello = {
   token: 'secret',
@@ -25,6 +30,8 @@ const hello = {
   cwd: '/work',
   channels: ['hook', 'hook', 'transcript'],
   palette: [{ event: 'Notification', fields: ['message', 'message', 'prompt_id'] }],
+  ops: [{ op: 'turn.start', channels: ['hook'], events: ['UserPromptSubmit'], fields: ['text'] }],
+  machine,
 };
 
 describe('control protocol', () => {
@@ -37,6 +44,18 @@ describe('control protocol', () => {
   it('refuses a hello with an unusable pid or a multi-line field', () => {
     expect(() => parseHello({ ...hello, pid: 0 })).toThrow(/pid/);
     expect(() => parseHello({ ...hello, vendor: 'cla\nude' })).toThrow(/vendor/);
+  });
+
+  it('refuses a machine snapshot with a negative or fractional count', () => {
+    expect(() => parseHello({ ...hello, machine: { ...machine, offModel: -1 } })).toThrow(/offModel/);
+    expect(() => parseHello({ ...hello, machine: { ...machine, applied: 1.5 } })).toThrow(/applied/);
+    expect(parseMachine(machine).state).toBe('ready');
+  });
+
+  it('defaults an op argument to an empty object, like a trigger payload', () => {
+    expect(parseOpRequest({ op: 'turn.end' })).toEqual({ op: 'turn.end', with: {} });
+    expect(() => parseOpRequest({ op: 'turn.end', with: 'text' })).toThrow(/must be an object/);
+    expect(() => parseOpRequest({})).toThrow(/op/);
   });
 
   it('defaults a trigger payload to an empty object but not to a non-object', () => {
@@ -93,6 +112,22 @@ describe('control protocol', () => {
     expect(paletteFromModel(model)).toEqual([
       { event: 'Stop', fields: ['prompt_id', 'stop_hook_active'] },
       { event: 'Bare', fields: [] },
+    ]);
+  });
+
+  it('derives op descriptors from the persona bindings, arguments included', () => {
+    const persona = {
+      channelFor: (kind: string) => (kind === 'jsonrpc' ? 'app-server' : kind),
+      ops: {
+        'tool.start': [{ channel: 'jsonrpc', event: 'item/started', with: { item: { command: '$op.command' } } }],
+        'permission.ask': [{ channel: 'jsonrpc', event: 'ask', await: true, with: { id: '$op.toolId' } }],
+      },
+    } as unknown as Parameters<typeof opsFromPersona>[0];
+    expect(opsFromPersona(persona)).toEqual([
+      // `command` is found nested inside the template, which is where codex
+      // puts it — a shallow scan would have offered an argument-less form.
+      { op: 'tool.start', channels: ['app-server'], events: ['item/started'], fields: ['command'] },
+      { op: 'permission.ask', channels: ['app-server'], events: ['ask'], fields: ['toolId'], awaits: true },
     ]);
   });
 

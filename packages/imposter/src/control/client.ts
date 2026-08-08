@@ -22,12 +22,15 @@ import {
   MAX_SOCKET_PATH_BYTES,
   METHOD_NOT_FOUND,
   parseFault,
+  parseOpRequest,
   parseScenarioControl,
   parseScenarioRun,
   parseTrigger,
   REFUSED,
   type EmittedEntry,
   type FaultRequest,
+  type MachineView,
+  type OpDescriptor,
   type PaletteEntry,
   type ScenarioControlAction,
   type ScenarioRunRequest,
@@ -42,10 +45,15 @@ export interface ControlClientOptions {
   sessionId: string;
   cwd: string;
   palette: PaletteEntry[];
+  ops: OpDescriptor[];
   /** Live channels, re-read per request so a dropped channel is never stale. */
   channels(): string[];
+  /** Lifecycle snapshot, re-read per request for the same reason. */
+  machine(): MachineView;
   emitted(): readonly EmittedEntry[];
   trigger(event: string, payload: Record<string, unknown>): Promise<void>;
+  /** Run one semantic op through the timeline — the organic counterpart to `trigger`. */
+  runOp(op: string, argument: Record<string, unknown>): Promise<void>;
   runScenario(request: ScenarioRunRequest): Promise<void>;
   scenarioControl(action: ScenarioControlAction): void;
   fault(request: FaultRequest): Promise<void>;
@@ -59,6 +67,7 @@ export interface ImposterControl {
   /** Push one emission. Dropped silently when the socket is backed up. */
   pushEmitted(entry: EmittedEntry): void;
   pushChannels(channels: string[]): void;
+  pushMachine(machine: MachineView): void;
   close(reason?: string): Promise<void>;
 }
 
@@ -133,6 +142,7 @@ export async function connectControl(options: ControlClientOptions): Promise<Imp
           sessionId: options.sessionId,
           pid: process.pid,
           channels: options.channels(),
+          machine: options.machine(),
           emitted: options.emitted().length,
         };
       case 'log':
@@ -141,6 +151,13 @@ export async function connectControl(options: ControlClientOptions): Promise<Imp
         const request = parseTrigger(params);
         await refusing(() => options.trigger(request.event, request.with));
         return { ok: true };
+      }
+      case 'op': {
+        const request = parseOpRequest(params);
+        await refusing(() => options.runOp(request.op, request.with));
+        // The reply carries the resulting state so the console can settle
+        // without waiting for the push it is also about to receive.
+        return { ok: true, machine: options.machine() };
       }
       case 'scenario.run': {
         const request = parseScenarioRun(params);
@@ -180,6 +197,8 @@ export async function connectControl(options: ControlClientOptions): Promise<Imp
         cwd: options.cwd,
         channels: options.channels(),
         palette: options.palette,
+        ops: options.ops,
+        machine: options.machine(),
       },
       { timeoutMs: HELLO_TIMEOUT_MS },
     );
@@ -200,6 +219,13 @@ export async function connectControl(options: ControlClientOptions): Promise<Imp
     },
     pushChannels(channels) {
       peer.notify('session.channels', { channels });
+    },
+    pushMachine(machine) {
+      // Unlike emissions, a transition is never dropped under saturation: a
+      // console showing a state the session left is worse than a slow console,
+      // and there is at most one of these per op.
+      if (peer.closed) return;
+      peer.notify('session.machine', { ...machine });
     },
     async close(reason = 'other') {
       if (peer.closed) return;

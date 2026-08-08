@@ -18,6 +18,12 @@ export interface SpawnThroughLaunchRequest {
   argv: string[];
   pid: number;
   parentPid: number;
+  /**
+   * The pane asked for the chopsticks imposter (`ai --claude`) rather than the
+   * real agent. A FLAG, never a path: the gateway resolves the binary itself,
+   * so a request can choose emulation but can never choose what gets executed.
+   */
+  imposter?: boolean;
 }
 
 export interface SpawnThroughExecFailedRequest {
@@ -49,7 +55,21 @@ export interface PrepareSpawnThroughDependencies {
   runtime: Pick<AgentRuntime, 'prepareSession' | 'adoptPrepared' | 'cancelPrepared'>;
   listSessions(): Promise<SessionSummary[]>;
   onAdopted(adopted: AdoptedSpawnThroughSession): void | Promise<void>;
+  /** Absolute path to the imposter's `ai`, when this build can emulate. */
+  imposterBin?(): string | undefined;
 }
+
+/**
+ * Which agents `ai --<vendor>` can stand in for inside a pane.
+ *
+ * Only claude, and the reason is specific rather than incidental: the codex
+ * adapter's TUI recipe spawns `codex app-server --listen unix://…` and attaches
+ * a second process over a WebSocket on that socket, while the codex persona
+ * serves NDJSON on stdio. Until the persona speaks the listen/attach pair,
+ * `ai --codex` in a pane would produce a session bound to nothing — worse than
+ * an honest refusal, because it would look like it worked.
+ */
+export const IMPOSTER_AGENTS: readonly BuiltinExecutableAgentKind[] = ['claude'];
 
 function positivePid(value: number): boolean {
   return Number.isSafeInteger(value) && value > 0;
@@ -121,6 +141,15 @@ export async function prepareSpawnThroughLaunch(
   const invocation = parseSpawnThroughInvocation(request.agent, request.argv);
   if ('error' in invocation) return { action: 'fallback', reason: invocation.error };
 
+  let executable: string | undefined;
+  if (request.imposter) {
+    if (!IMPOSTER_AGENTS.includes(request.agent)) {
+      return { action: 'fallback', reason: `the imposter cannot stand in for ${request.agent} in a pane yet` };
+    }
+    executable = dependencies.imposterBin?.();
+    if (!executable) return { action: 'fallback', reason: 'the chopsticks imposter is not installed beside Godview' };
+  }
+
   const session = matchingTerminalSession(await dependencies.listSessions(), request);
   if (!session) return { action: 'fallback', reason: 'containing Ghosttea terminal was not found' };
 
@@ -128,6 +157,11 @@ export async function prepareSpawnThroughLaunch(
     agent: request.agent,
     cwd: request.cwd,
     ...invocation,
+    // Per session, not per process: every other pane still launches the user's
+    // real agent, which is the whole point of asking for `ai` by name.
+    ...(executable
+      ? { agentOptions: { ...(invocation.agentOptions as Record<string, unknown> | undefined), executable } }
+      : {}),
   });
   if ('error' in prepared) return { action: 'fallback', reason: prepared.error.message };
 
@@ -146,7 +180,14 @@ export async function prepareSpawnThroughLaunch(
     processId: request.pid,
     preparationId: prepared.preparationId,
   });
-  return { action: 'exec', preparationId: prepared.preparationId, launch: prepared.launch };
+  // The adapter owns argv and builds the vendor's real launch recipe, so the
+  // persona cannot be selected with a flag — it rides in the environment
+  // instead. Merged here rather than inside the runtime, which has no business
+  // knowing that one of its executables is an imposter.
+  const launch = executable
+    ? { ...prepared.launch, env: { ...prepared.launch.env, AI_PERSONA: request.agent } }
+    : prepared.launch;
+  return { action: 'exec', preparationId: prepared.preparationId, launch };
 }
 
 export interface SpawnThroughGateway {

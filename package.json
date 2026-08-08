@@ -31,6 +31,7 @@
     "godview:typecheck": "pnpm --filter godview typecheck",
     "emulator": "pnpm --filter emulator start",
     "emulator:smoke": "pnpm --filter emulator smoke",
+    "ai:link": "node packages/imposter/bin/ai.mjs link",
     "surface:audit": "pnpm --filter @vibecook/chopsticks-adapter-claude run surface:audit",
     "pack:check": "pnpm build && node scripts/pack-check.mjs",
     "release:publish": "pnpm -r --filter './packages/**' typecheck && pnpm -r --filter './packages/**' test && pnpm -r --filter './packages/**' build && node scripts/publish-packages.mjs",

@@ -32,11 +32,13 @@ import {
   NOT_FOUND,
   parseEmitted,
   parseHello,
+  parseMachine,
   REFUSED,
   type EmittedEntry,
   type Peer,
   type SessionView,
 } from '@vibecook/chopsticks-imposter/control';
+import { describeMachine } from '@vibecook/chopsticks-imposter/machine';
 
 /** A connection that has not introduced itself by then is not an imposter. */
 const HELLO_GRACE_MS = 5_000;
@@ -287,6 +289,8 @@ export function createControlPlane(options: ControlPlaneOptions = {}): ControlPl
               cwd: hello.cwd,
               channels: hello.channels,
               palette: hello.palette,
+              ops: hello.ops,
+              machine: hello.machine,
               joinedAt: new Date().toISOString(),
             },
           });
@@ -304,6 +308,14 @@ export function createControlPlane(options: ControlPlaneOptions = {}): ControlPl
             const entry: EmittedEntry = parseEmitted(params);
             publish('emitted', { vendor, sessionId, entry });
             scheduleState(vendor, sessionId);
+            return { ok: true };
+          }
+          case 'session.machine': {
+            joined.view.machine = parseMachine(params);
+            // Its own event rather than a `sessions` reframe: transitions are
+            // frequent and the console animates them, while the session list
+            // rebuilds cards.
+            publish('machine', { vendor, sessionId, machine: joined.view.machine });
             return { ok: true };
           }
           case 'session.channels': {
@@ -412,6 +424,12 @@ export function createControlPlane(options: ControlPlaneOptions = {}): ControlPl
       return;
     }
     if (path === '/api/events' && req.method === 'GET') return openStream(req, res);
+    if (path === '/api/machine' && req.method === 'GET') {
+      // Served rather than duplicated in the page: the console draws whatever
+      // the imposter's own machine says it is, so the picture cannot drift from
+      // the thing it pictures.
+      return sendJson(res, 200, describeMachine());
+    }
     if (path === '/api/spawners' && req.method === 'GET') {
       return sendJson(res, 200, {
         spawners: (options.spawners ?? []).map((spawner) => ({ vendor: spawner.vendor, label: spawner.label })),
@@ -443,7 +461,7 @@ export function createControlPlane(options: ControlPlaneOptions = {}): ControlPl
       return sendJson(res, 404, { error: 'not a center-owned session' });
     }
 
-    const action = /^\/api\/sessions\/([^/]+)\/(trigger|scenario|scenario-control|fault|log)$/.exec(path);
+    const action = /^\/api\/sessions\/([^/]+)\/(trigger|op|scenario|scenario-control|fault|log)$/.exec(path);
     if (action) {
       const [, encodedSessionId, name] = action;
       const expectedMethod = name === 'log' ? 'GET' : 'POST';
@@ -451,9 +469,14 @@ export function createControlPlane(options: ControlPlaneOptions = {}): ControlPl
         res.setHeader('allow', expectedMethod);
         return sendJson(res, 405, { error: `method must be ${expectedMethod}` });
       }
-      const method = { trigger: 'trigger', scenario: 'scenario.run', 'scenario-control': 'scenario.control', fault: 'fault', log: 'log' }[
-        name!
-      ]!;
+      const method = {
+        trigger: 'trigger',
+        op: 'op',
+        scenario: 'scenario.run',
+        'scenario-control': 'scenario.control',
+        fault: 'fault',
+        log: 'log',
+      }[name!]!;
       return call(
         res,
         decodeURIComponent(encodedSessionId!),

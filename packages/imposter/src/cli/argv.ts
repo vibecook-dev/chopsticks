@@ -64,7 +64,7 @@ export function selectPersona(argv: readonly string[], options: SelectPersonaOpt
 
   throw new PersonaSelectionError(
     `no persona selected. Use one of --${[...known].sort().join(' / --')}, set AI_PERSONA, ` +
-      `or invoke through an installed shim (\`ai shims install\`).`,
+      `or invoke through an installed shim (\`ai shims install\`). To put \`ai\` itself on PATH: \`ai link\`.`,
   );
 }
 

@@ -32,6 +32,16 @@ export interface ClaudeAgentOptions {
   model?: string;
   /** Native resume/continue argv retained when the CLI must choose identity interactively. */
   resumeInvocation?: string[];
+  /**
+   * Binary for this session only, overriding the runtime's configured one.
+   *
+   * The case this exists for is an emulated session beside real ones: an app
+   * points a single session at the chopsticks imposter while every other
+   * session still launches the user's real Claude Code. `CHOPSTICKS_CLAUDE_BIN`
+   * is the same capability applied to the whole process, which is exactly what
+   * makes it unusable for that.
+   */
+  executable?: string;
 }
 
 export type CodexAgentOptions = Pick<

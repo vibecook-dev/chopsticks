@@ -25,6 +25,8 @@ export interface PresentationFrame {
   at: string;
   op: string;
   with: Record<string, unknown>;
+  /** The persona binds no channel for this op: it happened, and said nothing. */
+  silent?: boolean;
 }
 
 export interface OpTimelineOptions {
@@ -42,6 +44,15 @@ export interface OpTimelineOptions {
   requestJsonRpc?: (method: string, params: Record<string, unknown>) => Promise<unknown>;
   /** Presentation sink: the headless log, or the Ink TUI once it lands. */
   present?: (frame: PresentationFrame) => void;
+  /**
+   * Every op invocation, bound or not, before any channel work.
+   *
+   * `bound` is false when the persona gives this op no wire representation —
+   * codex has no `session.ready` — and the distinction is the point: the
+   * lifecycle machine advances on the op because the imposter genuinely IS in
+   * that state, while the emitted log stays empty because it never said so.
+   */
+  observe?: (invocation: OpInvocation, bound: boolean) => void;
   /** Session-scoped bindings ($sessionId, $cwd, $permissionMode, …). */
   bindings?: Record<string, unknown>;
   /** Payload for a `usage.refresh` op whose binding carries no template. */
@@ -68,6 +79,17 @@ export function createOpTimeline(options: OpTimelineOptions): OpTimeline {
 
   const run = async (invocation: OpInvocation): Promise<void> => {
     const bindings = options.persona.ops[invocation.op];
+    options.observe?.(invocation, bindings !== undefined);
+    // Presented before the binding check, so an op with no wire representation
+    // is still visible as something that happened. The screen showing more than
+    // the wire is the correct direction: it is a projection of the same ops, and
+    // nothing ever reads it back (§1.1).
+    options.present?.({
+      at: new Date().toISOString(),
+      op: invocation.op,
+      with: invocation.with ?? {},
+      ...(bindings ? {} : { silent: true }),
+    });
     if (!bindings) {
       // An op the persona does not bind is a persona gap, not a crash: the
       // vendor may genuinely have no wire representation for it.
@@ -79,8 +101,6 @@ export function createOpTimeline(options: OpTimelineOptions): OpTimeline {
       bindings: options.bindings,
       uuids,
     };
-
-    options.present?.({ at: new Date().toISOString(), op: invocation.op, with: invocation.with ?? {} });
 
     for (const binding of bindings) {
       const payload =

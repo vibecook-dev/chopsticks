@@ -18,6 +18,8 @@ import { createTuiStore, formatFrame } from './store.ts';
 export interface Presentation {
   frame(frame: PresentationFrame): void;
   channels(channels: readonly string[]): void;
+  /** Lifecycle state id from the session's machine (session/machine.ts). */
+  machine(state: string): void;
   /** Pasted-but-not-submitted text. */
   staged(text: string): void;
   notice(text: string): void;
@@ -56,6 +58,10 @@ function headlessPresentation(options: PresentationOptions): Presentation {
     interactive: false,
     frame: (frame) => write(`${formatFrame(frame)}\r\n`),
     channels: (channels) => write(`channels: ${channels.join(' ')}\r\n`),
+    // Transitions are already implied by the op lines above them, so an
+    // append-only stream says nothing: repeating it every op would double the
+    // log for a reader who can see `turn.start` perfectly well.
+    machine: () => {},
     // Clearing the staged text is a TUI concern; an append-only stream has
     // nothing to clear, so it says nothing.
     staged: (text) => void (text && write(`\r\n[staged] ${text}\r\n`)),
@@ -95,6 +101,7 @@ export async function createPresentation(options: PresentationOptions): Promise<
     interactive: true,
     frame: (frame) => store.line(formatFrame(frame)),
     channels: (channels) => store.channels(channels),
+    machine: (state) => store.state(state),
     staged: (text) => store.staged(text),
     notice: (text) => store.notice(text),
     async stop() {

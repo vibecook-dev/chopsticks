@@ -8,6 +8,16 @@
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
+import type { MachineView } from '@vibecook/chopsticks-imposter/control';
+
+/** Lifecycle snapshot for fixtures that join the plane without driving a session. */
+export const IDLE_MACHINE: MachineView = {
+  state: 'ready',
+  enabled: ['session.end', 'turn.start', 'usage.refresh'],
+  offModel: 0,
+  applied: 2,
+  heartbeats: 0,
+};
 
 export interface ControlPaths {
   root: string;

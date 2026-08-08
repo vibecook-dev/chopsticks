@@ -11,7 +11,16 @@ import { lstatSync, mkdtempSync, readlinkSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { defaultShimDirectory, imposterBinPath, installShims, listShims, runShimsCommand } from './shims.ts';
+import {
+  defaultBinDirectory,
+  defaultShimDirectory,
+  imposterBinPath,
+  installSelf,
+  installShims,
+  listShims,
+  runLinkCommand,
+  runShimsCommand,
+} from './shims.ts';
 
 const temporaries: string[] = [];
 afterEach(() => {
@@ -86,5 +95,46 @@ describe('ai shims install', () => {
       }) as typeof process.stdout.write),
     ).toBe(2);
     expect(lines).toEqual([]);
+  });
+});
+
+describe('ai link', () => {
+  it('installs only the tool own names, so nothing on PATH is shadowed', () => {
+    const dir = temporaryDirectory();
+    const result = installSelf({ dir });
+    expect(result.written.map((entry) => entry.name)).toEqual(['ai', 'imposter']);
+    // The decisive property: no vendor name here, ever. A `claude` in this
+    // directory would silently replace the user's real Claude Code.
+    expect(result.written.every((entry) => entry.vendor === undefined)).toBe(true);
+    expect(defaultBinDirectory()).not.toBe(defaultShimDirectory());
+  });
+
+  it.skipIf(!posix)('runs: a linked `ai` selects a persona from its flag', () => {
+    const dir = temporaryDirectory();
+    installSelf({ dir });
+    const output = execFileSync(join(dir, 'ai'), ['--claude', '--version'], { encoding: 'utf8' });
+    expect(output.trim()).toMatch(/Claude Code/);
+  });
+
+  it.skipIf(!posix)('refuses to run without a persona, rather than guessing one', () => {
+    const dir = temporaryDirectory();
+    installSelf({ dir });
+    // argv0 is `ai`, which is not a persona, and no flag was given.
+    expect(() =>
+      execFileSync(join(dir, 'ai'), ['--version'], { encoding: 'utf8', env: { PATH: process.env.PATH! } }),
+    ).toThrow(/no persona selected|Command failed/);
+  });
+
+  it('tells the user how to reach it, and says the directory is safe to keep', () => {
+    const lines: string[] = [];
+    const code = runLinkCommand(['--dir', temporaryDirectory()], ((chunk: string) => {
+      lines.push(chunk);
+      return true;
+    }) as typeof process.stdout.write);
+    expect(code).toBe(0);
+    const output = lines.join('');
+    expect(output).toContain('export PATH=');
+    expect(output).toContain('ai --claude');
+    expect(output).toMatch(/shadows no real agent/);
   });
 });

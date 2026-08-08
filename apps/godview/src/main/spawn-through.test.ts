@@ -140,6 +140,124 @@ describe('Godview spawn-through', () => {
     expect(result).toEqual({ action: 'exec', preparationId: 'preparation-1', launch: prepared.launch });
   });
 
+  it('binds an `ai --claude` pane to the imposter, and only that pane', async () => {
+    const prepared = {
+      preparationId: 'preparation-1',
+      agent: 'claude',
+      sessionId: 'claude-1',
+      launch: { command: '/usr/bin/node', args: ['/opt/ai', '--settings', '/tmp/s.json'], cwd: '/repo', env: { A: '1' } },
+      workspace: { mode: 'direct', root: '/repo', sourcePath: '/repo' },
+      expiresAt: new Date(Date.now() + 30_000).toISOString(),
+    };
+    const prepareSession = vi.fn().mockResolvedValue(prepared);
+    const result = await prepareSpawnThroughLaunch(
+      {
+        type: 'launch',
+        token: 'secret',
+        agent: 'claude',
+        cwd: '/repo',
+        argv: [],
+        pid: 456,
+        parentPid: 123,
+        imposter: true,
+      },
+      {
+        runtime: {
+          prepareSession,
+          adoptPrepared: vi.fn().mockResolvedValue({ ...prepared, runtimeSessionId: 'terminal-1', processId: 456 }),
+          cancelPrepared: vi.fn(),
+        } as never,
+        imposterBin: () => '/opt/ai',
+        listSessions: async () => [shellSession],
+        onAdopted: vi.fn(),
+      },
+    );
+
+    // Per session, not per process: the executable rides in agentOptions, so
+    // every other pane still launches the user's real Claude Code.
+    expect(prepareSession).toHaveBeenCalledWith({
+      agent: 'claude',
+      cwd: '/repo',
+      agentOptions: { executable: '/opt/ai' },
+    });
+    // The adapter owns argv, so the persona has to arrive in the environment —
+    // and the rest of the recipe's env has to survive that.
+    expect(result).toMatchObject({
+      action: 'exec',
+      launch: { env: { A: '1', AI_PERSONA: 'claude' } },
+    });
+  });
+
+  it('refuses to emulate an agent whose pane recipe the persona cannot serve', async () => {
+    const prepareSession = vi.fn();
+    const result = await prepareSpawnThroughLaunch(
+      { type: 'launch', token: 'secret', agent: 'codex', cwd: '/repo', argv: [], pid: 456, parentPid: 123, imposter: true },
+      {
+        runtime: { prepareSession } as never,
+        imposterBin: () => '/opt/ai',
+        listSessions: async () => [shellSession],
+        onAdopted: vi.fn(),
+      },
+    );
+    // An honest refusal rather than a session bound to nothing: the codex TUI
+    // recipe needs a UDS WebSocket app-server the persona does not serve.
+    expect(result).toEqual({ action: 'fallback', reason: 'the imposter cannot stand in for codex in a pane yet' });
+    expect(prepareSession).not.toHaveBeenCalled();
+  });
+
+  it('refuses rather than silently launching the real agent when no imposter is installed', async () => {
+    const prepareSession = vi.fn();
+    const result = await prepareSpawnThroughLaunch(
+      {
+        type: 'launch',
+        token: 'secret',
+        agent: 'claude',
+        cwd: '/repo',
+        argv: [],
+        pid: 456,
+        parentPid: 123,
+        imposter: true,
+      },
+      {
+        runtime: { prepareSession } as never,
+        imposterBin: () => undefined,
+        listSessions: async () => [shellSession],
+        onAdopted: vi.fn(),
+      },
+    );
+    expect(result).toMatchObject({ action: 'fallback' });
+    expect(prepareSession).not.toHaveBeenCalled();
+  });
+
+  it('leaves a normal launch entirely alone', async () => {
+    const prepared = {
+      preparationId: 'preparation-1',
+      agent: 'claude',
+      sessionId: 'claude-1',
+      launch: { command: '/real/claude', args: [], cwd: '/repo' },
+      workspace: { mode: 'direct', root: '/repo', sourcePath: '/repo' },
+      expiresAt: new Date(Date.now() + 30_000).toISOString(),
+    };
+    const prepareSession = vi.fn().mockResolvedValue(prepared);
+    const result = await prepareSpawnThroughLaunch(
+      { type: 'launch', token: 'secret', agent: 'claude', cwd: '/repo', argv: [], pid: 456, parentPid: 123 },
+      {
+        runtime: {
+          prepareSession,
+          adoptPrepared: vi.fn().mockResolvedValue({ ...prepared, runtimeSessionId: 'terminal-1', processId: 456 }),
+          cancelPrepared: vi.fn(),
+        } as never,
+        imposterBin: () => '/opt/ai',
+        listSessions: async () => [shellSession],
+        onAdopted: vi.fn(),
+      },
+    );
+    // No agentOptions, no AI_PERSONA: an imposter available on the machine must
+    // never change what a plain `claude` does.
+    expect(prepareSession).toHaveBeenCalledWith({ agent: 'claude', cwd: '/repo' });
+    expect(result).toEqual({ action: 'exec', preparationId: 'preparation-1', launch: prepared.launch });
+  });
+
   it('falls through untouched when the user supplies unsupported arguments', async () => {
     const prepareSession = vi.fn();
     const result = await prepareSpawnThroughLaunch(

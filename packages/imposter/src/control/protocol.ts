@@ -15,6 +15,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { SurfaceModel } from '@vibecook/chopsticks-surface';
+import type { Persona } from '../persona/types.ts';
 
 // ---------------------------------------------------------------------------
 // Errors — JSON-RPC codes, so the plane can map them onto HTTP for the console
@@ -93,6 +94,33 @@ export interface PaletteEntry {
   fields: string[];
 }
 
+/**
+ * One semantic op as this persona binds it. The console drives sessions by op
+ * first and by raw event second: an op is what a turn is made of, so firing one
+ * produces traffic a real vendor would produce, while a raw event is the
+ * adversarial escape hatch that deliberately does not.
+ */
+export interface OpDescriptor {
+  op: string;
+  /** Delivery kinds this op fans out to. */
+  channels: string[];
+  /** Wire names it produces — hook events, or JSON-RPC methods. */
+  events: string[];
+  /** `$op.<field>` references in the persona's templates, i.e. the op's arguments. */
+  fields: string[];
+  /** The op suspends until the client answers (an approval). */
+  awaits?: boolean;
+}
+
+/** Where the session's lifecycle machine is now (session/machine.ts). */
+export interface MachineView {
+  state: string;
+  enabled: string[];
+  offModel: number;
+  applied: number;
+  heartbeats: number;
+}
+
 /** imposter -> plane, first message on the connection. */
 export interface SessionHello {
   token: string;
@@ -103,6 +131,8 @@ export interface SessionHello {
   cwd: string;
   channels: string[];
   palette: PaletteEntry[];
+  ops: OpDescriptor[];
+  machine: MachineView;
 }
 
 /** What the plane shows the console. Never carries the token. */
@@ -114,6 +144,8 @@ export interface SessionView {
   cwd: string;
   channels: string[];
   palette: PaletteEntry[];
+  ops: OpDescriptor[];
+  machine: MachineView;
   joinedAt: string;
 }
 
@@ -127,6 +159,11 @@ export interface EmittedEntry {
 
 export interface TriggerRequest {
   event: string;
+  with: Record<string, unknown>;
+}
+
+export interface OpRequest {
+  op: string;
   with: Record<string, unknown>;
 }
 
@@ -202,6 +239,35 @@ export function parseHello(params: unknown): SessionHello {
     cwd: requiredString(record.cwd, 'cwd', 4096),
     channels: [...new Set(stringArray(record.channels, 'channels', 64, 128))],
     palette: parsePalette(record.palette),
+    ops: parseOps(record.ops),
+    machine: parseMachine(record.machine),
+  };
+}
+
+export function parseOps(value: unknown): OpDescriptor[] {
+  if (!Array.isArray(value) || value.length > 128) invalid('ops must be an array of at most 128 entries');
+  return value.map((rawEntry, index) => {
+    const entry = asRecord(rawEntry, `ops[${index}]`);
+    return {
+      op: requiredString(entry.op, `ops[${index}].op`, 64),
+      channels: stringArray(entry.channels, `ops[${index}].channels`, 16, 128),
+      events: stringArray(entry.events, `ops[${index}].events`, 16, 256),
+      fields: stringArray(entry.fields, `ops[${index}].fields`, 64, 128),
+      ...(entry.awaits === undefined ? {} : { awaits: entry.awaits === true }),
+    };
+  });
+}
+
+export function parseMachine(value: unknown): MachineView {
+  const record = asRecord(value, 'machine');
+  const count = (field: string): number =>
+    boundedInteger(record[field], `machine.${field}`, 0, Number.MAX_SAFE_INTEGER);
+  return {
+    state: requiredString(record.state, 'machine.state', 64),
+    enabled: stringArray(record.enabled, 'machine.enabled', 64, 64),
+    offModel: count('offModel'),
+    applied: count('applied'),
+    heartbeats: count('heartbeats'),
   };
 }
 
@@ -220,6 +286,14 @@ export function parseTrigger(params: unknown): TriggerRequest {
   const record = asRecord(params, 'trigger');
   return {
     event: requiredString(record.event, 'event', 256),
+    with: record.with === undefined ? {} : asRecord(record.with, 'with'),
+  };
+}
+
+export function parseOpRequest(params: unknown): OpRequest {
+  const record = asRecord(params, 'op');
+  return {
+    op: requiredString(record.op, 'op', 64),
     with: record.with === undefined ? {} : asRecord(record.with, 'with'),
   };
 }
@@ -297,4 +371,37 @@ export function paletteFromModel(model: SurfaceModel): PaletteEntry[] {
     event: event.event,
     fields: Object.keys(event.payloadSchema?.properties ?? {}).sort(),
   }));
+}
+
+/** Every `$op.<field>` reference in a binding template, at any depth. */
+function opFields(value: unknown, into: Set<string>): void {
+  if (typeof value === 'string') {
+    const match = /^\$op\.([A-Za-z0-9_]+)$/.exec(value);
+    if (match) into.add(match[1]!);
+    return;
+  }
+  if (Array.isArray(value)) return void value.forEach((entry) => opFields(entry, into));
+  if (value !== null && typeof value === 'object') {
+    for (const entry of Object.values(value)) opFields(entry, into);
+  }
+}
+
+/**
+ * The ops this persona binds, derived from ops.json rather than listed by hand
+ * — an op the persona does not bind is an op the console must not offer as if
+ * it produced traffic. The machine's own description supplies the full
+ * vocabulary, so the console can still show the gap.
+ */
+export function opsFromPersona(persona: Pick<Persona, 'ops' | 'channelFor'>): OpDescriptor[] {
+  return Object.entries(persona.ops).map(([op, bindings]) => {
+    const fields = new Set<string>();
+    for (const binding of bindings) opFields(binding.with, fields);
+    return {
+      op,
+      channels: [...new Set(bindings.map((binding) => persona.channelFor(binding.channel) ?? binding.channel))],
+      events: bindings.flatMap((binding) => (binding.event ? [binding.event] : [])),
+      fields: [...fields].sort(),
+      ...(bindings.some((binding) => binding.await) ? { awaits: true } : {}),
+    };
+  });
 }

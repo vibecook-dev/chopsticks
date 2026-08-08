@@ -16,6 +16,7 @@
     ".": "./src/index.ts",
     "./cli": "./src/cli/main.ts",
     "./control": "./src/control/index.ts",
+    "./machine": "./src/session/machine.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
@@ -36,6 +37,10 @@
         "types": "./dist/control/index.d.ts",
         "import": "./dist/control/index.js"
       },
+      "./machine": {
+        "types": "./dist/session/machine.d.ts",
+        "import": "./dist/session/machine.js"
+      },
       "./package.json": "./package.json"
     }
   },
@@ -54,7 +59,8 @@
   "dependencies": {
     "@vibecook/chopsticks-surface": "workspace:*",
     "ink": "^7.1.1",
-    "react": "^19.2.7"
+    "react": "^19.2.7",
+    "xstate": "^5.32.5"
   },
   "engines": {
     "node": ">=22.18.0"

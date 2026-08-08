@@ -117,6 +117,16 @@ const realAgentExecutables: Partial<Record<BuiltinExecutableAgentKind, string>> 
   }),
 );
 
+/**
+ * The chopsticks imposter, found the same way the real agents are.
+ *
+ * Resolved off PATH rather than through a package dependency, so Godview and
+ * the pane agree on which `ai` is in play — the one the user linked with
+ * `ai link`. A build with none simply cannot emulate, which is reported as
+ * such rather than silently falling back to the real agent.
+ */
+const imposterExecutable = executableOnOriginalPath(process.env.CHOPSTICKS_IMPOSTER_BIN ?? 'ai');
+
 app.setName('Godview');
 nativeTheme.themeSource = 'light';
 if (process.platform === 'darwin') app.setActivationPolicy('regular');
@@ -765,6 +775,7 @@ async function handleSpawnThroughRequest(request: SpawnThroughRequest): Promise<
   await ensureBackend();
   return prepareSpawnThroughLaunch(request, {
     runtime: agentRuntime,
+    imposterBin: () => imposterExecutable,
     listSessions: () => backend!.automation.listSessions(),
     onAdopted: ({ info: adopted, session, processId, preparationId }) => {
       const info: AgentSessionInfo = {
@@ -781,15 +792,18 @@ async function handleSpawnThroughRequest(request: SpawnThroughRequest): Promise<
 
 async function initializeSpawnThrough(): Promise<void> {
   if (spawnThroughGateway || process.platform === 'win32') return;
-  const agents = Object.keys(realAgentExecutables) as BuiltinExecutableAgentKind[];
-  if (agents.length === 0) return;
+  // `ai` is shimmed on its own terms: an emulated pane needs no real agent
+  // installed at all, so a machine with only the imposter still gets
+  // spawn-through. The shim reads its own name to tell the two apart.
+  const names = [...(Object.keys(realAgentExecutables) as string[]), ...(imposterExecutable ? ['ai'] : [])];
+  if (names.length === 0) return;
   const token = randomBytes(32).toString('hex');
   spawnThroughGateway = await startSpawnThroughGateway(token, handleSpawnThroughRequest);
   spawnThroughDirectory = join(app.getPath('temp'), `godview-agent-shims-${process.pid}`);
   rmSync(spawnThroughDirectory, { recursive: true, force: true });
   mkdirSync(spawnThroughDirectory, { recursive: true, mode: 0o700 });
-  for (const agent of agents) {
-    const destination = join(spawnThroughDirectory, agent);
+  for (const name of names) {
+    const destination = join(spawnThroughDirectory, name);
     copyFileSync(join(__dirname, 'agent-shim.cjs'), destination);
     chmodSync(destination, 0o700);
   }

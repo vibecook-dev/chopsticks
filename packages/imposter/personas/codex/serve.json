@@ -1,5 +1,6 @@
 {
   "$server": {
+    "command": "app-server",
     "gate": { "until": "initialize", "error": { "code": -32600, "message": "Not initialized" } }
   },
 

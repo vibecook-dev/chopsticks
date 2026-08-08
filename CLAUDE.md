@@ -60,11 +60,13 @@ packages/
                  type stripping, which is why it owns a package (draft/IMPOSTER.md §7.1)
   imposter/      `ai` — one executable that impersonates every vendor from its captured ASM.
                  personas/<vendor>/ (ops, boot, behavior, scenarios), session + channels, op timeline,
-                 scenario runner, control/ (UDS JSON-RPC client + shared protocol), tui/ (one shared
-                 Ink chrome, dynamically imported ONLY on a TTY — it costs ~40 MB of RSS, and
-                 `CHOPSTICKS_IMPOSTER_TUI=off` forces the append-only sink). Relative imports end in
-                 `.ts` here, NOT `.js` — see packages/imposter/src/index.ts for why. `ai shims
-                 install` writes `claude`/… symlinks so PATH-prepending needs no app changes
+                 session/machine.ts (the xstate lifecycle over the op vocabulary — DESCRIPTIVE, it
+                 never gates; off-model ops are counted, not refused), scenario runner, control/ (UDS
+                 JSON-RPC client + shared protocol), tui/ (one shared Ink chrome, dynamically imported
+                 ONLY on a TTY — it costs ~40 MB of RSS, and `CHOPSTICKS_IMPOSTER_TUI=off` forces the
+                 append-only sink). Relative imports end in `.ts` here, NOT `.js` — see
+                 packages/imposter/src/index.ts for why. `ai link` puts `ai` on PATH without shadowing
+                 anything; `ai shims install` writes `claude`/… symlinks, which deliberately DO shadow
 
 `adapter-<vendor>/surface/` holds the adapter-owned ground truth (draft/EMULATOR.md):
 `model/<vendor>@<version>/` (ASM — canonical; registry.ts is GENERATED from it via
@@ -81,7 +83,10 @@ apps/
   emulator/      emulator control center (no ghosttea dep — builds anywhere; `pnpm emulator`).
                  Owns the control plane: one UDS at `~/.chopsticks/imposter.sock` that imposters dial
                  into, plus a loopback HTTP+SSE console. Liveness is socket close — there is no
-                 discovery file and nothing polls (draft/IMPOSTER.md §5)
+                 discovery file and nothing polls (draft/IMPOSTER.md §5). The console draws the
+                 imposter's own machine (served at /api/machine, never copied into the page) and
+                 drives sessions by OP first; raw events, scenarios and faults are the adversarial
+                 path and deliberately do not move the graph (§11)
 ```
 
 `packages/node` is **gone** (commit `1eea6db`) — the PTY spine moved to electron-ghostty. Empty
@@ -95,6 +100,7 @@ pnpm godview        # bundle + launch the Electron swarm app
 pnpm workbench      # bundle + launch the original workbench
 pnpm format         # prettier --write over packages/*/src (CI runs format:check FIRST)
 pnpm pack:check     # build + pack every public package into tarballs
+pnpm ai:link        # put `ai` on PATH (~/.chopsticks/bin) — then `ai --claude`, `ai --codex`
 ```
 
 Live adapter probes are opt-in and skipped by default: `CODEX_LIVE=1`, `GROK_LIVE=1`,

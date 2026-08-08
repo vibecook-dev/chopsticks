@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { connectControl, ControlError, REFUSED, type ImposterControl } from '@vibecook/chopsticks-imposter/control';
 import { loadConsoleUi } from './main.js';
 import { createControlPlane, jsonSafe, type ControlPlane } from './plane.js';
-import { collectEvents, controlPaths, waitFor, type EventCollector } from './testing.js';
+import { collectEvents, controlPaths, IDLE_MACHINE, waitFor, type EventCollector } from './testing.js';
 
 const planes: ControlPlane[] = [];
 const clients: ImposterControl[] = [];
@@ -35,6 +35,7 @@ async function startPlane(options: Parameters<typeof createControlPlane>[0] = {}
 
 interface FakeImposter {
   triggered: Array<[string, Record<string, unknown>]>;
+  ops: Array<[string, Record<string, unknown>]>;
   control: ImposterControl;
 }
 
@@ -43,15 +44,19 @@ async function joinAs(
   overrides: Partial<Parameters<typeof connectControl>[0]> = {},
 ): Promise<FakeImposter> {
   const triggered: FakeImposter['triggered'] = [];
+  const ops: FakeImposter['ops'] = [];
   const control = await connectControl({
     vendor: 'claude',
     version: '2.1.207',
     sessionId: 'a0000000-0000-4000-8000-000000000001',
     cwd: '/work',
     palette: [{ event: 'Notification', fields: ['message'] }],
+    ops: [{ op: 'turn.start', channels: ['hook'], events: ['UserPromptSubmit'], fields: ['text'] }],
     channels: () => ['hook', 'transcript'],
+    machine: () => IDLE_MACHINE,
     emitted: () => [{ at: '2026-08-07T00:00:00.000Z', sequence: 1, event: 'SessionStart' }],
     trigger: async (event, payload) => void triggered.push([event, payload]),
+    runOp: async (op, argument) => void ops.push([op, argument]),
     runScenario: async () => {},
     scenarioControl: () => {},
     fault: async () => {},
@@ -61,7 +66,7 @@ async function joinAs(
   });
   expect(control).toBeDefined();
   clients.push(control!);
-  return { triggered, control: control! };
+  return { triggered, ops, control: control! };
 }
 
 const get = (plane: ControlPlane, path: string): Promise<Response> =>
@@ -140,9 +145,12 @@ describe('control plane', () => {
       sessionId: 'b0000000-0000-4000-8000-000000000002',
       cwd: '/work',
       palette: [],
+      ops: [],
       channels: () => ['hook'],
+      machine: () => IDLE_MACHINE,
       emitted: () => [],
       trigger: async () => {},
+      runOp: async () => {},
       runScenario: async () => {},
       scenarioControl: () => {},
       fault: async () => {},
@@ -161,6 +169,45 @@ describe('control plane', () => {
     const ok = await post(plane, sessionPath('trigger'), { event: 'Notification', with: { message: 'hi' } });
     expect(ok.status).toBe(200);
     expect(imposter.triggered).toEqual([['Notification', { message: 'hi' }]]);
+  });
+
+  it('proxies an op the same way, and answers with the state it produced', async () => {
+    const plane = await startPlane();
+    const imposter = await joinAs(plane);
+    await waitFor(() => plane.sessions.length === 1, 'join');
+
+    const ok = await post(plane, sessionPath('op'), { op: 'turn.start', with: { text: 'hello' } });
+    expect(ok.status).toBe(200);
+    expect(imposter.ops).toEqual([['turn.start', { text: 'hello' }]]);
+    // The reply carries the lifecycle so the console settles without waiting
+    // for the push it is also about to get.
+    expect((await ok.json()) as { machine: unknown }).toMatchObject({ machine: { state: 'ready' } });
+  });
+
+  it('serves the machine graph so the console never carries its own copy', async () => {
+    const plane = await startPlane();
+    const description = (await (await get(plane, '/api/machine')).json()) as {
+      nodes: Array<{ id: string }>;
+      edges: Array<{ op: string }>;
+      globals: Array<{ op: string }>;
+    };
+    expect(description.nodes.map((node) => node.id)).toContain('turn.approval');
+    expect(description.edges.some((edge) => edge.op === 'permission.ask')).toBe(true);
+    expect(description.globals.map((global) => global.op)).toContain('session.end');
+  });
+
+  it('pushes a lifecycle transition as its own event and keeps the session view current', async () => {
+    const plane = await startPlane();
+    const imposter = await joinAs(plane);
+    const collector = await collectEvents(plane.url, plane.token);
+    collectors.push(collector);
+    await waitFor(() => plane.sessions.length === 1, 'join');
+
+    imposter.control.pushMachine({ ...IDLE_MACHINE, state: 'turn.tool', applied: 5 });
+    await waitFor(() => collector.latest('machine') !== undefined, 'machine push');
+    expect(collector.latest('machine')).toMatchObject({ machine: { state: 'turn.tool', applied: 5 } });
+    // A console that connects later must see the same thing without a replay.
+    expect(plane.sessions[0]!.machine.state).toBe('turn.tool');
   });
 
   it('reports an imposter that declines as 422, distinct from a transport failure', async () => {
@@ -189,9 +236,12 @@ describe('control plane', () => {
       sessionId: 'a0000000-0000-4000-8000-000000000001',
       cwd: '/work',
       palette: [],
+      ops: [],
       channels: () => ['hook'],
+      machine: () => IDLE_MACHINE,
       emitted: () => [],
       trigger: async () => {},
+      runOp: async () => {},
       runScenario: async () => {},
       scenarioControl: () => {},
       fault: async () => {},

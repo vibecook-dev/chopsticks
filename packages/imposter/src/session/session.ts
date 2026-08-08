@@ -16,6 +16,7 @@ import { flagValue } from '../cli/argv.ts';
 import { ControlError, REFUSED, type FaultRequest, type ScenarioControlAction } from '../control/protocol.ts';
 import { createHookEmitter, type HookSettings } from './channels/hook.ts';
 import { createStatusLineInvoker } from './channels/statusline.ts';
+import { createOpMachine, type MachineSnapshot } from './machine.ts';
 import { createTranscriptWriter, type TranscriptWriter } from './channels/transcript.ts';
 import {
   createScenarioGate,
@@ -60,6 +61,8 @@ export interface ImposterSessionOptions {
   onEmitted?: (entry: EmittedRecord) => void;
   /** Pushed when a fault disconnects a channel, so the console never polls for liveness. */
   onChannels?: (channels: string[]) => void;
+  /** Pushed on every lifecycle transition — the same snapshot the TUI shows (machine.ts). */
+  onMachine?: (snapshot: MachineSnapshot) => void;
   /**
    * Process-level fault effects. The session owns channel-level faults (flood,
    * channel-drop) but never reaches for `process` itself, so a test can drive
@@ -93,7 +96,11 @@ export interface ImposterSession {
   /** Session bindings; the serve table mints ids into these (§9.3 `bind`). */
   readonly bindings: Record<string, unknown>;
   readonly transcript: TranscriptWriter;
+  /** Where the lifecycle is now, and which ops the current state handles (machine.ts). */
+  readonly machine: MachineSnapshot;
   boot(): Promise<void>;
+  /** Run one semantic op. The console's organic trigger, as opposed to a raw event. */
+  runOp(op: string, argument?: Record<string, unknown>): Promise<void>;
   /** One organic turn, driven by the persona's behavior pack. */
   turn(text: string): Promise<void>;
   /** Emit a single raw native event, ASM-validated. */
@@ -334,8 +341,14 @@ export function createImposterSession(options: ImposterSessionOptions): Imposter
     ...(behavior.reply === undefined ? {} : { $reply: behavior.reply }),
   };
 
+  // One machine per session, advanced by the op timeline. Both the TUI and the
+  // control console read this same snapshot, so the screen cannot describe a
+  // lifecycle the wire did not produce.
+  const machine = createOpMachine();
+
   const timeline = createOpTimeline({
     persona,
+    observe: (invocation) => options.onMachine?.(machine.send(invocation.op).snapshot),
     emitHook: emit,
     emitJsonRpc: emitRpc,
     requestJsonRpc: requestRpc,
@@ -429,7 +442,16 @@ export function createImposterSession(options: ImposterSessionOptions): Imposter
     timeline,
     bindings,
     transcript: guardedTranscript,
+    get machine() {
+      return machine.snapshot();
+    },
     emit: emitAny,
+    async runOp(op, argument = {}) {
+      // Resolved the same way a behavior pack's arguments are, so an op fired
+      // by hand and an op fired by a turn reach the timeline identically.
+      const resolved = substitute(argument, { bindings, uuids: new Map() }) as Record<string, unknown>;
+      await timeline.run({ op, with: resolved });
+    },
     statusPayload,
     invokeStatusLine,
     dropChannel(channel) {

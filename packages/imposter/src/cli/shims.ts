@@ -1,10 +1,18 @@
 /**
- * `ai shims install` (draft/IMPOSTER.md §6).
+ * Getting `ai` onto PATH, two ways (draft/IMPOSTER.md §6).
  *
- * Writes one entry per vendor name into a directory. Prepend that directory to
- * PATH and **product apps need no changes at all**: the adapter's normal launch
+ * `ai link` writes `ai` and `imposter` into `~/.chopsticks/bin`. That directory
+ * shadows nothing, so it is safe to leave on PATH permanently: `claude` still
+ * runs Claude Code, `codex` still runs Codex, and the imposter is reached by
+ * asking for it — `ai --claude`, `ai --codex`.
+ *
+ * `ai shims install` writes VENDOR names (`claude`, `codex`, …) into
+ * `~/.chopsticks/shims`, which does shadow the real binaries wherever it is
+ * prepended. That is the whole point of it — a product app's normal launch
  * recipe finds `claude`, its detection probes are answered from the ASM, and a
- * session spawns against the imposter.
+ * session spawns against the imposter with no app changes at all — but it is a
+ * deliberate, temporary act, and the two directories are kept apart so it can
+ * never happen by accident.
  *
  * On POSIX an entry is a plain symlink, so selection happens through argv0 —
  * the mechanism apps actually depend on, exercised rather than bypassed
@@ -22,7 +30,8 @@ import { shimNameMap } from '../persona/load.ts';
 
 export interface ShimEntry {
   name: string;
-  vendor: string;
+  /** The persona this name selects. Absent for `ai`/`imposter`, which select none. */
+  vendor?: string;
   path: string;
 }
 
@@ -44,7 +53,15 @@ export interface ShimInstallResult {
   conflicts: Array<{ name: string; path: string; reason: string }>;
 }
 
-/** Beside the control socket, so everything the imposter owns lives in one place. */
+/** The tool's own names. Neither selects a persona: `ai --claude` does that. */
+export const SELF_NAMES = ['ai', 'imposter'] as const;
+
+/** Safe to keep on PATH forever — nothing here shares a name with a real agent. */
+export function defaultBinDirectory(): string {
+  return join(homedir(), '.chopsticks', 'bin');
+}
+
+/** Vendor names. Shadows the real binaries wherever it is prepended. */
 export function defaultShimDirectory(): string {
   return join(homedir(), '.chopsticks', 'shims');
 }
@@ -53,14 +70,17 @@ export function imposterBinPath(): string {
   return join(dirname(dirname(dirname(fileURLToPath(import.meta.url)))), 'bin', 'ai.mjs');
 }
 
-function windowsWrapper(target: string, vendor: string): string {
-  return ['@echo off', `node "${target}" --${vendor} %*`, ''].join('\r\n');
+function windowsWrapper(target: string, vendor?: string): string {
+  return ['@echo off', `node "${target}"${vendor ? ` --${vendor}` : ''} %*`, ''].join('\r\n');
 }
 
-export function installShims(options: ShimInstallOptions = {}): ShimInstallResult {
-  const dir = resolve(options.dir ?? defaultShimDirectory());
+function installEntries(
+  entries: ReadonlyArray<{ name: string; vendor?: string }>,
+  options: ShimInstallOptions,
+  defaultDir: string,
+): ShimInstallResult {
+  const dir = resolve(options.dir ?? defaultDir);
   const target = resolve(options.target ?? imposterBinPath());
-  const names = options.names ?? shimNameMap();
   const result: ShimInstallResult = { dir, target, written: [], unchanged: [], conflicts: [] };
 
   mkdirSync(dir, { recursive: true, mode: 0o755 });
@@ -69,10 +89,10 @@ export function installShims(options: ShimInstallOptions = {}): ShimInstallResul
   // ENOENT-shaped failure at spawn time.
   chmodSync(target, 0o755);
 
-  for (const [name, vendor] of [...names].sort(([left], [right]) => left.localeCompare(right))) {
+  for (const { name, vendor } of [...entries].sort((left, right) => left.name.localeCompare(right.name))) {
     const windows = process.platform === 'win32';
     const path = join(dir, windows ? `${name}.cmd` : name);
-    const entry: ShimEntry = { name, vendor, path };
+    const entry: ShimEntry = { name, ...(vendor === undefined ? {} : { vendor }), path };
 
     let existing: ReturnType<typeof lstatSync> | undefined;
     try {
@@ -93,14 +113,30 @@ export function installShims(options: ShimInstallOptions = {}): ShimInstallResul
       rmSync(path, { force: true });
     }
 
-    if (windows) {
-      writeFileSync(path, windowsWrapper(target, vendor));
-    } else {
-      symlinkSync(target, path);
-    }
+    if (windows) writeFileSync(path, windowsWrapper(target, vendor));
+    else symlinkSync(target, path);
     result.written.push(entry);
   }
   return result;
+}
+
+/** Vendor-named entries, from the personas that ship. */
+export function installShims(options: ShimInstallOptions = {}): ShimInstallResult {
+  const names = options.names ?? shimNameMap();
+  return installEntries(
+    [...names].map(([name, vendor]) => ({ name, vendor })),
+    options,
+    defaultShimDirectory(),
+  );
+}
+
+/** `ai` and `imposter` themselves. */
+export function installSelf(options: ShimInstallOptions = {}): ShimInstallResult {
+  return installEntries(
+    SELF_NAMES.map((name) => ({ name })),
+    options,
+    defaultBinDirectory(),
+  );
 }
 
 export function listShims(names: ReadonlyMap<string, string> = shimNameMap()): ShimEntry[] {
@@ -110,6 +146,31 @@ export function listShims(names: ReadonlyMap<string, string> = shimNameMap()): S
     .map(([name, vendor]) => ({ name, vendor, path: join(dir, process.platform === 'win32' ? `${name}.cmd` : name) }));
 }
 
+function report(result: ShimInstallResult, write: (text: string) => void, hint: string): number {
+  for (const entry of result.written) write(`installed ${entry.path}${entry.vendor ? ` -> ${entry.vendor}` : ''}\n`);
+  for (const entry of result.unchanged) write(`unchanged ${entry.path}\n`);
+  for (const conflict of result.conflicts) process.stderr.write(`skipped ${conflict.path}: ${conflict.reason}\n`);
+  if (result.written.length > 0 || result.unchanged.length > 0) write(`\n${hint.replace('{DIR}', result.dir)}`);
+  return result.conflicts.length > 0 ? 1 : 0;
+}
+
+/** `ai link`; returns the process exit code. */
+export function runLinkCommand(argv: readonly string[], write = process.stdout.write.bind(process.stdout)): number {
+  const dirIndex = argv.indexOf('--dir');
+  const dir = dirIndex >= 0 ? argv[dirIndex + 1] : undefined;
+  if (dirIndex >= 0 && !dir) {
+    process.stderr.write('ai link: --dir needs a directory\n');
+    return 2;
+  }
+  const result = installSelf({ ...(dir ? { dir } : {}), force: argv.includes('--force') });
+  return report(
+    result,
+    write,
+    'Add it to PATH — it shadows no real agent, so this is safe to keep:\n' +
+      '  export PATH="{DIR}:$PATH"\n\nThen: ai --claude · ai --codex\n',
+  );
+}
+
 /** `ai shims <subcommand>`; returns the process exit code. */
 export function runShimsCommand(argv: readonly string[], write = process.stdout.write.bind(process.stdout)): number {
   const subcommand = argv[0];
@@ -117,7 +178,7 @@ export function runShimsCommand(argv: readonly string[], write = process.stdout.
   const dir = dirIndex >= 0 ? argv[dirIndex + 1] : undefined;
 
   if (subcommand === 'list') {
-    for (const entry of listShims()) write(`${entry.name.padEnd(12)} ${entry.vendor}\n`);
+    for (const entry of listShims()) write(`${entry.name.padEnd(12)} ${entry.vendor ?? ''}\n`);
     return 0;
   }
   if (subcommand !== 'install') {
@@ -130,11 +191,9 @@ export function runShimsCommand(argv: readonly string[], write = process.stdout.
   }
 
   const result = installShims({ ...(dir ? { dir } : {}), force: argv.includes('--force') });
-  for (const entry of result.written) write(`installed ${entry.path} -> ${entry.vendor}\n`);
-  for (const entry of result.unchanged) write(`unchanged ${entry.path}\n`);
-  for (const conflict of result.conflicts) process.stderr.write(`skipped ${conflict.path}: ${conflict.reason}\n`);
-  if (result.written.length > 0 || result.unchanged.length > 0) {
-    write(`\nPrepend it to PATH so apps find these first:\n  export PATH="${result.dir}:$PATH"\n`);
-  }
-  return result.conflicts.length > 0 ? 1 : 0;
+  return report(
+    result,
+    write,
+    'These SHADOW the real agents. Prepend it only while you want that:\n  export PATH="{DIR}:$PATH"\n',
+  );
 }

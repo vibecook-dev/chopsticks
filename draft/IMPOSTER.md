@@ -155,16 +155,23 @@ This is a goal, not a compromise. Cloning vendor interfaces would burn effort on
 Content:
 
 ```
-IMPOSTER · claude 2.1.207 · 5eb9761e · argv hook transcript statusline terminal
-──────────────────────────────────────────────────────────────────────────────
-22:29:06.879  UserPromptSubmit
-22:29:06.984  Stop                     last_assistant_message: "emulator: ok"
-22:29:17.573  PermissionRequest        Bash
-──────────────────────────────────────────────────────────────────────────────
->
+╭──────────────────────────────────────────────────────────────────────────────╮
+│  ╭───╮  IMPOSTER impersonating claude 2.1.207                                │
+│  │· ·│  session 5f0253c2  state ready                                        │
+│  ╰~~~╯  argv · hook · transcript · statusline · terminal                     │
+│ ──────────────────────────────────────────────────────────────────────────── │
+│ 18:34:24.577  session.start                                                  │
+│ 18:34:25.651  turn.start  "summarise the repo"                               │
+│ 18:34:25.652  turn.end  "imposter: ok"                                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ › 
 ```
 
-Banner, channel liveness, the live op/event stream, a prompt line that accepts paste. Nothing else. In practice this doubles as a local mirror of the control center, which is useful when debugging a session that has no console attached.
+Identity, lifecycle state, channel liveness, the live op stream, a prompt line that accepts paste. Nothing else. In practice this doubles as a local mirror of the control center, which is useful when debugging a session that has no console attached.
+
+**Violet and blue, and a ghost.** The palette is a safety property, not decoration: Claude Code is orange and Codex is green, so an imposter that borrowed either would invite the confusion §1.1 exists to prevent. The chrome has to say *stand-in* from across the room, in a pane you did not launch yourself. The ghost's eyes follow the lifecycle, which is the one piece of personality this screen gets.
+
+**The state on screen is not derived here.** It is the same `MachineSnapshot` the control console renders, pushed from the session (§11) — one truth, two projections, so the screen cannot describe a lifecycle the ops did not produce. Ops the persona binds to no channel are shown too, marked `(unbound)`: they happened, and said nothing.
 
 ### 4.1 Stack: Ink 7
 
@@ -265,7 +272,9 @@ The browser console keeps HTTP; it has to. The plane translates. Browser ⇄ HTT
 
 Persona resolution, in order: **argv0** → `--<vendor>` flag → `AI_PERSONA` env. Everything after persona selection is handed to the persona's argv parser, so the adapter's real launch recipe (`--session-id`, `--settings`, `--permission-mode`, …) is consumed exactly as the vendor would.
 
-`ai shims install --dir <d>` writes `claude`, `codex`, … symlinks pointing at `ai`. Prepend that directory to PATH and **godview needs no changes at all** — the adapter's normal recipe finds `claude`, detection probes answer from `detection.json`, and the session spawns. `ai --claude` remains the ergonomic manual form.
+`ai shims install --dir <d>` writes `claude`, `codex`, … symlinks pointing at `ai`. Prepend that directory to PATH and **godview needs no changes at all** — the adapter's normal recipe finds `claude`, detection probes answer from `detection.json`, and the session spawns. Those names shadow the real binaries, which is the point of that mode and the reason it is opt-in.
+
+`ai link` is the other half, and the one to reach for first: it installs `ai` and `imposter` into `~/.chopsticks/bin`, which shadows nothing and is safe to keep on PATH permanently. See §11.1; the serve/interactive fork also comes from argv rather than from the persona.
 
 `apps/godview/src/shim/agent-shim.ts` is the working reference: argv0 dispatch (`shimPath.split('/').at(-1)`), PATH cleaning to avoid recursion, `process.execve` replacement. Reuse its shape; note it is POSIX-only (`execve`), so the imposter's shims spawn rather than exec on Windows.
 
@@ -363,6 +372,7 @@ The full design is §9. The sequencing that replaces the old "blocked" note is �
 | **I2** | Claude **and** codex runtimes — hook/transcript/statusline channels, and the app-server JSON-RPC channel | Both conform hermetically in CI; ops map cleanly onto both families, or the vocabulary is revised until they do | **done 2026-08-08** |
 | **I3** | Control channel, both sides at once: UDS client in the imposter **and** the plane rewritten at its new home in `apps/emulator`. Delete state file, bin-side HTTP server, `prune()`, console poll. Push-based log. | §6.4 flow works over one socket; `scenario.control` pause/step lands | **done 2026-08-08** |
 | **I4** | Ink TUI behind `isTTY`; `ai shims install`; delete `bin.mjs` and `packages/emulator`; a `synthetic` persona (**not** an absorbed `fake-agent.mjs` — see §7.4); update EMULATOR.md + ADAPTING-AN-AGENT.md | godview panes show imposter chrome; no doc still describes per-adapter bins | **done 2026-08-08** |
+| **I5** | The lifecycle machine (§11) and the console rebuilt around it; `ai link` + serve mode from argv (§11.1); `ai --claude` in a Godview pane (§11.2); the chrome redrawn — rounded frame, ghost, violet/blue | Clicking an op in the console transitions the graph and the reducer sees the traffic; the drawing cannot disagree with the machine | **done 2026-08-08** |
 
 I0 is a refactor that can land on its own and de-risks everything after it. I1–I2 are load-bearing. I3 is mostly deletion. I4 is chrome plus paperwork.
 
@@ -572,3 +582,65 @@ Three things the census settled, none of them guessable from the schema:
 - **Emulating model quality.** Unchanged from `EMULATOR.md §8`.
 - **A shadow process beside a live session.** ADR-002 stands; the imposter *replaces* a vendor binary and never accompanies one.
 - **Removing the nightly reconciliation lane.** The imposter is a projection of captured truth. Only the real binary can detect drift.
+
+---
+
+## 11. The lifecycle machine, and driving by op
+
+**Landed 2026-08-08 (I5).** The ops in §2 were always a state machine — a turn cannot end before it starts, a tool cannot finish before it runs, an approval suspends whatever asked for it — but that structure lived only in the shape of the behavior packs, where nothing could see it. `packages/imposter/src/session/machine.ts` writes it down with xstate v5, and the same snapshot feeds the TUI and the control console.
+
+```
+starting ──session.start──▶ booting ──session.ready──▶ ready ──turn.start──▶ ┌ turn ─────────────────────┐
+                                │                        ▲                   │ thinking ⇄ tool           │
+                                └────turn.start──────────┘◀──turn.end────────│      ↘  ↙                 │
+                                    (vendors with no                         │     approval              │
+                                     readiness signal)                       └───────────────────────────┘
+```
+
+`session.end` (→ `ended`) and `usage.refresh` (a heartbeat that moves nothing) are handled at the root, so they are legal everywhere and are drawn as globals rather than as fourteen edges.
+
+Three properties carry the design:
+
+1. **Descriptive, never prescriptive.** The machine reports; it does not gate. An op the current state does not handle leaves the state alone and is counted off-model — it is *not* refused. Adversarial scenarios exist precisely to send traffic no organic turn would produce (`duplicate-out-of-order`, `late-after-exit`), and a machine that blocked them would delete the imposter's reason for existing. Refusal stays at the ASM boundary (§7.3 item 3), which judges payloads, not order.
+
+2. **It advances on the op, not on the wire.** An op a persona leaves unbound still happened: codex binds no `session.ready`, and the imposter is nonetheless ready. The machine therefore describes what the imposter *is*, while the emitted log describes what it *told* the client — and the gap between them is exactly what an adapter author needs to see. The console draws it directly: an unbound op is dashed in the op palette.
+
+3. **`booting --turn.start--> turn` is a real edge, not a convenience.** A vendor with no readiness signal proves readiness by completing a turn, which is what the codex reducer does on the first `turn/completed`. Without that edge every codex turn would read as off-model, which would be a lie about codex rather than a finding about it.
+
+**Raw events do not advance it.** Scenarios and the console's event palette write to the wire without an op, so the graph deliberately stays put while they run. That is the honest split, and it is why the console now leads with **ops** — the organic control — and keeps raw events, scenarios and faults behind an "adversarial" disclosure.
+
+**One picture, no copy.** `describeMachine()` returns nodes, edges, globals and hand-authored layout; the plane serves it at `GET /api/machine` and the console draws whatever it is given. A test walks every state against every op in both directions and fails if the drawing and the machine disagree, so the picture cannot drift from the thing it pictures. Layout lives beside the machine because this graph is small, fixed, and worth reading — a generic layout engine would spend a dependency to produce something worse.
+
+**Cost.** xstate v5 imports in 6 ms for 5.6 MB RSS (node 26.5, measured 2026-08-08) — an eighth of Ink's 40 MB, and unlike Ink it is wanted in every mode, so it is a static import rather than a dynamic one.
+
+### 11.1 CLI: `ai link`, and serve mode from argv
+
+Two changes make `ai` a command you can actually run.
+
+**`ai link`** installs `ai` and `imposter` into `~/.chopsticks/bin` — a directory that shadows nothing, so it is safe to leave on PATH forever. `ai shims install` keeps writing *vendor* names into `~/.chopsticks/shims`, which does shadow the real binaries wherever it is prepended; that is the point of it, but it is now a separate, clearly-labelled act rather than the only way to reach the tool.
+
+**Serve mode comes from argv, not from the persona.** `serve.json`'s `$server.command` names the vendor subcommand that turns the binary into a server, and the fork is taken only when argv asks for it: `ai --codex app-server` speaks the protocol, bare `ai --codex` opens the shared chrome. The real vendor works exactly this way, and an imposter that always served failed the most visible faithfulness test there is — you could not run it by hand. A serve persona run interactively reports its app-server channel **detached**, because nothing is attached to it; the ops run and reach no wire, which is the truth of the mode.
+
+### 11.2 Godview panes
+
+`ai --claude` typed in a Godview pane now produces a session Godview recognises as claude, rendering the imposter's own chrome. The pieces:
+
+- Godview's shim directory gains an `ai` entry. The shim reads its own name, takes the vendor from `--<vendor>`, strips that flag, and marks the request `imposter: true`.
+- `ClaudeAgentOptions.executable` overrides the binary **for one session**, so every other pane still launches the user's real Claude Code. `CHOPSTICKS_CLAUDE_BIN` is the same capability applied to the whole process, which is exactly what makes it unusable here.
+- The gateway resolves the imposter itself (PATH, or `CHOPSTICKS_IMPOSTER_BIN`) and merges `AI_PERSONA` into the launch env. A request can choose emulation; it can never choose what gets executed.
+
+**Only claude, and for a specific reason.** The codex adapter's TUI recipe spawns `codex app-server --listen unix://…` and attaches a second process over a WebSocket on that socket, while the codex persona serves NDJSON on stdio. Until the persona speaks that listen/attach pair, `ai --codex` in a pane is refused with a message saying so — an honest refusal beats a session bound to nothing, which would look like it worked.
+
+### 11.3 Two input bugs, found by running it
+
+Neither showed up in any suite, because both live in the gap between a pipe and a real terminal — and the conformance tests, correctly, use a pipe.
+
+**The imposter never enabled bracketed paste.** A terminal emits `ESC[200~` markers only for an application that has turned DECSET 2004 on. Real TUIs do; the imposter did not, so a pane pasted bare bytes and the decoder — built entirely around those markers — never saw a paste. The pane's prompt did nothing at all, and the adapter's reducer sat at seven events. `ai` now enables the mode on an interactive TTY and restores it on exit.
+
+**Enter that arrives late fell on the floor.** The decoder holds a completed paste for 15 ms and then releases it as staged; terminal automation commonly writes the paste and the newline separately, so the newline arrived after the hold expired and was discarded. The prompt line now keeps staged text across operations, and a bare Enter submits it — which is what every prompt does. The decoder itself stays a pure byte splitter.
+
+While fixing the second, the prompt line gained the minimum a real terminal needs: typed characters accumulate and backspace deletes. That is a prompt line, **not** a line editor — anything more is the vendor parity §4 rules out — but a screen in front of a person where typing does nothing is not a screen.
+
+**Verified in a pane:** `ai --claude` → adopted as claude → prompt → `lastAssistantMessage: "imposter: ok"`, lifecycle back to `ready`, eleven native events observed by the real adapter.
+
+**Known gap.** `conversationSnapshot().items` stays empty for an imposted claude session, so a chat panel fed by the conversation projection shows nothing even though the reducer sees the whole turn. The transcript records the imposter writes are correctly claude-shaped and the adapter watches the path the hook envelope gives it, so the cause is further in than this work reached. Pre-existing, and unrelated to §11's three changes.
