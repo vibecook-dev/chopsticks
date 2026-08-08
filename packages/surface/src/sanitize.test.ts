@@ -7,6 +7,7 @@ import {
   checkCaptureDirectory,
   checkRecord,
   extendRules,
+  REDACTED_EPOCH_MS,
   sanitizeCaptureDirectory,
   sanitizeRecord,
 } from './sanitize.js';
@@ -119,5 +120,29 @@ describe('extendRules', () => {
     const out = sanitizeRecord({ vendorSecret: 'hunter2', prompt: 'hello' }, rules) as Record<string, string>;
     expect(out.vendorSecret).toBe('<redacted:vendorSecret>');
     expect(out.prompt).toBe('<redacted:prompt>');
+  });
+});
+
+describe('numeric wall-clock timestamps', () => {
+  it('pins a numeric clock that no string pattern could reach', () => {
+    // Codex ids are UUIDv7 and get aliased into synthetic v4s precisely to
+    // destroy the clock they encode; `startedAtMs` beside them hands it back.
+    const sanitized = sanitizeRecord({ itemId: 'exec-abc', startedAtMs: 1786207526734 }) as Record<string, unknown>;
+    expect(sanitized.startedAtMs).toBe(REDACTED_EPOCH_MS);
+    expect(new Date(sanitized.startedAtMs as number).toISOString()).toBe('2026-01-01T00:00:00.000Z');
+  });
+
+  it('detects an unpinned clock, so the redactor cannot silently stop working', () => {
+    expect(checkRecord({ startedAtMs: 1786207526734 })).toEqual([
+      expect.stringContaining('unpinned wall-clock timestamp at startedAtMs'),
+    ]);
+    expect(checkRecord({ startedAtMs: REDACTED_EPOCH_MS })).toEqual([]);
+  });
+
+  it('leaves small integers under a timestamp-shaped key alone', () => {
+    // `durationMs` is not a clock, and a fixture that zeroes it stops being
+    // shape-faithful for anything that asserts on elapsed time.
+    const sanitized = sanitizeRecord({ elapsedTime: 42, createdAt: 5 }) as Record<string, unknown>;
+    expect(sanitized).toEqual({ elapsedTime: 42, createdAt: 5 });
   });
 });

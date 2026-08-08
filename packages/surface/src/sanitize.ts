@@ -30,6 +30,8 @@ export interface SanitizerRules {
   idKey: RegExp;
   pathKey: RegExp;
   urlKey: RegExp;
+  /** Keys whose NUMERIC values are wall-clock timestamps and must be pinned. */
+  timestampKey: RegExp;
   /** Keys whose values are free-form and therefore always redacted. */
   sensitiveTextKey: RegExp;
   /** Once inside, EVERYTHING is redacted unless it is a structural enum. */
@@ -60,6 +62,9 @@ const BARE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[
 const EMBEDDED_UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi;
 
 export const defaultRules: SanitizerRules = {
+  // Epoch-ms/seconds clocks. `At`/`Ms` suffixes cover startedAtMs, completedAtMs,
+  // createdAt, firstSeenAtUnixMs; `timestamp` covers the snake_case forms.
+  timestampKey: /(?:^|_)(?:timestamp|time)$|At(?:Unix)?(?:Ms|Millis|Seconds)?$|_at(?:_unix)?(?:_ms|_s)?$/,
   // Trailing-`Id` catches camelCase (threadId, itemId, callId, installationId,
   // clientUserMessageId) without listing them; `(?:^|_)id$` keeps snake_case
   // and refuses to match words that merely end in "id" such as `valid`.
@@ -111,7 +116,7 @@ export const defaultRules: SanitizerRules = {
 
 /** Extend the defaults with additional vendor-specific keys or value patterns. */
 export function extendRules(
-  extra: Partial<Record<'idKey' | 'pathKey' | 'sensitiveTextKey' | 'sensitiveContainer', RegExp>> & {
+  extra: Partial<Record<'idKey' | 'timestampKey' | 'pathKey' | 'sensitiveTextKey' | 'sensitiveContainer', RegExp>> & {
     unsafeTextPatterns?: RegExp[];
   },
   base: SanitizerRules = defaultRules,
@@ -121,6 +126,7 @@ export function extendRules(
   return {
     ...base,
     idKey: merge(base.idKey, extra.idKey),
+    timestampKey: merge(base.timestampKey, extra.timestampKey),
     pathKey: merge(base.pathKey, extra.pathKey),
     sensitiveTextKey: merge(base.sensitiveTextKey, extra.sensitiveTextKey),
     sensitiveContainer: merge(base.sensitiveContainer, extra.sensitiveContainer),
@@ -250,7 +256,22 @@ function sanitizeString(value: string, key: string, inContainer: boolean, rules:
   return sanitized;
 }
 
+/**
+ * The epoch a redacted clock is pinned to: 2026-01-01T00:00:00Z. A constant
+ * rather than 0, because a fixture whose timestamps are all zero stops being
+ * shape-faithful — code under test may reasonably reject a 1970 date.
+ */
+export const REDACTED_EPOCH_MS = 1_767_225_600_000;
+
 function sanitizeValue(value: unknown, key: string, inContainer: boolean, rules: SanitizerRules): unknown {
+  // A wall-clock timestamp is a NUMBER, so it slips past every value-level
+  // string pattern. Codex ids are UUIDv7 and get aliased into synthetic v4s to
+  // destroy the clock they encode — leaving `startedAtMs` beside them intact
+  // would hand that exact clock straight back (found 2026-08-08 by eye, after
+  // the automated check passed).
+  if (typeof value === 'number' && rules.timestampKey.test(key)) {
+    return Number.isInteger(value) && value > 1_000_000_000 ? REDACTED_EPOCH_MS : value;
+  }
   if (typeof value === 'string') return sanitizeString(value, key, inContainer, rules);
   if (Array.isArray(value)) return value.map((entry) => sanitizeValue(entry, key, inContainer, rules));
   if (value !== null && typeof value === 'object') {
@@ -312,6 +333,13 @@ function inspect(
   inContainer: boolean,
   rules: SanitizerRules,
 ): void {
+  // The detector half of the numeric-clock rule. Without it the redactor could
+  // silently stop pinning timestamps and every capture would still look clean.
+  if (typeof value === 'number' && rules.timestampKey.test(key)) {
+    if (Number.isInteger(value) && value > 1_000_000_000 && value !== REDACTED_EPOCH_MS) {
+      issues.push(`${location}: unpinned wall-clock timestamp at ${key}`);
+    }
+  }
   if (typeof value === 'string') {
     if (rules.unsafeTextPatterns.some((pattern) => pattern.test(value))) {
       issues.push(`${location}: unsafe text at ${key}`);

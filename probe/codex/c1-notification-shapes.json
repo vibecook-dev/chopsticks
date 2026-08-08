@@ -16,9 +16,9 @@
       "ephemeral": false,
       "historyMode": "legacy",
       "modelProvider": "openai",
-      "createdAt": 1783980507,
-      "updatedAt": 1783980507,
-      "recencyAt": 1783980507,
+      "createdAt": 1767225600000,
+      "updatedAt": 1767225600000,
+      "recencyAt": 1767225600000,
       "status": {
         "type": "idle"
       },
@@ -56,7 +56,7 @@
       "itemsView": "notLoaded",
       "status": "inProgress",
       "error": null,
-      "startedAt": 1783980507,
+      "startedAt": 1767225600000,
       "completedAt": null,
       "durationMs": null
     }
@@ -76,7 +76,7 @@
     },
     "threadId": "a11a5ed0-40bf-4570-bd0d-26003ecee58d",
     "turnId": "a11a5ed0-bcb5-40f4-8c89-ecb2cbac2eb1",
-    "startedAtMs": 1783980508911
+    "startedAtMs": 1767225600000
   },
   "item/completed": {
     "item": {
@@ -93,7 +93,7 @@
     },
     "threadId": "a11a5ed0-40bf-4570-bd0d-26003ecee58d",
     "turnId": "a11a5ed0-bcb5-40f4-8c89-ecb2cbac2eb1",
-    "completedAtMs": 1783980508911
+    "completedAtMs": 1767225600000
   },
   "item/agentMessage/delta": {
     "threadId": "a11a5ed0-40bf-4570-bd0d-26003ecee58d",
@@ -129,7 +129,7 @@
       "primary": {
         "usedPercent": 14,
         "windowDurationMins": 10080,
-        "resetsAt": 1784527702
+        "resetsAt": 1767225600000
       },
       "secondary": null,
       "credits": null,
@@ -146,8 +146,8 @@
       "itemsView": "notLoaded",
       "status": "completed",
       "error": null,
-      "startedAt": 1783980507,
-      "completedAt": 1783980510,
+      "startedAt": 1767225600000,
+      "completedAt": 1767225600000,
       "durationMs": 2480
     }
   }

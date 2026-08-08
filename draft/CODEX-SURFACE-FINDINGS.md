@@ -339,3 +339,115 @@ That yields the ground truth for the fake provider, after which the hermetic
 lane replays those bytes forever at zero cost. Reading codex's own response
 parser in openai/codex is the alternative, and is determinate rather than
 guesswork — but the recorded bytes are useful regardless.
+
+## C1d — The hermetic blocker, solved (2026-08-08)
+
+**C1c was wrong about the layer.** It concluded the tool call was "silently
+discarded specifically in non-message item parsing", and ruled out eight
+hypotheses on that basis. All eight were probing the wrong thing: the item was
+parsing correctly the whole time.
+
+### How it was found
+
+`strings` on the codex binary (210 MB, `@openai/codex-darwin-arm64`) shows the
+parser logs `failed to parse ResponseItem from output_item.done` on a parse
+failure — and that **`RUST_LOG` is honoured**. Running the existing probe with
+`RUST_LOG=codex_core=debug` produced no parse error at all, and instead:
+
+```
+ERROR codex_core::tools::router: error=request_user_input is unavailable in Default mode
+```
+
+The call reached the **tool router**, which rejected it. The rejection goes to
+the log and is never surfaced on the app-server protocol, which is why every
+earlier probe saw a clean turn with no error. **A silent failure in the protocol
+was a loud one in the log.**
+
+The lesson generalises: probe a vendor with its own diagnostics turned on before
+inferring behaviour from what its protocol does not say.
+
+### The actual requirements for a tool call from a fake provider
+
+1. `exec` is `"type": "custom"`, and its declared `format` is a **lark grammar**:
+   the `input` is raw JavaScript source, evaluated in a fresh V8 isolate as an
+   async module. Nested tools hang off a global `tools` object.
+2. **Nested tool arguments are the trap.** `await tools.exec_command({cmd: [...]})`
+   fails with `invalid type: sequence, expected a string at line 1 column 7` —
+   `cmd` is a **string**, not an argv array. With
+   `await tools.exec_command({cmd: "echo hi"})` the turn produces a real
+   `commandExecution` item.
+3. `namespace` on the item is **not** required (the hypothesis that came out of
+   the `ResponseItem` field table was wrong; it parsed fine without it).
+4. `request_user_input` is gated: *"unavailable in Default mode"*. There is a
+   `tools.experimental_request_user_input` config key.
+
+### The approval round-trip — CAPTURED (C0 §6 #6, open since 2026-07-13)
+
+Trusted commands are auto-approved even under `approvalPolicy: "untrusted"`, so
+`echo` never escalates. A **non-allowlisted** command does:
+`sandbox: "read-only"` + `curl` produces
+`item/commandExecution/requestApproval`.
+
+```json
+{
+  "threadId": "…", "turnId": "…", "itemId": "exec-…",
+  "startedAtMs": 1786207320888, "environmentId": "local",
+  "command": "/bin/zsh -lc 'curl -s https://example.com'",
+  "cwd": "…",
+  "commandActions": [{ "type": "unknown", "command": "curl -s https://example.com" }],
+  "proposedExecpolicyAmendment": ["curl", "-s", "https://example.com"],
+  "availableDecisions": [
+    "accept",
+    { "acceptWithExecpolicyAmendment": { "execpolicy_amendment": ["curl","-s","https://example.com"] } },
+    "cancel"
+  ]
+}
+```
+
+**`availableDecisions` ships on the stable surface**, not just under
+`--experimental` as C1b recorded. The vendor enumerates its own legal decisions
+in the request — an adapter should read them rather than hard-code a table.
+
+**`cancel` and `decline` are both accepted but are NOT synonyms:**
+
+| reply | item status | turn |
+| --- | --- | --- |
+| `{"decision":"accept"}` | `failed`, `exitCode: 6` (sandbox blocked the network) | continues |
+| `{"decision":"cancel"}` | `declined` | **ends** — no `agentMessage` follows |
+| `{"decision":"decline"}` | `declined` | continues to `agentMessage` |
+
+`decline` is absent from `availableDecisions` yet accepted, which is C1b finding
+#3 again: **the enumerated surface is not the whole accepted surface**, in both
+directions. For "deny this command but let the agent keep working" — the useful
+default — `decline` is correct and `cancel` is wrong.
+
+The completed item confirms two I3 corrections against real bytes:
+`aggregatedOutput` (not `output`) and a real `exitCode`.
+
+### Consequence
+
+The census is now **fully hermetic**: turn, token usage, rate limits, tool
+execution, and both approval outcomes, with no account and no tokens spent. The
+credentialed bootstrap turn recommended at the end of C1c is **no longer
+needed**.
+
+### A leak the automated check could not see
+
+Sanitizing the first census output produced a clean report while
+`startedAtMs: 1786207526734` sat in the committed fixture. Every value-level
+rule in the sanitizer operates on **strings**; a wall-clock timestamp is a
+**number**, so it walked past all of them — while the UUIDv7 ids beside it were
+being aliased into synthetic v4s specifically to destroy the clock they encode.
+The redaction and the leak were the same fact, handled in one place and missed
+in the other.
+
+`SanitizerRules` gained `timestampKey`, with both halves — the redactor pins
+matching numeric values to `REDACTED_EPOCH_MS` (2026-01-01T00:00:00Z, not 0, so
+fixtures stay shape-faithful), and the detector reports an unpinned clock.
+
+Turning the detector on immediately failed the repo's capture gate with **20
+real leaks in `probe/codex/c1-appserver-capture.jsonl` and
+`c1-notification-shapes.json`** — the files C1b flagged as committed raw to a
+public repo. Both are now sanitized and the gate is clean. That is twice this
+capture has been found leaking by a rule written for something else, which is
+the argument for the sanitizer's deliberately broad defaults.
