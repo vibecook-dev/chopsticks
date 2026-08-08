@@ -1,0 +1,24 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "thread/compacted",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "trigger": "Deprecated: Use `ContextCompaction` item type instead.",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "threadId": {
+        "type": "string"
+      },
+      "turnId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "threadId",
+      "turnId"
+    ]
+  },
+  "confidence": "unverified"
+}

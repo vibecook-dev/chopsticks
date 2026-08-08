@@ -359,7 +359,7 @@ The full design is §9. The sequencing that replaces the old "blocked" note is �
 | --- | --- | --- | --- |
 | **I0** | Extract `packages/surface` (ASM runtime) out of `packages/emulator`. Nothing else moves. | `pnpm test` green, `surface:audit` clean, PoC still runs end to end | **done 2026-08-07** |
 | **I1** | Imposter skeleton, channel modules, persona loader, op timeline, headless session, CLI, claude persona. **No control channel yet.** | conformance green against `ai` instead of `bin.mjs` | **done 2026-08-07** |
-| **I1.5** | Codex survey + model (§9). Ordered: capture envelope + sanitizer → committed harness → hermetic capture (approvals and tools FIRST) → `generate-model.mjs` → `surface/model/codex@0.147.0`. **Hermetic, not `CODEX_LIVE`** — a fake local provider drives a full turn offline. | Model validates; approval round-trip captured; harness committed; `diff(vendor schema, model)` clean | **blocks I2** |
+| **I1.5** | Codex survey + model (§9). Ordered: capture envelope + sanitizer → committed harness → hermetic capture (approvals and tools FIRST) → `generate-model.mjs` → `surface/model/codex@0.147.0`. **Hermetic, not `CODEX_LIVE`** — a fake local provider drives a full turn offline. | Model validates; approval round-trip captured; harness committed; `diff(vendor schema, model)` clean | **done 2026-08-08** |
 | **I2** | Claude **and** codex runtimes — hook/transcript/statusline channels, and the app-server JSON-RPC channel | Both conform hermetically in CI; ops map cleanly onto both families, or the vocabulary is revised until they do | |
 | **I3** | Control channel, both sides at once: UDS client in the imposter **and** the plane rewritten at its new home in `apps/emulator`. Delete state file, bin-side HTTP server, `prune()`, console poll. Push-based log. | §6.4 flow works over one socket; `scenario.control` pause/step lands | **done 2026-08-08** |
 | **I4** | Ink TUI behind `isTTY`; `ai shims install`; delete `bin.mjs` and `packages/emulator`; a `synthetic` persona (**not** an absorbed `fake-agent.mjs` — see §7.4); update EMULATOR.md + ADAPTING-AN-AGENT.md | godview panes show imposter chrome; no doc still describes per-adapter bins | **done 2026-08-08** |
@@ -549,13 +549,21 @@ to prefer codex over claude's absence-pattern) → `generate-model.mjs` → pers
 `interactive-census.mjs` survives only inside `git show 1eea6db^:…`. Both times the output survived
 and the tool that made it did not. Committing the harness is an exit criterion.
 
-### 9.7 Still unobserved
+### 9.7 Observed at last (2026-08-08)
 
-The **approval round-trip has never been captured** — it is confirmed from schema and vendor README
-only. That is precisely where the adapter's defects live, so it is the first scenario the census
-must produce. `codex exec --json` and `codex mcp-server` were both evaluated as alternative capture
-surfaces and rejected: different naming schemes, fewer events, and no schema generator.
+The **approval round-trip is captured**, hermetically: `captures/codex@0.147.0/approval-{accept,decline}.jsonl`. It had been schema-and-README-only since 2026-07-13.
 
+What unblocked it was not a credentialed turn but `RUST_LOG`. Codex rejects a tool call in its **tool router** and reports that only to its log, never on the app-server protocol. Two sessions had concluded the item was failing to parse and ruled out eight hypotheses on that basis — all of them the wrong layer. See CODEX-SURFACE-FINDINGS C1d.
+
+Three things the census settled, none of them guessable from the schema:
+
+- `exec` is a **custom** tool taking raw JavaScript, and `exec_command`s `cmd` is a **string**, not an argv array.
+- Trusted commands auto-approve even under `approvalPolicy: untrusted`; an approval needs a non-allowlisted command under a `read-only` sandbox.
+- `cancel` and `decline` are both accepted but differ — `cancel` ends the turn, `decline` lets the agent continue. The adapters `decline` is therefore right, now on evidence rather than inference.
+
+`codex exec --json` and `codex mcp-server` were both evaluated as alternative capture surfaces and rejected: different naming schemes, fewer events, and no schema generator.
+
+**Still unobserved:** `item/fileChange/requestApproval` (the patch-approval path), MCP tool calls, and subagent activity. 70 of the 81 modelled methods are `unverified`, and say so.
 ---
 
 ## 10. Non-goals

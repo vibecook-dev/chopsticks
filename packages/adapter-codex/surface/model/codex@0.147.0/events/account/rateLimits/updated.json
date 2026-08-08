@@ -1,0 +1,22 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "account/rateLimits/updated",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "rateLimits": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "rateLimits"
+    ]
+  },
+  "confidence": "verified-headless",
+  "firstSeen": "0.147.0",
+  "lastVerified": "0.147.0",
+  "fixture": "captures/codex@0.147.0/approval-accept.jsonl"
+}

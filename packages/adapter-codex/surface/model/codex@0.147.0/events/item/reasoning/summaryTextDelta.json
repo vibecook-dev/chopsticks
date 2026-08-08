@@ -1,0 +1,35 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "item/reasoning/summaryTextDelta",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "delta": {
+        "type": "string"
+      },
+      "itemId": {
+        "type": "string"
+      },
+      "summaryIndex": {
+        "type": "number"
+      },
+      "threadId": {
+        "type": "string"
+      },
+      "turnId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "delta",
+      "itemId",
+      "summaryIndex",
+      "threadId",
+      "turnId"
+    ]
+  },
+  "confidence": "unverified"
+}

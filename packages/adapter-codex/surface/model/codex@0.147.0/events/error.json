@@ -1,0 +1,32 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "error",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "trigger": "NEW NOTIFICATIONS",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "error": {
+        "type": "object"
+      },
+      "threadId": {
+        "type": "string"
+      },
+      "turnId": {
+        "type": "string"
+      },
+      "willRetry": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "error",
+      "threadId",
+      "turnId",
+      "willRetry"
+    ]
+  },
+  "confidence": "unverified"
+}

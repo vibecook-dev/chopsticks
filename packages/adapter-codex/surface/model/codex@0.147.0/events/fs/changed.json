@@ -1,0 +1,23 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "fs/changed",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "changedPaths": {
+        "type": "array"
+      },
+      "watchId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "changedPaths",
+      "watchId"
+    ]
+  },
+  "confidence": "unverified"
+}

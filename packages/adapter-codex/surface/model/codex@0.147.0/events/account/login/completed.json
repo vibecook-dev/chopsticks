@@ -1,0 +1,22 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "account/login/completed",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "error": {},
+      "loginId": {},
+      "onboardingEntrypoint": {},
+      "success": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "success"
+    ]
+  },
+  "confidence": "unverified"
+}

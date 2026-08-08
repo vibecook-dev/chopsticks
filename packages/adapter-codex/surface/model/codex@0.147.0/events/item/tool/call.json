@@ -1,0 +1,35 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "item/tool/call",
+  "channel": "appserver",
+  "transport": "jsonrpc-request",
+  "trigger": "Execute a dynamic tool call on the client.",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "arguments": {},
+      "callId": {
+        "type": "string"
+      },
+      "namespace": {},
+      "threadId": {
+        "type": "string"
+      },
+      "tool": {
+        "type": "string"
+      },
+      "turnId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "arguments",
+      "callId",
+      "threadId",
+      "tool",
+      "turnId"
+    ]
+  },
+  "confidence": "unverified"
+}

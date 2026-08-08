@@ -1,0 +1,34 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "item/completed",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "completedAtMs": {
+        "type": "number"
+      },
+      "item": {
+        "type": "object"
+      },
+      "threadId": {
+        "type": "string"
+      },
+      "turnId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "completedAtMs",
+      "item",
+      "threadId",
+      "turnId"
+    ]
+  },
+  "confidence": "verified-headless",
+  "firstSeen": "0.147.0",
+  "lastVerified": "0.147.0",
+  "fixture": "captures/codex@0.147.0/approval-accept.jsonl"
+}

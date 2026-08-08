@@ -239,6 +239,9 @@ importers:
         specifier: workspace:*
         version: link:../core
     devDependencies:
+      '@vibecook/chopsticks-surface':
+        specifier: workspace:*
+        version: link:../surface
       '@vibecook/chopsticks-testing':
         specifier: workspace:*
         version: link:../testing

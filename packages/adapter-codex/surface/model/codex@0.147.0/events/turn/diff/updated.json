@@ -1,0 +1,27 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "turn/diff/updated",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "diff": {
+        "type": "string"
+      },
+      "threadId": {
+        "type": "string"
+      },
+      "turnId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "diff",
+      "threadId",
+      "turnId"
+    ]
+  },
+  "confidence": "unverified"
+}

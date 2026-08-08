@@ -1,0 +1,23 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "thread/environment/connected",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "environmentId": {
+        "type": "string"
+      },
+      "threadId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "environmentId",
+      "threadId"
+    ]
+  },
+  "confidence": "unverified"
+}

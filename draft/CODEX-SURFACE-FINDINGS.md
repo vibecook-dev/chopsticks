@@ -404,9 +404,18 @@ Trusted commands are auto-approved even under `approvalPolicy: "untrusted"`, so
 }
 ```
 
-**`availableDecisions` ships on the stable surface**, not just under
-`--experimental` as C1b recorded. The vendor enumerates its own legal decisions
-in the request — an adapter should read them rather than hard-code a table.
+**The runtime sends `availableDecisions`; the stable schema does not declare it.**
+An earlier draft of this section said it "ships on the stable surface, not just
+under `--experimental` as C1b recorded" — that was wrong, and C1b was right.
+Measured directly: stable declares 13 properties on
+`CommandExecutionRequestApprovalParams`, `--experimental` declares 15 including
+`availableDecisions`, and the wire carries it either way. This is C1b finding #3
+again — the runtime surface is wider than the documented one — and it decides
+which schema variant the ASM is generated from: **`--experimental`**, because a
+model built from stable would omit a field the adapter must read.
+
+The vendor enumerating its own legal decisions in the request is the useful
+part: an adapter should read them rather than hard-code a table.
 
 **`cancel` and `decline` are both accepted but are NOT synonyms:**
 

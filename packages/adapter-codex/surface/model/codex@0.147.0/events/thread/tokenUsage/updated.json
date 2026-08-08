@@ -1,0 +1,30 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "thread/tokenUsage/updated",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "threadId": {
+        "type": "string"
+      },
+      "tokenUsage": {
+        "type": "object"
+      },
+      "turnId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "threadId",
+      "tokenUsage",
+      "turnId"
+    ]
+  },
+  "confidence": "verified-headless",
+  "firstSeen": "0.147.0",
+  "lastVerified": "0.147.0",
+  "fixture": "captures/codex@0.147.0/approval-accept.jsonl"
+}

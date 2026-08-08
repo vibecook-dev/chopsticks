@@ -1,0 +1,35 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "model/rerouted",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "fromModel": {
+        "type": "string"
+      },
+      "reason": {
+        "type": "string"
+      },
+      "threadId": {
+        "type": "string"
+      },
+      "toModel": {
+        "type": "string"
+      },
+      "turnId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "fromModel",
+      "reason",
+      "threadId",
+      "toModel",
+      "turnId"
+    ]
+  },
+  "confidence": "unverified"
+}

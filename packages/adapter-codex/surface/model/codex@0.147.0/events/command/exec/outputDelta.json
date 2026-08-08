@@ -1,0 +1,30 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "command/exec/outputDelta",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "trigger": "Stream base64-encoded stdout/stderr chunks for a running `command/exec` session.",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "capReached": {
+        "type": "boolean"
+      },
+      "deltaBase64": {
+        "type": "string"
+      },
+      "processId": {
+        "type": "string"
+      },
+      "stream": {}
+    },
+    "required": [
+      "capReached",
+      "deltaBase64",
+      "processId",
+      "stream"
+    ]
+  },
+  "confidence": "unverified"
+}

@@ -1,0 +1,24 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "thread/realtime/started",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "realtimeSessionId": {},
+      "threadId": {
+        "type": "string"
+      },
+      "version": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "threadId",
+      "version"
+    ]
+  },
+  "confidence": "unverified"
+}

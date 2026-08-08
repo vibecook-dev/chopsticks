@@ -1,0 +1,28 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "windows/worldWritableWarning",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "trigger": "Notifies the user of world-writable directories on Windows, which cannot be protected by the sandbox.",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "extraCount": {
+        "type": "number"
+      },
+      "failedScan": {
+        "type": "boolean"
+      },
+      "samplePaths": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "extraCount",
+      "failedScan",
+      "samplePaths"
+    ]
+  },
+  "confidence": "unverified"
+}

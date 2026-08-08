@@ -1,0 +1,26 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "mcpServer/startupStatus/updated",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "error": {},
+      "failureReason": {},
+      "name": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string"
+      },
+      "threadId": {}
+    },
+    "required": [
+      "name",
+      "status"
+    ]
+  },
+  "confidence": "unverified"
+}

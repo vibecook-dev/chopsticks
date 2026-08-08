@@ -1,0 +1,25 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "mcpServer/oauthLogin/completed",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "error": {},
+      "name": {
+        "type": "string"
+      },
+      "success": {
+        "type": "boolean"
+      },
+      "threadId": {}
+    },
+    "required": [
+      "name",
+      "success"
+    ]
+  },
+  "confidence": "unverified"
+}

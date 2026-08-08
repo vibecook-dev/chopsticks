@@ -1,0 +1,31 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "remoteControl/status/changed",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "environmentId": {},
+      "installationId": {
+        "type": "string"
+      },
+      "serverName": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "installationId",
+      "serverName",
+      "status"
+    ]
+  },
+  "confidence": "verified-headless",
+  "firstSeen": "0.147.0",
+  "lastVerified": "0.147.0",
+  "fixture": "captures/codex@0.147.0/approval-accept.jsonl"
+}

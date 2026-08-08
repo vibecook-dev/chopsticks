@@ -1,0 +1,42 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "item/permissions/requestApproval",
+  "channel": "appserver",
+  "transport": "jsonrpc-request",
+  "trigger": "Request approval for additional permissions from the user.",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "cwd": {
+        "type": "string"
+      },
+      "environmentId": {},
+      "itemId": {
+        "type": "string"
+      },
+      "permissions": {
+        "type": "object"
+      },
+      "reason": {},
+      "startedAtMs": {
+        "type": "number"
+      },
+      "threadId": {
+        "type": "string"
+      },
+      "turnId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "cwd",
+      "itemId",
+      "permissions",
+      "startedAtMs",
+      "threadId",
+      "turnId"
+    ]
+  },
+  "confidence": "unverified"
+}

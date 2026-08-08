@@ -47,39 +47,45 @@ export const codexRules = extendRules(
   defaultRules,
 );
 
-const argv = process.argv.slice(2);
-const flag = (name) => {
-  const index = argv.indexOf(name);
-  return index >= 0 ? argv[index + 1] : undefined;
-};
-const input = flag('--in') ?? join(surfaceRoot, 'captures-raw', `codex@${CODEX_VERSION}`);
-const output = flag('--out') ?? join(surfaceRoot, 'captures', `codex@${CODEX_VERSION}`);
+// Only the CLI runs; `audit.mjs` imports this module purely for `codexRules`,
+// and an import that silently rewrote the committed fixtures would be a nasty
+// surprise inside a check that is supposed to only read them.
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const argv = process.argv.slice(2);
+  const flag = (name) => {
+    const index = argv.indexOf(name);
+    return index >= 0 ? argv[index + 1] : undefined;
+  };
+  const input = flag('--in') ?? join(surfaceRoot, 'captures-raw', `codex@${CODEX_VERSION}`);
+  const output = flag('--out') ?? join(surfaceRoot, 'captures', `codex@${CODEX_VERSION}`);
 
-if (argv.includes('--check-only')) {
-  const issues = checkCaptureDirectory(output, codexRules);
-  for (const issue of issues.slice(0, 20)) console.error(issue);
-  console.log(issues.length === 0 ? `clean: ${output}` : `${issues.length} issue(s) in ${output}`);
-  process.exit(issues.length === 0 ? 0 : 1);
-}
+  if (argv.includes('--check-only')) {
+    const issues = checkCaptureDirectory(output, codexRules);
+    for (const issue of issues.slice(0, 20)) console.error(issue);
+    console.log(issues.length === 0 ? `clean: ${output}` : `${issues.length} issue(s) in ${output}`);
+    process.exit(issues.length === 0 ? 0 : 1);
+  }
 
-// Write to a staging directory first: a capture set that fails the check must
-// never land in the committed tree, not even briefly.
-const staging = `${output}.staging`;
-rmSync(staging, { recursive: true, force: true });
-mkdirSync(staging, { recursive: true });
-
-const result = sanitizeCaptureDirectory(input, staging, codexRules);
-const issues = checkCaptureDirectory(staging, codexRules);
-if (issues.length > 0) {
-  for (const issue of issues.slice(0, 20)) console.error(issue);
+  // Write to a staging directory first: a capture set that fails the check must
+  // never land in the committed tree, not even briefly.
+  const staging = `${output}.staging`;
   rmSync(staging, { recursive: true, force: true });
-  console.error(`\n${issues.length} issue(s) — nothing was written. Fix the rules, not the check.`);
-  process.exit(1);
-}
+  mkdirSync(staging, { recursive: true });
 
-rmSync(output, { recursive: true, force: true });
-mkdirSync(dirname(output), { recursive: true });
-const { renameSync } = await import('node:fs');
-renameSync(staging, output);
-console.log(`sanitized ${result.files} file(s), ${result.lines} line(s) -> ${output}`);
-console.log('privacy check: clean');
+  const result = sanitizeCaptureDirectory(input, staging, codexRules);
+  const issues = checkCaptureDirectory(staging, codexRules);
+  if (issues.length > 0) {
+    for (const issue of issues.slice(0, 20)) console.error(issue);
+    rmSync(staging, { recursive: true, force: true });
+    console.error(`\n${issues.length} issue(s) — nothing was written. Fix the rules, not the check.`);
+    process.exit(1);
+  }
+
+  rmSync(output, { recursive: true, force: true });
+  mkdirSync(dirname(output), { recursive: true });
+  const { renameSync } = await import('node:fs');
+  renameSync(staging, output);
+  console.log(`sanitized ${result.files} file(s), ${result.lines} line(s) -> ${output}`);
+  console.log('privacy check: clean');
+
+}

@@ -1,0 +1,26 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "turn/completed",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "threadId": {
+        "type": "string"
+      },
+      "turn": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "threadId",
+      "turn"
+    ]
+  },
+  "confidence": "verified-headless",
+  "firstSeen": "0.147.0",
+  "lastVerified": "0.147.0",
+  "fixture": "captures/codex@0.147.0/approval-accept.jsonl"
+}

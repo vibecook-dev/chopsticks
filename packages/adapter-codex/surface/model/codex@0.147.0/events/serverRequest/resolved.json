@@ -1,0 +1,24 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "serverRequest/resolved",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "requestId": {},
+      "threadId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "requestId",
+      "threadId"
+    ]
+  },
+  "confidence": "verified-headless",
+  "firstSeen": "0.147.0",
+  "lastVerified": "0.147.0",
+  "fixture": "captures/codex@0.147.0/approval-accept.jsonl"
+}

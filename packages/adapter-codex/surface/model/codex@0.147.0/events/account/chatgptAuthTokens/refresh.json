@@ -1,0 +1,20 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "account/chatgptAuthTokens/refresh",
+  "channel": "appserver",
+  "transport": "jsonrpc-request",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "previousAccountId": {},
+      "reason": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "reason"
+    ]
+  },
+  "confidence": "unverified"
+}

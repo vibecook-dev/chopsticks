@@ -265,6 +265,26 @@ function validatePayloadSchema(path: string, value: unknown): PayloadSchema {
 }
 
 /** Load a model directory (manifest/detection/channels/events/*.json). Throws on malformed input. */
+/**
+ * Event documents, with the event name each one must declare.
+ *
+ * The tree mirrors the vendor's own namespace: `events/thread/started.json` is
+ * `thread/started`. Flat vendors are the degenerate case, so claude's
+ * `events/Stop.json` is unaffected. This exists because JSON-RPC families name
+ * their methods with `/` — `item/commandExecution/requestApproval` cannot be a
+ * filename, and encoding the slash away would put a name in the model that the
+ * vendor never uses.
+ */
+function eventDocumentFiles(dir: string, prefix = ''): Array<{ path: string; name: string }> {
+  const found: Array<{ path: string; name: string }> = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) found.push(...eventDocumentFiles(path, `${prefix}${entry.name}/`));
+    else if (entry.name.endsWith('.json')) found.push({ path, name: `${prefix}${basename(entry.name, '.json')}` });
+  }
+  return found;
+}
+
 export function loadModel(dir: string): SurfaceModel {
   const manifestPath = join(dir, 'manifest.json');
   const manifest = requireObject(manifestPath, readJsonFile(manifestPath));
@@ -317,9 +337,7 @@ export function loadModel(dir: string): SurfaceModel {
   const eventsDir = join(dir, 'events');
   const events: SurfaceEventFile[] = [];
   const eventNames = new Set<string>();
-  for (const file of readdirSync(eventsDir)) {
-    if (!file.endsWith('.json')) continue;
-    const path = join(eventsDir, file);
+  for (const { path, name } of eventDocumentFiles(eventsDir)) {
     const event = requireObject(path, readJsonFile(path));
     requireFields(path, event, ['surface', 'surfaceVersion', 'event', 'channel', 'confidence']);
     const surface = requireString(path, event, 'surface');
@@ -330,8 +348,8 @@ export function loadModel(dir: string): SurfaceModel {
     if (surface !== vendor || surfaceVersion !== vendorVersion) {
       throw new Error(`ASM: ${path} surface identity does not match manifest ${vendor}@${vendorVersion}`);
     }
-    if (basename(file, '.json') !== eventName) {
-      throw new Error(`ASM: ${path} filename does not match event "${eventName}"`);
+    if (name !== eventName) {
+      throw new Error(`ASM: ${path} path does not match event "${eventName}"`);
     }
     if (eventNames.has(eventName)) throw new Error(`ASM: duplicate event "${eventName}"`);
     eventNames.add(eventName);
