@@ -274,7 +274,7 @@ Persona resolution, in order: **argv0** → `--<vendor>` flag → `AI_PERSONA` e
 
 `ai shims install --dir <d>` writes `claude`, `codex`, … symlinks pointing at `ai`. Prepend that directory to PATH and **godview needs no changes at all** — the adapter's normal recipe finds `claude`, detection probes answer from `detection.json`, and the session spawns. Those names shadow the real binaries, which is the point of that mode and the reason it is opt-in.
 
-`ai link` is the other half, and the one to reach for first: it symlinks `ai` and `imposter` into a directory that is **already on PATH**, so there is no follow-up step. See §11.1; the serve/interactive fork also comes from argv rather than from the persona.
+Getting `ai` ITSELF onto PATH is not this tool's job: `pnpm add --global ./packages/imposter` from a checkout, or an ordinary global install once published, both work off the package's `bin` field. See §11.1; the serve/interactive fork also comes from argv rather than from the persona.
 
 `apps/godview/src/shim/agent-shim.ts` is the working reference: argv0 dispatch (`shimPath.split('/').at(-1)`), PATH cleaning to avoid recursion, `process.execve` replacement. Reuse its shape; note it is POSIX-only (`execve`), so the imposter's shims spawn rather than exec on Windows.
 
@@ -372,7 +372,7 @@ The full design is §9. The sequencing that replaces the old "blocked" note is �
 | **I2** | Claude **and** codex runtimes — hook/transcript/statusline channels, and the app-server JSON-RPC channel | Both conform hermetically in CI; ops map cleanly onto both families, or the vocabulary is revised until they do | **done 2026-08-08** |
 | **I3** | Control channel, both sides at once: UDS client in the imposter **and** the plane rewritten at its new home in `apps/emulator`. Delete state file, bin-side HTTP server, `prune()`, console poll. Push-based log. | §6.4 flow works over one socket; `scenario.control` pause/step lands | **done 2026-08-08** |
 | **I4** | Ink TUI behind `isTTY`; `ai shims install`; delete `bin.mjs` and `packages/emulator`; a `synthetic` persona (**not** an absorbed `fake-agent.mjs` — see §7.4); update EMULATOR.md + ADAPTING-AN-AGENT.md | godview panes show imposter chrome; no doc still describes per-adapter bins | **done 2026-08-08** |
-| **I5** | The lifecycle machine (§11) and the console rebuilt around it; `ai link` + serve mode from argv (§11.1); `ai --claude` in a Godview pane (§11.2); the chrome redrawn — rounded frame, ghost, violet/blue | Clicking an op in the console transitions the graph and the reducer sees the traffic; the drawing cannot disagree with the machine | **done 2026-08-08** |
+| **I5** | The lifecycle machine (§11) and the console rebuilt around it; `ai` on PATH + serve mode from argv (§11.1); `ai --claude` in a Godview pane (§11.2); the chrome redrawn — rounded frame, ghost, violet/blue | Clicking an op in the console transitions the graph and the reducer sees the traffic; the drawing cannot disagree with the machine | **done 2026-08-08** |
 
 I0 is a refactor that can land on its own and de-risks everything after it. I1–I2 are load-bearing. I3 is mostly deletion. I4 is chrome plus paperwork.
 
@@ -613,17 +613,15 @@ Three properties carry the design:
 
 **Cost.** xstate v5 imports in 6 ms for 5.6 MB RSS (node 26.5, measured 2026-08-08) — an eighth of Ink's 40 MB, and unlike Ink it is wanted in every mode, so it is a static import rather than a dynamic one.
 
-### 11.1 CLI: `ai link`, and serve mode from argv
+### 11.1 CLI: getting `ai` on PATH, and serve mode from argv
 
 Two changes make `ai` a command you can actually run.
 
-**`ai link`** symlinks `ai` and `imposter` into the first directory that is **already on PATH and writable** — `$PNPM_HOME`, then the npm global bin, then `~/.local/bin` — falling back to `~/.chopsticks/bin` only when none of them qualifies. `ai shims install` keeps writing *vendor* names into `~/.chopsticks/shims`, which does shadow the real binaries wherever it is prepended; that is the point of it, but it is a separate, clearly-labelled act rather than the only way to reach the tool.
+**`ai` reaches PATH through the package manager, not through us.** `pnpm add --global ./packages/imposter` from a checkout — it resolves the `workspace:*` dependencies because the global install symlinks back into the repo, so edits stay live — or an ordinary global install once published. Both work off the `bin` field the package already declares.
 
-The first version installed into a fresh `~/.chopsticks/bin` and printed an export line, reasoning that a directory of our own shadows nothing. Correct constraint, wrong conclusion: `ai` and `imposter` shadow nothing *wherever they live* — the shadowing `~/.chopsticks/shims` exists to contain is a property of the VENDOR names, not of the directory. So the isolation bought nothing and cost the only thing that mattered, which is being on PATH. `pnpm link --global` "just works" for exactly this reason: `pnpm setup` already put its global bin there. Reported 2026-08-08 with `ai: command not found` immediately after a successful link.
+An `ai link` command lived here for a few hours and was deleted. It wrote symlinks into `~/.chopsticks/bin`, reasoning that a directory of our own shadows nothing — correct constraint, wrong conclusion, since `ai` and `imposter` shadow nothing *wherever* they live. The shadowing `~/.chopsticks/shims` exists to contain is a property of the VENDOR names. So the isolation bought nothing and cost the only thing that mattered: `ai: command not found` immediately followed a successful link (reported 2026-08-08). Rewriting it to guess a directory already on PATH only made it worse — it squatted in pnpm's global bin behind pnpm's back. The lesson is narrow and worth keeping: **do not reimplement the package manager**; a `bin` field and one install command already solve this.
 
-The message now tells the truth about what is left to do — "already on your PATH" or "NOT on your PATH yet", decided by looking rather than by printing an export line either way.
-
-**Serve mode comes from argv, not from the persona.** `serve.json`'s `$server.command` names the vendor subcommand that turns the binary into a server, and the fork is taken only when argv asks for it: `ai --codex app-server` speaks the protocol, bare `ai --codex` opens the shared chrome. The real vendor works exactly this way, and an imposter that always served failed the most visible faithfulness test there is — you could not run it by hand. A serve persona run interactively reports its app-server channel **detached**, because nothing is attached to it; the ops run and reach no wire, which is the truth of the mode.
+`ai shims install` stays, because no package manager does that job: it puts VENDOR names on PATH so an unmodified product app launches the imposter through its own launch recipe.
 
 ### 11.2 Godview panes
 

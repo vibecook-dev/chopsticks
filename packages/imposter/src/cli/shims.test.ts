@@ -7,21 +7,12 @@
  * launch recipe finds it (draft/IMPOSTER.md §6).
  */
 import { execFileSync } from 'node:child_process';
-import { chmodSync, lstatSync, mkdtempSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import {
-  defaultShimDirectory,
-  fallbackBinDirectory,
-  imposterBinPath,
-  installSelf,
-  installShims,
-  listShims,
-  preferredBinDirectory,
-  runLinkCommand,
-  runShimsCommand,
-} from './shims.ts';
+import { defaultShimDirectory, imposterBinPath, installShims, listShims, runShimsCommand } from './shims.ts';
 
 const temporaries: string[] = [];
 afterEach(() => {
@@ -99,88 +90,19 @@ describe('ai shims install', () => {
   });
 });
 
-describe('ai link', () => {
-  it('installs only the tool own names, so nothing on PATH is shadowed', () => {
-    const dir = temporaryDirectory();
-    const result = installSelf({ dir });
-    expect(result.written.map((entry) => entry.name)).toEqual(['ai', 'imposter']);
-    // The decisive property: no vendor name here, ever. A `claude` in this
-    // directory would silently replace the user's real Claude Code.
-    expect(result.written.every((entry) => entry.vendor === undefined)).toBe(true);
-    expect(fallbackBinDirectory()).not.toBe(defaultShimDirectory());
-  });
-
-  it('picks a directory that is already on PATH, which is why `pnpm link` just works', () => {
-    // The first version of this command installed into a fresh
-    // `~/.chopsticks/bin` and printed an export line — so `ai` was linked and
-    // `ai: command not found` was still the next thing that happened.
-    const onPath = temporaryDirectory();
-    expect(preferredBinDirectory({ PATH: `/nowhere:${onPath}`, PNPM_HOME: onPath })).toBe(onPath);
-
-    // A candidate that is NOT on PATH is not a candidate, however conventional.
-    const offPath = temporaryDirectory();
-    expect(preferredBinDirectory({ PATH: '/nowhere', PNPM_HOME: offPath })).toBe(fallbackBinDirectory());
-  });
-
-  it('skips a directory on PATH that it cannot write, rather than asking for sudo', () => {
-    const readOnly = temporaryDirectory();
-    const writable = temporaryDirectory();
-    chmodSync(readOnly, 0o500);
-    try {
-      expect(
-        preferredBinDirectory({ PATH: `${readOnly}:${writable}`, PNPM_HOME: readOnly, npm_config_prefix: undefined }),
-      ).toBe(fallbackBinDirectory());
-      // …and when a writable candidate is offered instead, it takes it.
-      expect(preferredBinDirectory({ PATH: `${readOnly}:${writable}`, PNPM_HOME: writable })).toBe(writable);
-    } finally {
-      chmodSync(readOnly, 0o700);
-    }
-  });
-
-  it.skipIf(!posix)('runs: a linked `ai` selects a persona from its flag', () => {
-    const dir = temporaryDirectory();
-    installSelf({ dir });
-    const output = execFileSync(join(dir, 'ai'), ['--claude', '--version'], { encoding: 'utf8' });
-    expect(output.trim()).toMatch(/Claude Code/);
-  });
-
-  it.skipIf(!posix)('refuses to run without a persona, rather than guessing one', () => {
-    const dir = temporaryDirectory();
-    installSelf({ dir });
-    // argv0 is `ai`, which is not a persona, and no flag was given.
-    expect(() =>
-      execFileSync(join(dir, 'ai'), ['--version'], { encoding: 'utf8', env: { PATH: process.env.PATH! } }),
-    ).toThrow(/no persona selected|Command failed/);
-  });
-
-  it('says there is still a step to take when the directory is not on PATH', () => {
-    const lines: string[] = [];
-    const code = runLinkCommand(['--dir', temporaryDirectory()], ((chunk: string) => {
-      lines.push(chunk);
-      return true;
-    }) as typeof process.stdout.write);
-    expect(code).toBe(0);
-    const output = lines.join('');
-    expect(output).toContain('export PATH=');
-    expect(output).toContain('ai --claude');
-    // "Add it to PATH" read as a note; this has to read as an instruction.
-    expect(output).toMatch(/NOT on your PATH/);
-  });
-
-  it('says nothing is left to do when the directory is already on PATH', () => {
-    const dir = temporaryDirectory();
-    process.env.PATH = `${dir}${delimiter}${process.env.PATH}`;
-    try {
-      const lines: string[] = [];
-      runLinkCommand(['--dir', dir], ((chunk: string) => {
-        lines.push(chunk);
-        return true;
-      }) as typeof process.stdout.write);
-      const output = lines.join('');
-      expect(output).toContain('already on your PATH');
-      expect(output).not.toContain('export PATH=');
-    } finally {
-      process.env.PATH = process.env.PATH!.slice(`${dir}${delimiter}`.length);
-    }
+describe('getting `ai` itself onto PATH', () => {
+  it('is the package manager job, declared by `bin`', () => {
+    // `pnpm add --global ./packages/imposter` from a checkout, or an ordinary
+    // global install once published, both work off this field alone — which is
+    // why there is no `ai link` command. One existed briefly and was deleted:
+    // it duplicated the package manager and installed into a directory that
+    // was on nobody's PATH, so `ai: command not found` followed a successful
+    // link (reported 2026-08-08).
+    const manifest = JSON.parse(
+      readFileSync(join(dirname(dirname(dirname(fileURLToPath(import.meta.url)))), 'package.json'), 'utf8'),
+    ) as { bin: Record<string, string> };
+    expect(manifest.bin).toEqual({ ai: './bin/ai.mjs', imposter: './bin/ai.mjs' });
+    // A bin the manager symlinks has to be executable on the other side of it.
+    expect(lstatSync(imposterBinPath()).mode & 0o111).toBeGreaterThan(0);
   });
 });
