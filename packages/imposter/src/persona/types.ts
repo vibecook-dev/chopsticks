@@ -12,6 +12,7 @@
  */
 
 import type { PayloadSchema, SurfaceModel } from '@vibecook/chopsticks-surface';
+import type { ServeDocument } from '../session/serve.ts';
 
 /**
  * The vendor-neutral op vocabulary (§2). Deliberately small and semantic: it
@@ -104,6 +105,12 @@ export interface PersonaDocument {
 
 export interface Persona {
   vendor: string;
+  /**
+   * The serve table, when this vendor is served rather than only emitted
+   * (§9.3). Its presence IS the trigger fork: a persona with one is an
+   * app-server, a persona without one is driven by pastes.
+   */
+  serve?: ServeDocument;
   version: string;
   document: PersonaDocument;
   model: SurfaceModel;

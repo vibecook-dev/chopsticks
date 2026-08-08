@@ -39,6 +39,9 @@ export function substitute(value: unknown, context: TemplateContext): unknown {
       return uuid;
     }
     if (value === '$now') return new Date().toISOString();
+    // Epoch milliseconds, because several codex params are typed as numbers
+    // (`startedAtMs`, `completedAtMs`) and an ISO string is off-model there.
+    if (value === '$nowMs') return Date.now();
     if (value.startsWith('$') && value.includes('.')) {
       const separator = value.indexOf('.');
       const scopeName = value.slice(1, separator);

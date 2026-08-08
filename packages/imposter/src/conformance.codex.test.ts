@@ -1,0 +1,146 @@
+/**
+ * Phase I2's exit criterion (draft/IMPOSTER.md §8): the codex family, driven by
+ * the REAL `adapter-codex` driver against `ai --codex app-server` as a spawned
+ * process. No codex binary, no account, no tokens.
+ *
+ * This is the claim §2 makes and §8 schedules the two families together to
+ * test: that one op vocabulary and one timeline serve a hook vendor and a
+ * JSON-RPC vendor, with only the TRIGGER differing. Everything here goes
+ * through `session.turn` → the same ops → the same timeline that claude uses;
+ * what changed is that the turn is started by an inbound RPC rather than by
+ * bytes on stdin.
+ *
+ * Note what codex does NOT have: a boot-ready signal. `personas/codex/ops.json`
+ * deliberately leaves `session.ready` unbound, because the real vendor has no
+ * notification for it — the reducer reaches `ready` on the first
+ * `turn/completed`. An imposter that invented one would be teaching the adapter
+ * something the vendor never says.
+ */
+import { spawn, type ChildProcess } from 'node:child_process';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { afterEach, describe, expect, it } from 'vitest';
+import type { AgentEventEnvelope } from '@vibecook/chopsticks-core';
+import { createCodexSession, type CodexSession } from '@vibecook/chopsticks-adapter-codex';
+
+const AI = join(dirname(dirname(fileURLToPath(import.meta.url))), 'bin', 'ai.mjs');
+
+const children = new Set<ChildProcess>();
+const temporaries = new Set<string>();
+let session: CodexSession | undefined;
+
+afterEach(async () => {
+  await session?.dispose().catch(() => undefined);
+  session = undefined;
+  for (const child of children) child.kill('SIGKILL');
+  children.clear();
+  for (const path of temporaries) rmSync(path, { recursive: true, force: true });
+  temporaries.clear();
+});
+
+async function waitFor(predicate: () => boolean, label: string, timeoutMs = 8000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`timed out waiting for ${label}`);
+}
+
+/** Spawn `ai --codex app-server` and drive it with the real adapter. */
+async function imposterSession(): Promise<{ session: CodexSession; events: AgentEventEnvelope[] }> {
+  const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'chopsticks-codex-imposter-')));
+  temporaries.add(cwd);
+
+  // The adapter's own transport, pointed at `ai`: it appends `app-server` and
+  // speaks NDJSON over stdio, exactly as it does to the real binary.
+  const child = spawn(process.execPath, [AI, '--codex', 'app-server'], {
+    cwd,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...process.env, CHOPSTICKS_IMPOSTER_HOME: cwd },
+  });
+  children.add(child);
+
+  const transport = {
+    send: (message: unknown) => {
+      if (child.stdin.writable) child.stdin.write(`${JSON.stringify(message)}\n`);
+    },
+    onMessage: (handler: (message: unknown) => void) => {
+      let buffer = '';
+      child.stdout.setEncoding('utf8');
+      child.stdout.on('data', (chunk: string) => {
+        buffer += chunk;
+        let index;
+        while ((index = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, index).trim();
+          buffer = buffer.slice(index + 1);
+          if (!line) continue;
+          try {
+            handler(JSON.parse(line));
+          } catch {
+            // Banner lines are not protocol, exactly as the real transport says.
+          }
+        }
+      });
+    },
+    onClose: (handler: (info: { code: number | null; signal: string | null }) => void) => {
+      child.on('exit', (code, signal) => handler({ code, signal }));
+    },
+    close: () => child.kill('SIGKILL'),
+  };
+
+  const live = await createCodexSession({ cwd, transport });
+  const events: AgentEventEnvelope[] = [];
+  live.onEvent((envelope) => events.push(envelope));
+  return { session: live, events };
+}
+
+describe('the codex imposter, driven by the real adapter', () => {
+  it('serves thread/start and reports the session it created', async () => {
+    const started = await imposterSession();
+    session = started.session;
+    expect(session.sessionId).toMatch(/^[0-9a-f-]{36}$/);
+    await waitFor(
+      () => started.events.some((envelope) => envelope.event.type === 'session.started'),
+      'session.started',
+    );
+  });
+
+  it('runs a whole turn through the ops the claude persona also uses', async () => {
+    const started = await imposterSession();
+    session = started.session;
+    await waitFor(() => started.events.some((e) => e.event.type === 'session.started'), 'session.started');
+
+    const receipt = await session.submitPrompt({ text: 'summarise the repo' });
+    // A structured driver confirms deterministically — no `uncertain` here, and
+    // that difference from claude's guarded paste is the point of §2.1.
+    expect(receipt.status).toBe('confirmed');
+
+    await waitFor(() => started.events.some((e) => e.event.type === 'turn.completed'), 'turn.completed');
+    const types = started.events.map((envelope) => envelope.event.type);
+    expect(types).toContain('turn.started');
+    expect(types).toContain('assistant.message');
+    expect(types).toContain('turn.completed');
+
+    // The reducer reaches `ready` on turn.completed, because codex has no
+    // boot-ready notification and the persona does not invent one.
+    expect(session.state().lifecycle).toBe('ready');
+    expect(session.state().lastAssistantMessage).toBe('imposter: ok');
+  });
+
+  it('keeps the reply ahead of the notifications it triggers', async () => {
+    // The vendor answers `thread/start` and only then announces the thread. An
+    // imposter that emitted first would hand the adapter a `thread/started` for
+    // a thread it had not been told about — which is exactly what happened
+    // before `then` moved from a microtask to `setImmediate`.
+    const started = await imposterSession();
+    session = started.session;
+    await waitFor(() => started.events.some((e) => e.event.type === 'session.started'), 'session.started');
+    const sessionStarted = started.events.find((e) => e.event.type === 'session.started')!;
+    expect(sessionStarted.event.type === 'session.started' && sessionStarted.event.nativeSessionId).toBe(
+      session.sessionId,
+    );
+  });
+});

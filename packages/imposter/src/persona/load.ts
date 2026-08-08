@@ -8,7 +8,7 @@
  * drift from it.
  */
 
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,6 +21,7 @@ import {
   type Persona,
   type PersonaDocument,
 } from './types.ts';
+import type { ServeDocument } from '../session/serve.ts';
 
 const PERSONA_NAME = /^[a-z][a-z0-9-]{0,63}$/;
 
@@ -185,8 +186,14 @@ function parseOpsDocument(path: string, value: unknown, knownEvents: ReadonlySet
       }
       // An op bound to a hook event the ASM has never seen would emit an
       // unmodeled payload, which is exactly what §7.3 item 3 forbids.
-      if (channel === 'hook' && typeof binding.event === 'string' && !knownEvents.has(binding.event)) {
-        throw new Error(`imposter: ${path} op "${op}" binds hook event "${binding.event}", which is not in the ASM`);
+      if (
+        (channel === 'hook' || channel === 'jsonrpc') &&
+        typeof binding.event === 'string' &&
+        !knownEvents.has(binding.event)
+      ) {
+        throw new Error(
+          `imposter: ${path} op "${op}" binds ${channel} event "${binding.event}", which is not in the ASM`,
+        );
       }
       if (binding.await !== undefined && typeof binding.await !== 'boolean') {
         throw new Error(`imposter: ${path} op "${op}" field "await" must be a boolean`);
@@ -222,6 +229,10 @@ export function loadPersona(vendor: string, options: LoadPersonaOptions = {}): P
     model.events.map((event) => [event.event, event.payloadSchema]),
   );
 
+  // serve.json is optional: only the JSON-RPC family serves anything.
+  const servePath = join(directory, 'serve.json');
+  const serve = existsSync(servePath) ? (readJson(servePath) as ServeDocument) : undefined;
+
   const opsPath = join(directory, 'ops.json');
   const ops = parseOpsDocument(opsPath, readJson(opsPath), new Set(schemas.keys()));
 
@@ -245,6 +256,7 @@ export function loadPersona(vendor: string, options: LoadPersonaOptions = {}): P
 
   return {
     vendor,
+    ...(serve === undefined ? {} : { serve }),
     version: model.manifest.vendorVersion,
     document,
     model,

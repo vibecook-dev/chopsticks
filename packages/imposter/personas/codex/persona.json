@@ -1,0 +1,10 @@
+{
+  "vendor": "codex",
+  "asm": {
+    "package": "@vibecook/chopsticks-adapter-codex",
+    "path": "surface/model/codex@0.147.0"
+  },
+  "shimNames": ["codex"],
+  "envelope": {},
+  "boot": []
+}

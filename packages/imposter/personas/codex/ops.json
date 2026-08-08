@@ -1,0 +1,124 @@
+{
+  "session.start": [
+    {
+      "channel": "jsonrpc",
+      "event": "thread/started",
+      "with": {
+        "thread": { "id": "$threadId", "sessionId": "$threadId", "cwd": "$cwd", "status": { "type": "idle" } }
+      }
+    }
+  ],
+
+  "turn.start": [
+    {
+      "channel": "jsonrpc",
+      "event": "turn/started",
+      "with": { "threadId": "$threadId", "turn": { "id": "$turnId", "status": "inProgress" } }
+    },
+    {
+      "channel": "jsonrpc",
+      "event": "item/completed",
+      "with": {
+        "threadId": "$threadId",
+        "turnId": "$turnId",
+        "completedAtMs": "$nowMs",
+        "item": {
+          "type": "userMessage",
+          "id": "$uuid:userItem",
+          "clientId": null,
+          "content": [{ "type": "text", "text": "$op.text" }]
+        }
+      }
+    }
+  ],
+
+  "assistant.delta": [
+    {
+      "channel": "jsonrpc",
+      "event": "item/completed",
+      "with": {
+        "threadId": "$threadId",
+        "turnId": "$turnId",
+        "completedAtMs": "$nowMs",
+        "item": { "type": "agentMessage", "id": "$uuid:agentItem", "text": "$op.text", "phase": "final_answer" }
+      }
+    }
+  ],
+
+  "tool.start": [
+    {
+      "channel": "jsonrpc",
+      "event": "item/started",
+      "with": {
+        "threadId": "$threadId",
+        "turnId": "$turnId",
+        "startedAtMs": "$nowMs",
+        "item": {
+          "type": "commandExecution",
+          "id": "$op.toolId",
+          "command": "$op.command",
+          "cwd": "$cwd",
+          "status": "inProgress"
+        }
+      }
+    }
+  ],
+
+  "tool.end": [
+    {
+      "channel": "jsonrpc",
+      "event": "item/completed",
+      "with": {
+        "threadId": "$threadId",
+        "turnId": "$turnId",
+        "completedAtMs": "$nowMs",
+        "item": {
+          "type": "commandExecution",
+          "id": "$op.toolId",
+          "command": "$op.command",
+          "cwd": "$cwd",
+          "status": "completed",
+          "exitCode": 0,
+          "aggregatedOutput": "$op.output"
+        }
+      }
+    }
+  ],
+
+  "permission.ask": [
+    {
+      "channel": "jsonrpc",
+      "event": "item/commandExecution/requestApproval",
+      "await": true,
+      "with": {
+        "threadId": "$threadId",
+        "turnId": "$turnId",
+        "itemId": "$op.toolId",
+        "startedAtMs": "$nowMs",
+        "command": "$op.command",
+        "cwd": "$cwd",
+        "availableDecisions": ["accept", "cancel"]
+      }
+    }
+  ],
+
+  "turn.end": [
+    {
+      "channel": "jsonrpc",
+      "event": "turn/completed",
+      "with": { "threadId": "$threadId", "turn": { "id": "$turnId", "status": "completed", "error": null } }
+    }
+  ],
+
+  "usage.refresh": [
+    {
+      "channel": "jsonrpc",
+      "event": "thread/tokenUsage/updated",
+      "with": {
+        "threadId": "$threadId",
+        "turnId": "$turnId",
+        "tokenUsage": { "total": { "totalTokens": 19, "inputTokens": 12, "outputTokens": 7 } }
+      }
+    }
+  ]
+}

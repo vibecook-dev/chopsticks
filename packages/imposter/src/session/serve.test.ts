@@ -19,6 +19,9 @@ function wire(document: ServeDocument, overrides: Partial<Parameters<typeof crea
   const input = new PassThrough();
   const output = new PassThrough();
   const written: Array<Record<string, unknown>> = [];
+  // Interleaving, recorded as it happens. Ordering between a reply and the ops
+  // it schedules cannot be checked after the fact — see the ordering test.
+  const order: string[] = [];
   output.setEncoding('utf8');
   let buffer = '';
   output.on('data', (chunk: string) => {
@@ -27,7 +30,10 @@ function wire(document: ServeDocument, overrides: Partial<Parameters<typeof crea
     while ((index = buffer.indexOf('\n')) >= 0) {
       const line = buffer.slice(0, index).trim();
       buffer = buffer.slice(index + 1);
-      if (line) written.push(JSON.parse(line) as Record<string, unknown>);
+      if (!line) continue;
+      const message = JSON.parse(line) as Record<string, unknown>;
+      written.push(message);
+      order.push(`reply:${String(message.id ?? message.method)}`);
     }
   });
 
@@ -37,8 +43,14 @@ function wire(document: ServeDocument, overrides: Partial<Parameters<typeof crea
     persona: { vendor: 'codex' } as Persona,
     document,
     bindings,
-    runOps: async (invocations) => void ran.push(...invocations),
-    runBehavior: async (stimulus) => void ran.push({ op: '$behavior', with: stimulus }),
+    runOps: async (invocations) => {
+      order.push(`ops:${invocations.map((entry) => entry.op).join(',')}`);
+      ran.push(...invocations);
+    },
+    runBehavior: async (stimulus) => {
+      order.push('ops:$behavior');
+      ran.push({ op: '$behavior', with: stimulus });
+    },
     ...overrides,
   });
   const channel = createAppServerChannel({
@@ -49,7 +61,7 @@ function wire(document: ServeDocument, overrides: Partial<Parameters<typeof crea
   });
   const send = (message: Record<string, unknown>) => input.write(`${JSON.stringify(message)}\n`);
   const sendRaw = (line: string) => input.write(`${line}\n`);
-  return { channel, dispatcher, send, sendRaw, written, ran, bindings };
+  return { channel, dispatcher, send, sendRaw, written, ran, bindings, order };
 }
 
 const CODEX_LIKE: ServeDocument = {
@@ -128,22 +140,18 @@ describe('the serve table', () => {
     expect(reply.result.thread.id).toMatch(/^[0-9a-f-]{36}$/);
   });
 
-  it('replies BEFORE running the ops the method schedules', async () => {
-    const order: string[] = [];
-    const { send, written } = wire(CODEX_LIKE, {
-      runOps: async (invocations) => {
-        order.push(`ops:${invocations.map((entry) => entry.op).join(',')}`);
-      },
-    });
-    const output = written as unknown as Array<Record<string, unknown>>;
+  it('writes the reply BEFORE running the ops the method schedules', async () => {
+    // Two earlier versions of this test PASSED while `thread/started` was
+    // actually going out ahead of the `thread/start` result — one compared
+    // totals after the fact, the other polled on a 1 ms timer that could not
+    // fire before a microtask. Ordering has to be recorded as it happens.
+    const { send, order } = wire(CODEX_LIKE);
     send({ id: 1, method: 'initialize', params: {} });
     send({ id: 2, method: 'thread/start', params: {} });
     await settle();
-    order.unshift(`reply:${output.length}`);
-    // The vendor answers turn/start and only then streams the turn; an imposter
-    // that emitted first would let the adapter see a turn for a thread it has
-    // not been told about.
-    expect(order).toEqual(['reply:2', 'ops:session.start']);
+    // An imposter that emitted first would announce a thread the client has not
+    // been told about yet.
+    expect(order).toEqual(['reply:1', 'reply:2', 'ops:session.start']);
   });
 
   it('hands turn/start its prompt as the behaviour stimulus', async () => {

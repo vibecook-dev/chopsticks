@@ -115,11 +115,15 @@ export function createServeDispatcher(options: ServeDispatcherOptions): ServeDis
     const result = entry.result === undefined ? {} : substitute(entry.result, context());
     if (method === gate?.until) opened = true;
 
-    // `then` runs after this returns, so the reply is written first — the
-    // vendor answers `turn/start` and only then streams the turn.
+    // `then` must run after the REPLY IS WRITTEN, not merely after this
+    // function returns. `queueMicrotask` is not enough: the write happens in
+    // the continuation after `await serve()`, and a microtask scheduled here
+    // runs before that continuation — which put `thread/started` on the wire
+    // ahead of the `thread/start` result, announcing a thread the client had
+    // not been told about. `setImmediate` is a macrotask and lands after.
     const follow = entry.then;
     if (follow !== undefined) {
-      queueMicrotask(() => {
+      setImmediate(() => {
         const work = follow === '$behavior' ? options.runBehavior(stimulus) : options.runOps(follow as OpInvocation[]);
         void work.catch((error: unknown) => {
           log(`serve ${method} follow-up failed: ${error instanceof Error ? error.message : String(error)}`);

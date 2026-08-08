@@ -66,6 +66,14 @@ export interface ImposterSessionOptions {
    * `crash` without taking the test runner with it.
    */
   halt?: (kind: 'crash' | 'exit' | 'hang', exitCode: number) => void;
+  /**
+   * The app-server sink, for personas that serve (§9.3). Late-bound by the
+   * CLI because the channel needs the dispatcher, which needs this session.
+   */
+  jsonrpc?: {
+    notify(method: string, params: Record<string, unknown>): void;
+    request(method: string, params: Record<string, unknown>): Promise<unknown>;
+  };
   log?: (message: string) => void;
 }
 
@@ -82,6 +90,8 @@ export interface ImposterSession {
   readonly liveChannels: string[];
   readonly emitted: readonly EmittedRecord[];
   readonly timeline: OpTimeline;
+  /** Session bindings; the serve table mints ids into these (§9.3 `bind`). */
+  readonly bindings: Record<string, unknown>;
   readonly transcript: TranscriptWriter;
   boot(): Promise<void>;
   /** One organic turn, driven by the persona's behavior pack. */
@@ -139,7 +149,7 @@ export function createImposterSession(options: ImposterSessionOptions): Imposter
   // reports and the console shows — so a channel-drop fault addresses the thing
   // the operator can see. `channelFor` translates delivery kind to that name.
   const droppedChannels = new Set<string>();
-  const dropped = (kind: 'hook' | 'transcript' | 'statusline'): boolean =>
+  const dropped = (kind: 'hook' | 'transcript' | 'statusline' | 'jsonrpc'): boolean =>
     droppedChannels.has(persona.channelFor(kind) ?? kind);
   const emitted: EmittedRecord[] = [];
   let emittedBytes = 0;
@@ -197,6 +207,34 @@ export function createImposterSession(options: ImposterSessionOptions): Imposter
       return;
     }
     await hookEmitter.emit(event, wire, persona.schemaFor(event) ? event : fallbackRoute);
+  };
+
+  /**
+   * The app-server emitters. They funnel through the SAME envelope + ASM
+   * validation + record boundary as hooks do, because "exactly one place that
+   * can refuse" (§7.3 item 3) is a property of the imposter, not of the hook
+   * channel.
+   */
+  const emitRpc = async (method: string, params: Record<string, unknown>): Promise<void> => {
+    const wire = wireFor(method, params);
+    const violations = persona.validate(method, wire);
+    if (violations.length > 0) {
+      throw new Error(`imposter refused an off-model payload for ${method}: ${violations.join('; ')}`);
+    }
+    record(method, wire);
+    if (dropped('jsonrpc')) return log(`dropped ${method}: app-server channel is disconnected`);
+    options.jsonrpc?.notify(method, wire);
+  };
+
+  const requestRpc = async (method: string, params: Record<string, unknown>): Promise<unknown> => {
+    const wire = wireFor(method, params);
+    const violations = persona.validate(method, wire);
+    if (violations.length > 0) {
+      throw new Error(`imposter refused an off-model payload for ${method}: ${violations.join('; ')}`);
+    }
+    record(method, wire);
+    if (!options.jsonrpc) throw new Error(`${method} needs a server request, but no app-server channel is wired`);
+    return options.jsonrpc.request(method, wire);
   };
 
   const status = behavior.statusLine ?? {};
@@ -276,6 +314,8 @@ export function createImposterSession(options: ImposterSessionOptions): Imposter
   const timeline = createOpTimeline({
     persona,
     emitHook: emit,
+    emitJsonRpc: emitRpc,
+    requestJsonRpc: requestRpc,
     transcript: guardedTranscript,
     statusline: async () => invokeStatusLine(),
     present: options.present,
@@ -363,6 +403,7 @@ export function createImposterSession(options: ImposterSessionOptions): Imposter
     },
     emitted,
     timeline,
+    bindings,
     transcript: guardedTranscript,
     emit,
     statusPayload,

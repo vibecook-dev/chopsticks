@@ -14,7 +14,9 @@ import { connectControl, type ImposterControl } from '../control/client.ts';
 import { ControlError, NOT_FOUND, paletteFromModel } from '../control/protocol.ts';
 import { loadPersona, personaDirectory, shimNameMap } from '../persona/load.ts';
 import type { Persona } from '../persona/types.ts';
+import { createAppServerChannel, type AppServerChannel } from '../session/channels/jsonrpc.ts';
 import { createPasteDecoder } from '../session/channels/terminal.ts';
+import { createServeDispatcher } from '../session/serve.ts';
 import { createImposterSession, type BehaviorDocument } from '../session/session.ts';
 import { createPresentation, type Presentation } from '../tui/mount.ts';
 import { flagValue, hasFlag, PersonaSelectionError, selectPersona, shimIdentity } from './argv.ts';
@@ -105,6 +107,12 @@ export async function main(argv: readonly string[], argv0?: string): Promise<num
   let screen: Presentation | undefined;
   let closing = false;
 
+  // The trigger fork (§9.3). For claude the trigger is stdin bytes; for codex
+  // it is inbound RPC. Everything downstream — the op timeline and its sinks —
+  // is genuinely shared, which is the whole claim the two families test.
+  const serving = persona.serve !== undefined;
+  let appServer: AppServerChannel | undefined;
+
   const session = createImposterSession({
     persona,
     argv: rest,
@@ -112,6 +120,17 @@ export async function main(argv: readonly string[], argv0?: string): Promise<num
     cwd: process.cwd(),
     behavior: loadBehavior(persona, behaviorName),
     present: (frame) => screen?.frame(frame),
+    ...(serving
+      ? {
+          jsonrpc: {
+            notify: (method: string, params: Record<string, unknown>) => appServer?.notify(method, params),
+            request: (method: string, params: Record<string, unknown>) =>
+              appServer
+                ? appServer.request(method, params)
+                : Promise.reject(new Error('app-server channel is not open')),
+          },
+        }
+      : {}),
     onEmitted: (entry) => control?.pushEmitted(entry),
     onChannels: (channels) => {
       control?.pushChannels(channels);
@@ -144,11 +163,16 @@ export async function main(argv: readonly string[], argv0?: string): Promise<num
 
   // The TUI is chrome and nothing more (§4): it renders the same lines the
   // headless sink writes, and never reads input.
+  //
+  // When the persona SERVES, stdout is the protocol — a banner written there
+  // would sit in the middle of the adapter's NDJSON stream. So presentation
+  // goes to stderr and the TUI never mounts, whatever the terminal looks like.
   screen = await createPresentation({
     vendor: persona.vendor,
     version: persona.version,
     sessionId: session.sessionId,
     channels: session.liveChannels,
+    ...(serving ? { interactive: false, write: (text: string) => void process.stderr.write(text) } : {}),
   });
 
   // Joining the control plane MUST complete before the stdin listeners attach:
@@ -179,6 +203,32 @@ export async function main(argv: readonly string[], argv0?: string): Promise<num
 
   process.once('SIGTERM', () => void shutdown());
   process.once('SIGINT', () => void shutdown());
+
+  if (serving) {
+    // The JSON-RPC family's trigger: inbound RPC, answered synchronously, with
+    // any resulting ops scheduled onto the SAME timeline the paste path uses.
+    const dispatcher = createServeDispatcher({
+      persona,
+      document: persona.serve!,
+      bindings: session.bindings,
+      runOps: (invocations) => session.timeline.runAll(invocations),
+      runBehavior: (stimulus) => session.turn(typeof stimulus.text === 'string' ? stimulus.text : ''),
+      // Inbound params are held to the ASM exactly like outbound payloads, so
+      // the imposter is a conformance test of the adapter's client (§9.3).
+      validateParams: (method, params) => persona.validate(method, params),
+      log,
+    });
+    appServer = createAppServerChannel({
+      input: process.stdin,
+      output: process.stdout,
+      serve: dispatcher.serve,
+      notified: dispatcher.notified,
+      onClose: () => void shutdown(),
+      log,
+    });
+    await new Promise(() => {});
+    return 0;
+  }
 
   // The adapter injects prompts as a guarded bracketed paste. This is the ONLY
   // input path: the TUI does not read stdin, so TTY and pipe modes cannot drift
