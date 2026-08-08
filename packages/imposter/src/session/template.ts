@@ -19,18 +19,22 @@ export interface TemplateContext {
   scopes?: Record<string, Record<string, unknown>>;
   /** Whole-string bindings, e.g. `{ $sessionId: '...' }`. */
   bindings?: Record<string, unknown>;
-  /** Per-run uuid memo; callers own its lifetime so names stay stable. */
-  uuids: Map<string, string>;
+  /**
+   * Per-run uuid memo; callers own its lifetime so names stay stable. Optional
+   * for templates that cannot contain `$uuid` — the envelope, for instance,
+   * where a per-emission uuid would be meaningless.
+   */
+  uuids?: Map<string, string>;
 }
 
 export function substitute(value: unknown, context: TemplateContext): unknown {
   if (typeof value === 'string') {
     if (value.startsWith('$uuid')) {
       const name = value.includes(':') ? value.slice(value.indexOf(':') + 1) : value;
-      let uuid = context.uuids.get(name);
+      let uuid = context.uuids?.get(name);
       if (!uuid) {
         uuid = crypto.randomUUID();
-        context.uuids.set(name, uuid);
+        context.uuids?.set(name, uuid);
       }
       return uuid;
     }

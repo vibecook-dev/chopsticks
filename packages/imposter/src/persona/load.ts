@@ -13,9 +13,26 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadModel, validatePayload, type PayloadSchema } from '@vibecook/chopsticks-surface';
-import { OP_NAMES, type OpBinding, type OpsDocument, type Persona, type PersonaDocument } from './types.ts';
+import {
+  OP_NAMES,
+  type OpBinding,
+  type OpChannel,
+  type OpsDocument,
+  type Persona,
+  type PersonaDocument,
+} from './types.ts';
 
 const PERSONA_NAME = /^[a-z][a-z0-9-]{0,63}$/;
+
+/** ASM channel kind -> the delivery mechanism the op layer addresses it by. */
+const DELIVERY_KIND: Record<string, OpChannel> = {
+  'hook-http': 'hook',
+  'hook-command': 'hook',
+  transcript: 'transcript',
+  statusline: 'statusline',
+  jsonrpc: 'jsonrpc',
+  'app-server': 'jsonrpc',
+};
 
 /** `personas/` sits beside `dist/` when published and beside `src/` in-repo. */
 function personasRoot(): string {
@@ -90,7 +107,10 @@ function requireString(path: string, record: Record<string, unknown>, field: str
  * reached by resolving the manifest and joining from its directory — deep
  * paths like `<pkg>/surface/model/...` do not resolve (§3.2).
  */
-function resolveAsmDirectory(document: PersonaDocument, from: string): string {
+function resolveAsmDirectory(document: PersonaDocument, from: string, personaDir: string): string {
+  // No package means the model is persona-local: there is no adapter to own it
+  // because there is no vendor to capture.
+  if (!document.asm.package) return join(personaDir, document.asm.path);
   const require = createRequire(from);
   let manifest: string;
   try {
@@ -122,10 +142,17 @@ function parsePersonaDocument(path: string, value: unknown): PersonaDocument {
     const invocation = requireRecord(path, entry, `boot[${index}]`);
     requireString(path, invocation, 'op');
   }
+  const envelope = requireRecord(path, record.envelope, 'field "envelope"');
+  if (record.eventNameField !== undefined) requireString(path, record, 'eventNameField');
   return {
     vendor,
-    asm: { package: requireString(path, asm, 'package'), path: requireString(path, asm, 'path') },
+    asm: {
+      ...(asm.package === undefined ? {} : { package: requireString(path, asm, 'package') }),
+      path: requireString(path, asm, 'path'),
+    },
     shimNames: shimNames as string[],
+    envelope,
+    ...(record.eventNameField === undefined ? {} : { eventNameField: record.eventNameField as string }),
     boot: boot as PersonaDocument['boot'],
   };
 }
@@ -180,7 +207,7 @@ export function loadPersona(vendor: string, options: LoadPersonaOptions = {}): P
     throw new Error(`imposter: ${personaPath} declares vendor "${document.vendor}" but lives in "${vendor}"`);
   }
 
-  const model = loadModel(resolveAsmDirectory(document, options.resolveFrom ?? import.meta.url));
+  const model = loadModel(resolveAsmDirectory(document, options.resolveFrom ?? import.meta.url, directory));
   const schemas = new Map<string, PayloadSchema | undefined>(
     model.events.map((event) => [event.event, event.payloadSchema]),
   );
@@ -197,6 +224,15 @@ export function loadPersona(vendor: string, options: LoadPersonaOptions = {}): P
       : {}),
   };
 
+  // The ASM records what each channel *is*; the op layer addresses channels by
+  // what they *do*. First declaration of a kind wins, which is why the ASM
+  // lists a channel's primary transport in `kind` and its fallback separately.
+  const channelByKind = new Map<OpChannel, string>();
+  for (const [name, channel] of Object.entries(model.channels.channels)) {
+    const kind = DELIVERY_KIND[(channel as { kind?: string }).kind ?? ''];
+    if (kind && !channelByKind.has(kind)) channelByKind.set(kind, name);
+  }
+
   return {
     vendor,
     version: model.manifest.vendorVersion,
@@ -204,6 +240,7 @@ export function loadPersona(vendor: string, options: LoadPersonaOptions = {}): P
     model,
     ops,
     channels: Object.keys(model.channels.channels),
+    channelFor: (kind) => channelByKind.get(kind),
     schemaFor: (event) => schemas.get(event),
     validate(event, payload) {
       const schema = schemas.get(event);

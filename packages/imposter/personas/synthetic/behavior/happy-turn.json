@@ -1,0 +1,12 @@
+{
+  "name": "happy-turn",
+  "reply": "synthetic: acknowledged",
+  "statusLine": { "modelId": "synthetic-0", "capacityTokens": 1000, "tokensPerTurn": 7 },
+  "ops": [
+    { "op": "turn.start", "with": { "text": "$stimulus.text" } },
+    { "op": "tool.start", "with": { "tool": "Inspect", "toolId": "$uuid:tool", "input": { "what": "$stimulus.text" } } },
+    { "op": "tool.end", "with": { "tool": "Inspect", "toolId": "$uuid:tool" } },
+    { "op": "assistant.delta", "with": { "text": "$reply", "turnId": "$uuid:turn" } },
+    { "op": "turn.end", "with": { "turnId": "$uuid:turn" } }
+  ]
+}

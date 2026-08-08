@@ -190,7 +190,24 @@ One paste path, pinned layout, no divergence between TTY and pipe.
 | OpenTUI | Requires Bun — a second runtime in a Node 22 pnpm monorepo. Its advantage is frame rate, meaningless for scripted output. |
 | Rust / ratatui | What Codex actually uses, so highest parity for that persona — but parity is a non-goal, and a second toolchain cannot share the ASM types. |
 
-Accepted costs, tracked rather than hidden: a dependency tree the repo did not previously carry; the four-mode matrix stays four (§4.2) because Ink cannot run without a TTY; and per-process memory rises. **Measure memory × N before the swarm demo** — the marginal cost over bare Node is smaller than Ink's ~50 MB headline, but N=20 deserves a number, and if it proves prohibitive the append-only fallback above is a contained retreat, since §4.1.1 already keeps input out of Ink's hands.
+Accepted costs, tracked rather than hidden: a dependency tree the repo did not previously carry; the four-mode matrix stays four (§4.2) because Ink cannot run without a TTY; and per-process memory rises.
+
+**Measured 2026-08-08** (node 26.5, macOS arm64, RSS after module load):
+
+| | RSS |
+| --- | --- |
+| bare node | 47 MB |
+| imposter, headless | 77 MB |
+| imposter, Ink loaded | 117 MB |
+
+So Ink costs **~40 MB per process**. One imposter does not care; the swarm demo at N=20 is ~800 MB of chrome, since godview runs each imposter under a ghosttea PTY and every one of them therefore has a TTY.
+
+Two things follow, both implemented:
+
+1. **Ink is a dynamic import**, reached only after the TTY check, so a piped run — CI, and the control centre's own spawner — never loads React at all. A resolve-hook test asserts this rather than trusting it.
+2. **`CHOPSTICKS_IMPOSTER_TUI=off`** forces the append-only sink even on a TTY. That is the contained retreat this section reserved, available without a code change.
+
+`react-devtools-core` turns out to be an *optional* peer of Ink, so its 15 MB is not paid. Ink itself is 557 KB unpacked.
 
 ### 4.2 Four modes, all first-class
 
@@ -302,8 +319,20 @@ These are the non-obvious parts of the PoC. They are cheap to lose in a rewrite 
 
 | Artifact | Disposition |
 | --- | --- |
-| `packages/adapter-claude/surface/emulator/bin.mjs` | deleted at I4; `surface/model/` stays adapter-owned |
-| `packages/testing/bin/fake-agent.mjs` (183 lines) | absorbed as a `synthetic` persona — removes the third stand-in and doubles as the deliberately-not-a-real-vendor check on the persona contract |
+| `packages/adapter-claude/surface/emulator/bin.mjs` | **deleted 2026-08-08**, with `conformance.emulator.test.ts` (the imposter runs the same shared suite) and `packages/emulator` itself; `surface/model/` stays adapter-owned |
+| `packages/testing/bin/fake-agent.mjs` (183 lines) | **kept.** See below — the `synthetic` persona was built, the absorption was not. |
+
+**Revised at I4 (2026-08-08).** The `synthetic` persona exists and earns its keep; folding `fake-agent.mjs` into it does not.
+
+Two reasons. `fakeAgentBin` is exported API of `@vibecook/chopsticks-testing@0.1.8`, which **is** published — removing it is a breaking change for no gain. And the two do different jobs: the fake agent exercises the **terminal spine** (alt-screen, bad UTF-8, byte floods, ignored SIGINT, child process trees) for the PTY layer, while the imposter's TUI is cosmetic by §4 and deliberately does none of that. Merging them would conflate a terminal fixture with a machine-surface stand-in.
+
+What §7.4 actually wanted — a not-a-real-vendor check on the persona contract — is delivered by `personas/synthetic/` alone, and it paid for itself immediately. Writing a second persona found three places the contract had quietly become claude-shaped:
+
+- the envelope (`session_id`/`transcript_path`/…) was **hard-coded in the session**; it is now persona-declared (§3.2), as is the field the event name is written into;
+- the ASM was assumed to live in an adapter package; a persona-local model is now legal, because a vendor that does not exist has no adapter to own its captures;
+- channel drops were keyed by the imposter's internal delivery kind (`hook`) rather than the vendor's own channel name, so a `channel-drop` fault against a vendor that calls it something else **silently did nothing**.
+
+The third was a live bug, not a design wart. That is the argument for keeping a synthetic persona permanently.
 
 Two console defects to fix while moving `control.html`: Map-valued reducer state (`tools`, `permissions`, `subagents`, `tasks`) serializes to `{}` through `JSON.stringify`, so the console always reports zero tools in flight; and the empty-state placeholder is written with `innerHTML` and never removed once a session appears.
 
@@ -333,7 +362,7 @@ The full design is §9. The sequencing that replaces the old "blocked" note is �
 | **I1.5** | Codex survey + model (§9). Ordered: capture envelope + sanitizer → committed harness → hermetic capture (approvals and tools FIRST) → `generate-model.mjs` → `surface/model/codex@0.147.0`. **Hermetic, not `CODEX_LIVE`** — a fake local provider drives a full turn offline. | Model validates; approval round-trip captured; harness committed; `diff(vendor schema, model)` clean | **blocks I2** |
 | **I2** | Claude **and** codex runtimes — hook/transcript/statusline channels, and the app-server JSON-RPC channel | Both conform hermetically in CI; ops map cleanly onto both families, or the vocabulary is revised until they do | |
 | **I3** | Control channel, both sides at once: UDS client in the imposter **and** the plane rewritten at its new home in `apps/emulator`. Delete state file, bin-side HTTP server, `prune()`, console poll. Push-based log. | §6.4 flow works over one socket; `scenario.control` pause/step lands | **done 2026-08-08** |
-| **I4** | Ink TUI behind `isTTY`; `ai shims install`; delete `bin.mjs` and `packages/emulator`; absorb `fake-agent.mjs`; update EMULATOR.md + ADAPTING-AN-AGENT.md | godview panes show imposter chrome; no doc still describes per-adapter bins | |
+| **I4** | Ink TUI behind `isTTY`; `ai shims install`; delete `bin.mjs` and `packages/emulator`; a `synthetic` persona (**not** an absorbed `fake-agent.mjs` — see §7.4); update EMULATOR.md + ADAPTING-AN-AGENT.md | godview panes show imposter chrome; no doc still describes per-adapter bins | **done 2026-08-08** |
 
 I0 is a refactor that can land on its own and de-risks everything after it. I1–I2 are load-bearing. I3 is mostly deletion. I4 is chrome plus paperwork.
 

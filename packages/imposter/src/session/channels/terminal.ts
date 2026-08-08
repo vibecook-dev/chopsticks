@@ -10,9 +10,18 @@
 
 export interface PasteOperation {
   text: string;
-  /** True when the paste was followed by Enter (`\r`). */
+  /** True when the paste was followed by Enter. */
   submit: boolean;
 }
+
+/**
+ * Enter is `\r` from the adapter and from a raw terminal, but a pty in
+ * canonical mode translates it to `\n` before the child ever sees it (ICRNL) —
+ * so a prompt submitted over a real pty without raw mode would otherwise hang
+ * forever as a staged paste. Only bytes AFTER the paste-close marker are
+ * examined, so paste content containing newlines is unaffected.
+ */
+const SUBMIT = /^[\r\n]/;
 
 export interface PasteDecoder {
   feed(chunk: string | Buffer): void;
@@ -64,7 +73,7 @@ export function createPasteDecoder(
       for (;;) {
         if (held !== undefined) {
           if (buffer.length === 0) return;
-          if (buffer.startsWith('\r')) {
+          if (SUBMIT.test(buffer)) {
             buffer = buffer.slice(1);
             releaseHeld(true);
           } else {
@@ -91,7 +100,7 @@ export function createPasteDecoder(
         inPaste = false;
         held = buffer.slice(0, end);
         buffer = buffer.slice(end + PASTE_END.length);
-        if (buffer.startsWith('\r')) {
+        if (SUBMIT.test(buffer)) {
           buffer = buffer.slice(1);
           releaseHeld(true);
         } else if (buffer.length > 0) {

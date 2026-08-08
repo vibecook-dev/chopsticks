@@ -8,7 +8,7 @@
 
 ## 0. Charter
 
-> Adapting a new coding agent is a six-step pipeline with defined artifacts and machine-checked exit criteria at each step. The adapter package that results owns **four kinds of work**: truth-checking (`surface/captures/`, `surface/model/`, `audit.mjs`), emulation (`surface/emulator/`), the adapter itself (`src/`), and conformance wiring (`conformance.test.ts`). A new agent is "adapted" when all six exits are green — not when someone judges it done.
+> Adapting a new coding agent is a six-step pipeline with defined artifacts and machine-checked exit criteria at each step. The adapter package that results owns **four kinds of work**: truth-checking (`surface/captures/`, `surface/model/`, `audit.mjs`), emulation (a persona in `packages/imposter`), the adapter itself (`src/`), and conformance wiring (`conformance.test.ts`). A new agent is "adapted" when all six exits are green — not when someone judges it done.
 
 Two reference adaptations exist and define the families discovered so far:
 
@@ -27,7 +27,7 @@ A third family (e.g. ACP's negotiated-capability model — `adapter-grok` layers
 | ---- | ------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------- |
 | 1    | **Survey**    | `surface/captures/` + findings doc             | every channel the adapter will rely on has a capture; go/no-go per channel recorded |
 | 2    | **Model**     | `surface/model/<vendor>@<version>/`            | ASM validates; every captured event has an event file with a confidence level       |
-| 3    | **Emulate**   | `surface/emulator/` (bin, behavior, scenarios) | replay-diff against captures is clean; stub scenarios run standalone                |
+| 3    | **Emulate**   | `packages/imposter/personas/<vendor>/`         | conformance green against `ai`; the scenario pack is executable and schema-valid    |
 | 4    | **Adapt**     | `src/` normalizer + driver + detection         | registry/settings generated **from the model**; unit tests green against L0/L1      |
 | 5    | **Conform**   | `conformance.test.ts` + provider wiring        | shared conformance suite green **on the emulator** in CI; live lane scheduled       |
 | 6    | **Reconcile** | nightly audit workflow                         | first reconciliation recorded; `lastVerified` current; drift triage loop proven     |
@@ -52,11 +52,10 @@ packages/adapter-<vendor>/
     model/<vendor>@<version>/
     captures/<vendor>@<version>/       # sanitized, shape-faithful fixtures (tracked)
     captures-raw/<vendor>@<version>/   # verbatim evidence (gitignored/private)
-    emulator/{bin.mjs, behavior/, scenarios/}
     audit.mjs
 ```
 
-Registration in the product (per the repo's provider-seam convention): one `AgentProvider` entry in `packages/runtime/src/providers.ts` + one variant in `BuiltinCreateAgentSessionOptions` in `types.ts` — **never** provider-specific branching inside `runtime.ts`. Executable resolution honors `CHOPSTICKS_<VENDOR>_BIN`, which is also how emulator mode attaches (EMULATOR §4).
+Registration in the product (per the repo's provider-seam convention): one `AgentProvider` entry in `packages/runtime/src/providers.ts` + one variant in `BuiltinCreateAgentSessionOptions` in `types.ts` — **never** provider-specific branching inside `runtime.ts`. Executable resolution honors `CHOPSTICKS_<VENDOR>_BIN`, which is also how emulator mode attaches — point it at `ai`, or install shims and prepend them to PATH (IMPOSTER §6).
 
 ---
 
@@ -84,15 +83,24 @@ Registration in the product (per the repo's provider-seam convention): one `Agen
 
 **Do:** `manifest.json`, `detection.json`, `channels.json`, one `events/<Event>.json` per observed event — `payloadSchema` from the captures (required = seen on every occurrence), `confidence` from how it was observed, `fixture` pointing at the capture file.
 
-**Exit:** the ASM validator (`@vibecook/chopsticks-emulator`) passes; coverage check: every distinct event/method name in captures has an event file; every event file's schema accepts its own fixtures.
+**Exit:** the ASM validator (`@vibecook/chopsticks-surface`) passes; coverage check: every distinct event/method name in captures has an event file; every event file's schema accepts its own fixtures.
 
 ### Step 3 — Emulate
 
-**Goal:** a scriptable stand-in for the vendor CLI (EMULATOR §4–5).
+**Goal:** a scriptable stand-in for the vendor CLI — a **persona**, not a binary (IMPOSTER §3).
 
-**Do:** behavior rules for the organic flows (paste → prompt events → transcript → stop), the required scenario set (happy turn, permission allow/deny, late/duplicate/out-of-order events, unknown event, flood, crash mid-turn, channel drop), and `bin.mjs` branching on argv like the vendor (incl. the detection surface).
+There is one executable, `ai`, and it already knows how to run a session, speak the channels, refuse off-model payloads, join the control plane, and draw its chrome. What a new vendor adds is only what the ASM cannot say: which semantic ops map to which emissions.
 
-**Exit:** replay-diff clean — replaying captures through the emulator produces channel outputs that match the captures; `bin.mjs` runs standalone (no control center) and passes the stub scenarios. Reference implementation: `packages/adapter-claude/surface/emulator/` (happy-turn behavior, the full starter scenario set, and hermetic conformance; captured-session replay/diff is still explicitly pending).
+**Do:** write `packages/imposter/personas/<vendor>/` —
+
+- `persona.json` — where the ASM lives (`asm.package` + `asm.path`, resolved through the adapter's manifest), the `shimNames` `ai shims install` should write, the `envelope` merged into every emission, the `eventNameField` if the vendor writes its event name into the payload, and the `boot` ops.
+- `ops.json` — each op in the shared vocabulary bound to one or more channel emissions. Bindings referencing a hook event the ASM has never seen are rejected at load.
+- `behavior/happy-turn.json` — the organic flow (paste → prompt → tool → reply → stop).
+- `scenarios/` — the required adversarial set: permission allow/deny, late/duplicate/out-of-order events, unknown event, flood, crash mid-turn, channel drop, token-usage refresh.
+
+**Exit:** `ai --<vendor> --version` answers the detection surface from the ASM; the persona's scenario pack is executable and schema-valid (see `packages/imposter/src/persona/scenarios.claude.test.ts`); the shared conformance suite is green against `ai`. Replay-diff — replaying captures through the imposter and comparing channel outputs — is still explicitly pending.
+
+**Reference implementations:** `personas/claude/` (a real captured vendor) and `personas/synthetic/` (a deliberately invented one whose only job is to prove the contract has not quietly become claude-shaped — it names its channels differently, has no statusline, and uses a different envelope).
 
 ### Step 4 — Adapt
 
@@ -125,7 +133,7 @@ Registration in the product (per the repo's provider-seam convention): one `Agen
 The conformance suite asserts the _process artifacts_, not just runtime behavior. An adapter package is complete when:
 
 - [ ] `surface/model/` validates against the ASM schema, and every captured event is modeled
-- [ ] `surface/emulator/bin.mjs` answers `detection.json`'s probes and serves the control API
+- [ ] `packages/imposter/personas/<vendor>/` answers `detection.json`'s probes and joins the control plane
 - [ ] Required scenario set exists and replays clean against captures
 - [ ] Registry/settings are generated from the model (no handwritten vendor facts)
 - [ ] Shared conformance suite green on the emulator

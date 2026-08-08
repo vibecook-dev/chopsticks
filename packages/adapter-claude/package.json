@@ -52,7 +52,6 @@
     "@vibecook/spaghetti-sdk": "0.5.16"
   },
   "devDependencies": {
-    "@vibecook/chopsticks-emulator": "workspace:*",
     "@vibecook/chopsticks-surface": "workspace:*",
     "@vibecook/chopsticks-testing": "workspace:*"
   }

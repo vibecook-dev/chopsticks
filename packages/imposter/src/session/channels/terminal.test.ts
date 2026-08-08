@@ -1,6 +1,31 @@
 import { describe, expect, it } from 'vitest';
 import { createPasteDecoder, type PasteOperation } from './terminal.ts';
 
+describe('createPasteDecoder submit detection', () => {
+  it('treats a newline as submit, because a pty in canonical mode rewrites \\r', () => {
+    const operations: Array<{ text: string; submit: boolean }> = [];
+    const decoder = createPasteDecoder((operation) => operations.push(operation));
+    // Exactly what the adapter writes, after ICRNL has been through it.
+    decoder.feed('\x1b[200~summarise the repo\x1b[201~\n');
+    expect(operations).toEqual([{ text: 'summarise the repo', submit: true }]);
+  });
+
+  it('still treats a raw carriage return as submit', () => {
+    const operations: Array<{ text: string; submit: boolean }> = [];
+    const decoder = createPasteDecoder((operation) => operations.push(operation));
+    decoder.feed('\x1b[200~hi\x1b[201~\r');
+    expect(operations).toEqual([{ text: 'hi', submit: true }]);
+  });
+
+  it('does not mistake a newline INSIDE the paste for submit', () => {
+    const operations: Array<{ text: string; submit: boolean }> = [];
+    const decoder = createPasteDecoder((operation) => operations.push(operation));
+    decoder.feed('\x1b[200~two\nlines\x1b[201~');
+    decoder.flush();
+    expect(operations).toEqual([{ text: 'two\nlines', submit: false }]);
+  });
+});
+
 describe('createPasteDecoder', () => {
   it('decodes a paste followed by Enter as submitted', () => {
     const pastes: PasteOperation[] = [];

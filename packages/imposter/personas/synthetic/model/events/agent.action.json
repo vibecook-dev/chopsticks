@@ -1,0 +1,16 @@
+{
+  "surface": "synthetic",
+  "surfaceVersion": "0.0.0",
+  "event": "agent.action",
+  "channel": "event",
+  "transport": "http",
+  "trigger": "tool invoked",
+  "payloadSchema": {
+    "type": "object",
+    "required": ["kind", "sid", "workdir", "action", "ref"],
+    "properties": {"kind": { "type": "string" }, "sid": { "type": "string" }, "workdir": { "type": "string" }, "action": { "type": "string" }, "ref": { "type": "string" }, "args": { "type": "object" }}
+  },
+  "firstSeen": "0.0.0",
+  "confidence": "unverified",
+  "notes": "Invented. Field names deliberately differ from claude's so a claude-shaped assumption fails loudly."
+}

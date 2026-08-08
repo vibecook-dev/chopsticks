@@ -135,7 +135,12 @@ export function createImposterSession(options: ImposterSessionOptions): Imposter
   const transcript = createTranscriptWriter(transcriptPath);
   const statusLineInvoker = createStatusLineInvoker(settings.statusLine, { log });
 
+  // Drops are keyed by the VENDOR's channel name — the same name `liveChannels`
+  // reports and the console shows — so a channel-drop fault addresses the thing
+  // the operator can see. `channelFor` translates delivery kind to that name.
   const droppedChannels = new Set<string>();
+  const dropped = (kind: 'hook' | 'transcript' | 'statusline'): boolean =>
+    droppedChannels.has(persona.channelFor(kind) ?? kind);
   const emitted: EmittedRecord[] = [];
   let emittedBytes = 0;
   let sequence = 0;
@@ -156,11 +161,15 @@ export function createImposterSession(options: ImposterSessionOptions): Imposter
     options.onEmitted?.(entry);
   };
 
+  /**
+   * The envelope is persona-owned vocabulary, not a constant: claude sends
+   * `session_id`/`transcript_path`, and a vendor that names them differently
+   * has to be describable without editing this file (§3.2). `bindings` is
+   * declared below but only read when an op actually emits, which is always
+   * after initialization.
+   */
   const envelope = (fields: Record<string, unknown>): Record<string, unknown> => ({
-    session_id: sessionId,
-    transcript_path: transcriptPath,
-    cwd,
-    permission_mode: permissionMode,
+    ...(substitute(persona.document.envelope, { bindings }) as Record<string, unknown>),
     ...fields,
   });
 
@@ -171,14 +180,19 @@ export function createImposterSession(options: ImposterSessionOptions): Imposter
    */
   const fallbackRoute = persona.model.events.find((event) => (settings.hooks?.[event.event]?.length ?? 0) > 0)?.event;
 
+  const wireFor = (event: string, payload: Record<string, unknown>): Record<string, unknown> => ({
+    ...envelope(payload),
+    ...(persona.document.eventNameField ? { [persona.document.eventNameField]: event } : {}),
+  });
+
   const emit = async (event: string, payload: Record<string, unknown>): Promise<void> => {
-    const wire = { ...envelope(payload), hook_event_name: event };
+    const wire = wireFor(event, payload);
     const violations = persona.validate(event, wire);
     if (violations.length > 0) {
       throw new Error(`imposter refused an off-model payload for ${event}: ${violations.join('; ')}`);
     }
     record(event, wire);
-    if (droppedChannels.has('hook')) {
+    if (dropped('hook')) {
       log(`dropped ${event}: hook channel is disconnected`);
       return;
     }
@@ -227,7 +241,7 @@ export function createImposterSession(options: ImposterSessionOptions): Imposter
   };
 
   const invokeStatusLine = async (payload?: Record<string, unknown>): Promise<void> => {
-    if (droppedChannels.has('statusline')) {
+    if (dropped('statusline')) {
       log('dropped statusline payload: channel is disconnected');
       return;
     }
@@ -237,11 +251,11 @@ export function createImposterSession(options: ImposterSessionOptions): Imposter
   const guardedTranscript: TranscriptWriter = {
     path: transcript.path,
     append: (entry) => {
-      if (droppedChannels.has('transcript')) return log('dropped transcript record: channel is disconnected');
+      if (dropped('transcript')) return log('dropped transcript record: channel is disconnected');
       transcript.append(entry);
     },
     appendPartial: (fragment) => {
-      if (droppedChannels.has('transcript')) return log('dropped transcript fragment: channel is disconnected');
+      if (dropped('transcript')) return log('dropped transcript fragment: channel is disconnected');
       transcript.appendPartial(fragment);
     },
   };
@@ -332,7 +346,7 @@ export function createImposterSession(options: ImposterSessionOptions): Imposter
     statusline: (payload) => invokeStatusLine(payload),
     // Pre-flight validation sees exactly the wire payload `emit` will build,
     // envelope included, so a scenario cannot pass here and be refused there.
-    validate: (event, payload) => persona.validate(event, { ...envelope(payload), hook_event_name: event }),
+    validate: (event, payload) => persona.validate(event, wireFor(event, payload)),
     fault: applyFault,
     bindings,
     log,

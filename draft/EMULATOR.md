@@ -5,6 +5,21 @@
 **Companion:** `draft/DESIGN.md` (canonical architecture; this extends §26 Testing Strategy), `draft/ADAPTING-AN-AGENT.md` (the per-adapter workflow this spec enables)
 **Supersedes:** nothing yet — `probe/` was the spike; this is the pipeline it graduates into
 
+> ### Superseded in part by `draft/IMPOSTER.md` (I4, 2026-08-08)
+>
+> **§1 (the one rule), §2 (the ASM), and §7 (reconciliation) still stand and are still canonical.**
+>
+> Everything about *how* the stand-in is built and driven has moved:
+>
+> | This document says | Now |
+> | --- | --- |
+> | §4 — each adapter owns `surface/emulator/bin.mjs` | One executable, `ai`, driven by a persona per vendor (IMPOSTER §3). The per-adapter bins are deleted. |
+> | §5 — scenarios live beside the bin | `packages/imposter/personas/<vendor>/scenarios/` |
+> | §6.1–§6.2 — a state file and a control server per emulator | One UDS the plane owns; imposters dial in and hold it (IMPOSTER §5). No state file, no per-imposter server, no `prune()`, no poll. |
+> | §8 — `packages/emulator` ships the engine | Deleted. The ASM runtime is `@vibecook/chopsticks-surface`; the engine is `@vibecook/chopsticks-imposter`. |
+>
+> §6.3 and §6.4 still describe the shape of the thing; only the spawned process changed.
+
 ---
 
 ## 0. Charter

@@ -91,6 +91,8 @@ describe('loadPersona validation', () => {
     vendor: 'broken',
     asm: { package: '@vibecook/chopsticks-adapter-claude', path: 'surface/model/claude@2.1.207' },
     shimNames: ['broken'],
+    envelope: { session_id: '$sessionId' },
+    eventNameField: 'hook_event_name',
     boot: [],
   };
 

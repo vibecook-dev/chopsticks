@@ -16,8 +16,9 @@ import { loadPersona, personaDirectory, shimNameMap } from '../persona/load.ts';
 import type { Persona } from '../persona/types.ts';
 import { createPasteDecoder } from '../session/channels/terminal.ts';
 import { createImposterSession, type BehaviorDocument } from '../session/session.ts';
-import type { PresentationFrame } from '../session/timeline.ts';
-import { flagValue, hasFlag, PersonaSelectionError, selectPersona } from './argv.ts';
+import { createPresentation, type Presentation } from '../tui/mount.ts';
+import { flagValue, hasFlag, PersonaSelectionError, selectPersona, shimIdentity } from './argv.ts';
+import { runShimsCommand } from './shims.ts';
 
 const SAFE_NAME = /^[a-z0-9][a-z0-9-]{0,127}$/i;
 
@@ -49,15 +50,17 @@ function detectionText(persona: Persona, field: string, fallback: string): strin
   return typeof value === 'string' ? value : fallback;
 }
 
-/** One-line human rendering of an op. Cosmetic only — never parsed back. */
-function renderFrame(frame: PresentationFrame): string {
-  const at = frame.at.slice(11, 23);
-  const detail = frame.with.text ?? frame.with.tool ?? frame.with.reason ?? '';
-  return `${at}  ${frame.op}${detail ? `  ${JSON.stringify(detail)}` : ''}`;
-}
-
 export async function main(argv: readonly string[], argv0?: string): Promise<number> {
   const shims = shimNameMap();
+
+  // `shims` is the tool's own subcommand, so it is only reachable when the
+  // tool was invoked by its own name. Through an installed shim every argument
+  // belongs to the vendor, and a vendor is free to have a `shims` command of
+  // its own.
+  if (argv[0] === 'shims' && !shims.has(shimIdentity(argv0 ?? ''))) {
+    return runShimsCommand(argv.slice(1));
+  }
+
   let selection;
   try {
     selection = selectPersona(argv, { argv0, env: process.env, shims });
@@ -95,9 +98,11 @@ export async function main(argv: readonly string[], argv0?: string): Promise<num
     if (process.env.CHOPSTICKS_IMPOSTER_DEBUG) process.stderr.write(`[imposter] ${message}\n`);
   };
 
-  // `control` is assigned below, after the session exists; the push callbacks
-  // close over it and stay inert until then. Nothing is emitted before boot.
+  // `control` and `screen` are assigned below, after the session exists; the
+  // callbacks close over them and stay inert until then. Nothing is emitted
+  // before boot, which is after both.
   let control: ImposterControl | undefined;
+  let screen: Presentation | undefined;
   let closing = false;
 
   const session = createImposterSession({
@@ -106,9 +111,12 @@ export async function main(argv: readonly string[], argv0?: string): Promise<num
     env: process.env,
     cwd: process.cwd(),
     behavior: loadBehavior(persona, behaviorName),
-    present: (frame) => process.stdout.write(`${renderFrame(frame)}\r\n`),
+    present: (frame) => screen?.frame(frame),
     onEmitted: (entry) => control?.pushEmitted(entry),
-    onChannels: (channels) => control?.pushChannels(channels),
+    onChannels: (channels) => {
+      control?.pushChannels(channels);
+      screen?.channels(channels);
+    },
     halt: (kind, exitCode) => {
       if (kind === 'hang') {
         process.stdin.pause();
@@ -130,12 +138,18 @@ export async function main(argv: readonly string[], argv0?: string): Promise<num
     closing = true;
     await session.end();
     await control?.close('other');
+    await screen?.stop();
     process.exit(exitCode);
   };
 
-  process.stdout.write(
-    `IMPOSTER · ${persona.vendor} ${persona.version} · ${session.sessionId} · ${session.liveChannels.join(' ')}\r\n`,
-  );
+  // The TUI is chrome and nothing more (§4): it renders the same lines the
+  // headless sink writes, and never reads input.
+  screen = await createPresentation({
+    vendor: persona.vendor,
+    version: persona.version,
+    sessionId: session.sessionId,
+    channels: session.liveChannels,
+  });
 
   // Joining the control plane MUST complete before the stdin listeners attach:
   // under ELECTRON_RUN_AS_NODE (how apps spawn script recipes) a flowing stdin
@@ -166,19 +180,30 @@ export async function main(argv: readonly string[], argv0?: string): Promise<num
   process.once('SIGTERM', () => void shutdown());
   process.once('SIGINT', () => void shutdown());
 
-  // The adapter injects prompts as a guarded bracketed paste; the decoder is
-  // shared with the (future) TUI so there is only ever one input path (§4.1.1).
+  // The adapter injects prompts as a guarded bracketed paste. This is the ONLY
+  // input path: the TUI does not read stdin, so TTY and pipe modes cannot drift
+  // apart in the most load-bearing place there is (§4.1.1).
   const decoder = createPasteDecoder((operation) => {
     if (!operation.submit) {
-      process.stdout.write(`\r\n[staged] ${operation.text}\r\n`);
+      screen?.staged(operation.text);
       return;
     }
+    screen?.staged('');
     void session.turn(operation.text).catch((error: unknown) => {
-      process.stderr.write(`[imposter] turn failed: ${error instanceof Error ? error.message : String(error)}\n`);
+      screen?.notice(`turn failed: ${error instanceof Error ? error.message : String(error)}`);
     });
   });
+  // A real terminal needs raw mode so a bracketed paste arrives as bytes rather
+  // than line-buffered input. Raw mode also stops the kernel turning ^C into
+  // SIGINT, so the interrupt is handled here as a byte — which is what the
+  // vendor's own TUI does. Only a lone \x03 is a keypress; a larger chunk
+  // containing it is paste payload.
+  if (screen.interactive && process.stdin.isTTY) process.stdin.setRawMode(true);
   process.stdin.setEncoding('utf8');
-  process.stdin.on('data', (chunk) => decoder.feed(chunk));
+  process.stdin.on('data', (chunk: string) => {
+    if (screen.interactive && chunk === '\x03') return void shutdown();
+    decoder.feed(chunk);
+  });
   process.stdin.on('end', () => {
     decoder.flush();
     void shutdown();

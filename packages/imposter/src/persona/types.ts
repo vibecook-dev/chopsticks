@@ -66,10 +66,32 @@ export interface OpInvocation {
 
 export interface PersonaDocument {
   vendor: string;
-  /** Where the captured ASM lives; resolved through the adapter's package.json. */
-  asm: { package: string; path: string };
+  /**
+   * Where the ASM lives. With `package`, it is resolved through that package's
+   * manifest — captured truth, adapter-owned (§3.3). Without it, `path` is
+   * relative to the persona directory, which is only legitimate for a vendor
+   * that has no captures because it does not exist (see personas/synthetic).
+   */
+  asm: { package?: string; path: string };
   /** Names written by `ai shims install`, resolved back via argv0 (§6). */
   shimNames: string[];
+  /**
+   * Fields merged into every emission on this persona's event channel, as a
+   * substitution template (`$sessionId`, `$transcriptPath`, `$cwd`, …).
+   *
+   * This is persona-owned rather than hard-coded because the envelope is
+   * vendor vocabulary: claude sends `session_id`/`transcript_path`, and a
+   * vendor that sends something else must be describable without editing the
+   * session. Hard-coding claude's shape here was the single most claude-shaped
+   * thing left in the contract (found 2026-08-08 by writing a second persona).
+   */
+  envelope: Record<string, unknown>;
+  /**
+   * Field the event's own name is written into before delivery — claude's
+   * `hook_event_name`. Omit when the vendor's transport carries the name out
+   * of band and the payload must not gain a field the ASM has never seen.
+   */
+  eventNameField?: string;
   /** Ops emitted when a session starts, before any stimulus. */
   boot: OpInvocation[];
 }
@@ -80,8 +102,15 @@ export interface Persona {
   document: PersonaDocument;
   model: SurfaceModel;
   ops: OpsDocument;
-  /** Declared channels, from the ASM. */
+  /** Declared channels, from the ASM, under the vendor's own names. */
   channels: string[];
+  /**
+   * The vendor's channel name for one delivery kind — `hook` is called `hook`
+   * by claude and could be called anything by anyone else. Without this the
+   * session would drop `hook` while the console showed the vendor's real name
+   * still live, and a channel-drop fault would silently do nothing.
+   */
+  channelFor(kind: OpChannel): string | undefined;
   schemaFor(event: string): PayloadSchema | undefined;
   /** ASM validation for one wire payload; empty means valid. */
   validate(event: string, payload: Record<string, unknown>): string[];

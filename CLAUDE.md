@@ -7,9 +7,10 @@ state from native side channels, never by reading the screen.
 
 `draft/DESIGN.md` is the canonical architecture (ADRs, §-numbered; comments across the codebase cite
 it). `draft/IMPLEMENTATION-PLAN.md` records what was scoped, deferred, and rejected, and why.
-`draft/EMULATOR.md` + `draft/ADAPTING-AN-AGENT.md` specify the Agent Surface Model (ASM), the
-emulator stack, and the standard six-step adapter workflow (P1 delivered: `packages/emulator` +
-`packages/adapter-claude/surface/`).
+`draft/EMULATOR.md` + `draft/ADAPTING-AN-AGENT.md` specify the Agent Surface Model (ASM) and the
+standard six-step adapter workflow. **`draft/IMPOSTER.md` is the live document for the emulator
+stack** — it supersedes EMULATOR.md §4–§6 and §8 (I4, 2026-08-08); EMULATOR.md §1, §2, and §7 still
+stand. One executable (`ai`) impersonates every vendor from a persona; there are no per-adapter bins.
 
 ## Sibling repos (this is layer 2 of 3)
 
@@ -59,18 +60,21 @@ packages/
                  type stripping, which is why it owns a package (draft/IMPOSTER.md §7.1)
   imposter/      `ai` — one executable that impersonates every vendor from its captured ASM.
                  personas/<vendor>/ (ops, boot, behavior, scenarios), session + channels, op timeline,
-                 scenario runner, control/ (UDS JSON-RPC client + shared protocol). Relative imports
-                 end in `.ts` here, NOT `.js` — see packages/imposter/src/index.ts for why
-  emulator/      the retired PoC engine behind `surface/emulator/bin.mjs`; deleted at I4. Nothing new
-                 should depend on it
+                 scenario runner, control/ (UDS JSON-RPC client + shared protocol), tui/ (one shared
+                 Ink chrome, dynamically imported ONLY on a TTY — it costs ~40 MB of RSS, and
+                 `CHOPSTICKS_IMPOSTER_TUI=off` forces the append-only sink). Relative imports end in
+                 `.ts` here, NOT `.js` — see packages/imposter/src/index.ts for why. `ai shims
+                 install` writes `claude`/… symlinks so PATH-prepending needs no app changes
 
 `adapter-<vendor>/surface/` holds the adapter-owned ground truth (draft/EMULATOR.md):
 `model/<vendor>@<version>/` (ASM — canonical; registry.ts is GENERATED from it via
 `surface/generate-registry.mjs`), `captures/` (sanitized census fixtures, repo-only), `captures-raw/`
 (verbatim evidence, gitignored/private), `audit.mjs` (model + schema + privacy ↔ captures
-diff — `pnpm --filter @vibecook/chopsticks-adapter-claude run surface:audit`), `emulator/bin.mjs` (the vendor
-stand-in; conformance runs against it hermetically). Surface .mjs scripts need node
-≥22.18 (type stripping) and import only self-contained modules.
+diff — `pnpm --filter @vibecook/chopsticks-adapter-claude run surface:audit`). The vendor stand-in is
+NOT here: it is a persona in `packages/imposter/personas/<vendor>/`, and conformance runs against
+`ai` hermetically. Surface .mjs scripts need node ≥22.18 (type stripping) and import only
+self-contained modules — that constraint is why `packages/surface` owns a package and sets
+`erasableSyntaxOnly`.
 apps/
   godview/       current focus — Electron swarm view (matter.js bubbles, panes, usage panel)
   workbench/     the original dev app (agent chat panel, per-agent tabs)

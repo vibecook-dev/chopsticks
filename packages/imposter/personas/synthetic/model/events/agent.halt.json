@@ -1,0 +1,16 @@
+{
+  "surface": "synthetic",
+  "surfaceVersion": "0.0.0",
+  "event": "agent.halt",
+  "channel": "event",
+  "transport": "http",
+  "trigger": "process ending",
+  "payloadSchema": {
+    "type": "object",
+    "required": ["kind", "sid", "workdir", "why"],
+    "properties": {"kind": { "type": "string" }, "sid": { "type": "string" }, "workdir": { "type": "string" }, "why": { "type": "string" }}
+  },
+  "firstSeen": "0.0.0",
+  "confidence": "unverified",
+  "notes": "Invented. Field names deliberately differ from claude's so a claude-shaped assumption fails loudly."
+}

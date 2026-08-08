@@ -1,0 +1,13 @@
+{
+  "binaryNames": ["synthetic"],
+  "versionFlag": "-V",
+  "versionOutput": "synthetic 0.0.0 (not a real agent)",
+  "helpFlag": "-h",
+  "probedFlags": {
+    "sessionId": "--sid",
+    "settings": "--config",
+    "name": "--label",
+    "permissionMode": "--guard",
+    "model": "--brain"
+  }
+}

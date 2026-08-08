@@ -1,0 +1,16 @@
+{
+  "surface": "synthetic",
+  "surfaceVersion": "0.0.0",
+  "event": "agent.prompt",
+  "channel": "event",
+  "transport": "http",
+  "trigger": "user prompt accepted",
+  "payloadSchema": {
+    "type": "object",
+    "required": ["kind", "sid", "workdir", "utterance"],
+    "properties": {"kind": { "type": "string" }, "sid": { "type": "string" }, "workdir": { "type": "string" }, "utterance": { "type": "string" }}
+  },
+  "firstSeen": "0.0.0",
+  "confidence": "unverified",
+  "notes": "Invented. Field names deliberately differ from claude's so a claude-shaped assumption fails loudly."
+}
