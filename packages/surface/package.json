@@ -14,7 +14,8 @@
   "types": "./src/model.ts",
   "exports": {
     ".": "./src/model.ts",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./sanitize": "./src/sanitize.ts"
   },
   "publishConfig": {
     "access": "public",
@@ -26,7 +27,11 @@
         "types": "./dist/model.d.ts",
         "import": "./dist/model.js"
       },
-      "./package.json": "./package.json"
+      "./package.json": "./package.json",
+      "./sanitize": {
+        "types": "./dist/sanitize.d.ts",
+        "import": "./dist/sanitize.js"
+      }
     }
   },
   "files": [
