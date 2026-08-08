@@ -15,7 +15,6 @@
   "exports": {
     ".": "./src/index.ts",
     "./engine": "./src/engine.ts",
-    "./control": "./src/control.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
@@ -32,16 +31,11 @@
         "types": "./dist/engine.d.ts",
         "import": "./dist/engine.js"
       },
-      "./control": {
-        "types": "./dist/control.d.ts",
-        "import": "./dist/control.js"
-      },
       "./package.json": "./package.json"
     }
   },
   "files": [
-    "dist",
-    "ui"
+    "dist"
   ],
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",

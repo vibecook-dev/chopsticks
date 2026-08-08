@@ -1,8 +1,12 @@
 /**
  * Center-owned spawn capability (draft/EMULATOR.md §6): the control center
  * creates emulated sessions through the REAL adapter — full driver, reducer
- * state, hook bridge — with the emulator bin as the spawned process. This is
- * what lets the console spawn-and-drive agents with no product app running.
+ * state, hook bridge — with `ai` as the spawned process. This is what lets the
+ * console spawn-and-drive agents with no product app running.
+ *
+ * The persona is selected by `AI_PERSONA` rather than argv0, because the
+ * adapter owns argv and must be allowed to build its real launch recipe
+ * untouched; `ai shims install` is the ergonomic form and lands at I4 (§6).
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -11,23 +15,28 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createClaudeSession, type ClaudeSession } from '@vibecook/chopsticks-adapter-claude';
-import type { EmulatorSpawner } from '@vibecook/chopsticks-emulator/control';
+import type { EmulatorSpawner } from './plane.js';
 
 export interface ClaudeSpawnerOptions {
-  /** Test override for the control state file the bin registers against. */
-  controlStateFile?: string;
+  /** Test overrides for the control channel the imposter dials. */
+  controlSocketPath?: string;
+  controlTokenPath?: string;
+}
+
+export function imposterBin(): string {
+  const require = createRequire(import.meta.url);
+  return join(dirname(require.resolve('@vibecook/chopsticks-imposter/package.json')), 'bin', 'ai.mjs');
 }
 
 export function createClaudeSpawner(options: ClaudeSpawnerOptions = {}): EmulatorSpawner & {
   disposeAll(): Promise<void>;
 } {
-  const require = createRequire(import.meta.url);
-  const adapterPackage = require.resolve('@vibecook/chopsticks-adapter-claude/package.json');
-  const bin = join(dirname(adapterPackage), 'surface', 'emulator', 'bin.mjs');
+  const bin = imposterBin();
 
   const sessions = new Map<string, ClaudeSession>();
   const children = new Map<string, ChildProcess>();
   const workingDirectories = new Map<string, string>();
+  const listeners = new Set<(sessionId: string) => void>();
 
   const removeWorkingDirectory = (sessionId: string): void => {
     const cwd = workingDirectories.get(sessionId);
@@ -56,7 +65,9 @@ export function createClaudeSpawner(options: ClaudeSpawnerOptions = {}): Emulato
                 env: {
                   ...process.env,
                   ...prepared.env,
-                  ...(options.controlStateFile ? { CHOPSTICKS_EMULATOR_CONTROL_STATE: options.controlStateFile } : {}),
+                  AI_PERSONA: 'claude',
+                  ...(options.controlSocketPath ? { CHOPSTICKS_IMPOSTER_SOCKET: options.controlSocketPath } : {}),
+                  ...(options.controlTokenPath ? { CHOPSTICKS_IMPOSTER_TOKEN_FILE: options.controlTokenPath } : {}),
                 },
                 stdio: ['pipe', 'ignore', 'inherit'],
               });
@@ -86,6 +97,11 @@ export function createClaudeSpawner(options: ClaudeSpawnerOptions = {}): Emulato
         sessions.set(session.sessionId, session);
         children.set(session.sessionId, child!);
         workingDirectories.set(session.sessionId, cwd);
+        // Reducer state reaches the console by push, so the plane never polls
+        // it (draft/IMPOSTER.md §5).
+        session.onEvent(() => {
+          for (const listener of listeners) listener(session.sessionId);
+        });
         child!.once('exit', () => {
           children.delete(session.sessionId);
           const tracked = sessions.get(session.sessionId);
@@ -103,6 +119,10 @@ export function createClaudeSpawner(options: ClaudeSpawnerOptions = {}): Emulato
     sessionState(sessionId) {
       const session = sessions.get(sessionId);
       return session ? session.state() : undefined;
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
     },
     async disposeAll() {
       const activeSessions = [...sessions.entries()];

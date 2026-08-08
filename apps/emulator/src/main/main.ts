@@ -6,21 +6,32 @@
  * needs no terminal stack, which keeps it buildable without the sibling repo.
  */
 import { app, BrowserWindow } from 'electron';
-import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { createControlPlane } from '@vibecook/chopsticks-emulator/control';
+import { fileURLToPath } from 'node:url';
+import { createControlPlane } from './plane.js';
 import { createClaudeSpawner } from './spawner.js';
 
 export function loadConsoleUi(): string {
-  const require = createRequire(import.meta.url);
-  const packageJson = require.resolve('@vibecook/chopsticks-emulator/package.json');
-  return readFileSync(join(dirname(packageJson), 'ui', 'control.html'), 'utf8');
+  // The bundle lands at `dist/main.cjs` and vitest imports `src/main/main.ts`,
+  // so the app root is one or two levels up depending on which is running.
+  const here = dirname(fileURLToPath(import.meta.url));
+  for (const candidate of [join(here, '..', 'ui', 'control.html'), join(here, '..', '..', 'ui', 'control.html')]) {
+    if (existsSync(candidate)) return readFileSync(candidate, 'utf8');
+  }
+  throw new Error('emulator console UI not found beside the app');
 }
 
 const smoke = process.argv.includes('--smoke');
 const claudeSpawner = createClaudeSpawner();
-const plane = createControlPlane({ uiHtml: loadConsoleUi(), spawners: [claudeSpawner] });
+const plane = createControlPlane({
+  uiHtml: loadConsoleUi(),
+  spawners: [claudeSpawner],
+  // Sessions joining and leaving is the one thing worth watching from the
+  // terminal you launched in, and it is how you notice an imposter that failed
+  // to dial in at all.
+  log: (message) => console.log(`[plane] ${message}`),
+});
 let quitReady = false;
 let shutdownPromise: Promise<void> | undefined;
 let mainWindow: BrowserWindow | undefined;
@@ -47,6 +58,9 @@ if (process.type === 'browser') {
         app.exit(0);
         return;
       }
+      // The console is also a plain web page; print the authenticated URL so it
+      // can be opened in a real browser with devtools, or driven by a script.
+      console.log(`emulator console at ${plane.consoleUrl}`);
       mainWindow = new BrowserWindow({ width: 1280, height: 840, title: 'chopsticks — emulator control' });
       mainWindow.on('closed', () => {
         mainWindow = undefined;

@@ -238,6 +238,10 @@ The browser console keeps HTTP; it has to. The plane translates. Browser ⇄ HTT
 - **Path length.** `sun_path` is ~103 bytes on macOS, ~107 on Linux. The socket must live at a short fixed path (`~/.chopsticks/imposter.sock`), never a nested per-session one.
 - **Windows auth.** A 0700 directory gives POSIX a filesystem capability that named pipes do not expose through Node. **Keep a bearer token anyway** so both platforms behave identically; the token costs ~10 lines and the real win is that the endpoint was never network-reachable to begin with.
 
+**Where the token lives (settled at I3).** Deleting the state file removed the only place a shared secret was published, so the plane writes one at `~/.chopsticks/imposter.token`, mode 0600, in the same 0700 directory as the socket. This is not the state file returning: it carries no URL, no pid, and nothing to infer liveness from, so there is no discovery parse surface and no ownership contention. The socket path is fixed, and socket close is liveness. The plane keeps a **second, separate** token for the browser console — two doors, two secrets, and the one on disk never reaches a URL.
+
+**Stale sockets.** A socket file outlives an ungraceful exit, so existence is not ownership. The plane dials its own path first: something answers → another plane owns it, refuse to start; nothing answers → unlink and bind. This replaces `livePlaneInStateFile`.
+
 ---
 
 ## 6. CLI surface
@@ -328,7 +332,7 @@ The full design is §9. The sequencing that replaces the old "blocked" note is �
 | **I1** | Imposter skeleton, channel modules, persona loader, op timeline, headless session, CLI, claude persona. **No control channel yet.** | conformance green against `ai` instead of `bin.mjs` | **done 2026-08-07** |
 | **I1.5** | Codex survey + model (§9). Ordered: capture envelope + sanitizer → committed harness → hermetic capture (approvals and tools FIRST) → `generate-model.mjs` → `surface/model/codex@0.147.0`. **Hermetic, not `CODEX_LIVE`** — a fake local provider drives a full turn offline. | Model validates; approval round-trip captured; harness committed; `diff(vendor schema, model)` clean | **blocks I2** |
 | **I2** | Claude **and** codex runtimes — hook/transcript/statusline channels, and the app-server JSON-RPC channel | Both conform hermetically in CI; ops map cleanly onto both families, or the vocabulary is revised until they do | |
-| **I3** | Control channel, both sides at once: UDS client in the imposter **and** the plane rewritten at its new home in `apps/emulator`. Delete state file, bin-side HTTP server, `prune()`, console poll. Push-based log. | §6.4 flow works over one socket; `scenario.control` pause/step lands | |
+| **I3** | Control channel, both sides at once: UDS client in the imposter **and** the plane rewritten at its new home in `apps/emulator`. Delete state file, bin-side HTTP server, `prune()`, console poll. Push-based log. | §6.4 flow works over one socket; `scenario.control` pause/step lands | **done 2026-08-08** |
 | **I4** | Ink TUI behind `isTTY`; `ai shims install`; delete `bin.mjs` and `packages/emulator`; absorb `fake-agent.mjs`; update EMULATOR.md + ADAPTING-AN-AGENT.md | godview panes show imposter chrome; no doc still describes per-adapter bins | |
 
 I0 is a refactor that can land on its own and de-risks everything after it. I1–I2 are load-bearing. I3 is mostly deletion. I4 is chrome plus paperwork.

@@ -54,9 +54,15 @@ packages/
   adapter-acp/     generic ACP driver;  adapter-grok/ layers on it (--leader coexistence)
   workspaces/    direct | exclusive | worktree | copy isolation + final-diff metadata
   record/        append-only JSONL of runtime-owned actions;  testing/ fake agent + conformance
-  emulator/      ASM runtime + L1 engine (paste decoder, hook emitter, transcript writer, scenario
-                 runner) + control plane; self-contained modules — deep exports `…/model`, `…/engine`,
-                 `…/control` for .mjs
+  surface/       the ASM runtime (loadModel, validatePayload, drift) + the capture sanitiser.
+                 SELF-CONTAINED and `erasableSyntaxOnly` — surface .mjs scripts import it under node
+                 type stripping, which is why it owns a package (draft/IMPOSTER.md §7.1)
+  imposter/      `ai` — one executable that impersonates every vendor from its captured ASM.
+                 personas/<vendor>/ (ops, boot, behavior, scenarios), session + channels, op timeline,
+                 scenario runner, control/ (UDS JSON-RPC client + shared protocol). Relative imports
+                 end in `.ts` here, NOT `.js` — see packages/imposter/src/index.ts for why
+  emulator/      the retired PoC engine behind `surface/emulator/bin.mjs`; deleted at I4. Nothing new
+                 should depend on it
 
 `adapter-<vendor>/surface/` holds the adapter-owned ground truth (draft/EMULATOR.md):
 `model/<vendor>@<version>/` (ASM — canonical; registry.ts is GENERATED from it via
@@ -68,7 +74,10 @@ stand-in; conformance runs against it hermetically). Surface .mjs scripts need n
 apps/
   godview/       current focus — Electron swarm view (matter.js bubbles, panes, usage panel)
   workbench/     the original dev app (agent chat panel, per-agent tabs)
-  emulator/      emulator control center (no ghosttea dep — builds anywhere; `pnpm emulator`)
+  emulator/      emulator control center (no ghosttea dep — builds anywhere; `pnpm emulator`).
+                 Owns the control plane: one UDS at `~/.chopsticks/imposter.sock` that imposters dial
+                 into, plus a loopback HTTP+SSE console. Liveness is socket close — there is no
+                 discovery file and nothing polls (draft/IMPOSTER.md §5)
 ```
 
 `packages/node` is **gone** (commit `1eea6db`) — the PTY spine moved to electron-ghostty. Empty

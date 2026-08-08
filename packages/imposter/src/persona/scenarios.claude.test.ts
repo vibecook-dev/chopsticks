@@ -1,22 +1,28 @@
+/**
+ * The claude persona's scenario pack is executable, schema-valid data.
+ *
+ * This lived in `adapter-claude` while the stand-in was a per-adapter bin. The
+ * scenarios are persona-owned now (draft/IMPOSTER.md §3.1), and validating them
+ * through `persona.validate` rather than a hand-rolled schema lookup means the
+ * check runs against exactly the model the imposter would refuse them with.
+ */
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createScenarioRunner, createTranscriptWriter, type ScenarioStep } from '@vibecook/chopsticks-emulator/engine';
-import { loadModel, validatePayload } from '@vibecook/chopsticks-surface';
+import { createTranscriptWriter } from '../session/channels/transcript.ts';
+import { createScenarioRunner, scenarioSteps } from '../session/scenario.ts';
+import { loadPersona, personaDirectory } from './load.ts';
 
-const adapterRoot = join(fileURLToPath(new URL('.', import.meta.url)), '..');
-const scenarioDir = join(adapterRoot, 'surface', 'emulator', 'scenarios');
-const model = loadModel(join(adapterRoot, 'surface', 'model', 'claude@2.1.207'));
-const schemas = new Map(model.events.map((event) => [event.event, event.payloadSchema]));
+const persona = loadPersona('claude');
+const scenarioDir = join(personaDirectory('claude'), 'scenarios');
 const temporaryDirectories: string[] = [];
 
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
-describe('Claude emulator scenarios', () => {
+describe('claude persona scenarios', () => {
   it('ships the required starter scenarios as executable, schema-valid data', async () => {
     const required = [
       'happy-turn',
@@ -36,51 +42,44 @@ describe('Claude emulator scenarios', () => {
     expect(available).toEqual(expect.arrayContaining(required));
 
     for (const name of required) {
-      const document = JSON.parse(readFileSync(join(scenarioDir, `${name}.json`), 'utf8')) as {
-        name: string;
-        steps?: ScenarioStep[];
-        then?: ScenarioStep[];
-      };
+      const document = JSON.parse(readFileSync(join(scenarioDir, `${name}.json`), 'utf8')) as { name: string };
       expect(document.name).toBe(name);
       const directory = mkdtempSync(join(tmpdir(), `chopsticks-${name}-`));
       temporaryDirectories.push(directory);
+      const transcriptPath = join(directory, 'transcript.jsonl');
       const faults: string[] = [];
       const statuslines: Array<Record<string, unknown>> = [];
       const runner = createScenarioRunner({
         emit: async () => {},
-        transcript: createTranscriptWriter(join(directory, 'transcript.jsonl')),
+        transcript: createTranscriptWriter(transcriptPath),
         statusline: async (payload) => {
           statuslines.push(payload);
         },
         fault: (fault) => {
           faults.push(fault.kind);
         },
-        validate: (event, payload) => {
-          const schema = schemas.get(event);
-          return schema
-            ? validatePayload(schema, {
-                session_id: 'session',
-                transcript_path: join(directory, 'transcript.jsonl'),
-                cwd: directory,
-                permission_mode: 'default',
-                ...payload,
-                hook_event_name: event,
-              })
-            : [];
-        },
+        validate: (event, payload) =>
+          persona.validate(event, {
+            session_id: 'session',
+            transcript_path: transcriptPath,
+            cwd: directory,
+            permission_mode: 'default',
+            ...payload,
+            hook_event_name: event,
+          }),
         bindings: {
           $sessionTitle: 'scenario-test',
           $permissionMode: 'default',
           $sessionId: 'session',
-          $transcriptPath: join(directory, 'transcript.jsonl'),
+          $transcriptPath: transcriptPath,
           $cwd: directory,
-          $vendorVersion: model.manifest.vendorVersion,
-          $modelId: 'claude-emulator',
+          $vendorVersion: persona.version,
+          $modelId: 'claude-imposter',
           $capacityTokens: 200_000,
-          $reply: 'emulator: ok',
+          $reply: 'imposter: ok',
         },
       });
-      await runner.run(document.steps ?? document.then ?? [], { text: 'test prompt' }, { speed: 100 });
+      await runner.run(scenarioSteps(document), { text: 'test prompt' }, { speed: 100 });
       if (name === 'token-usage-refresh') expect(statuslines).toHaveLength(1);
       if (['flood', 'crash-mid-turn', 'channel-disconnect'].includes(name)) expect(faults).toHaveLength(1);
     }

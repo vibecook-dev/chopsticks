@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTranscriptWriter } from './channels/transcript.ts';
-import { createScenarioRunner } from './scenario.ts';
+import { createScenarioGate, createScenarioRunner } from './scenario.ts';
 
 describe('createScenarioRunner', () => {
   let dir: string;
@@ -124,5 +124,84 @@ describe('createScenarioRunner', () => {
     ]);
     expect(crashes).toEqual([137]);
     expect(readFileSync(join(dir, 't.jsonl'), 'utf8')).toBe('{"type":"assis');
+  });
+
+  it('prepares without touching a channel, so a paused run can answer immediately', () => {
+    const emitted: string[] = [];
+    const runner = createScenarioRunner({
+      emit: async (event) => void emitted.push(event),
+      transcript: createTranscriptWriter(join(dir, 't.jsonl')),
+    });
+    const prepared = runner.prepare([{ emit: { event: 'Stop' } }, { emit: { event: 'Stop' } }]);
+    expect(prepared.steps).toBe(2);
+    expect(emitted).toEqual([]);
+  });
+});
+
+describe('createScenarioGate', () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'chopsticks-imposter-gate-'));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 5));
+
+  const gatedRunner = (emitted: string[], dir: string) =>
+    createScenarioRunner({
+      emit: async (event) => void emitted.push(event),
+      transcript: createTranscriptWriter(join(dir, 'gate.jsonl')),
+    });
+
+  it('holds a paused scenario and releases exactly one step at a time', async () => {
+    const emitted: string[] = [];
+    const gate = createScenarioGate('pause');
+    const steps = [{ emit: { event: 'a' } }, { emit: { event: 'b' } }, { emit: { event: 'c' } }];
+    const done = gatedRunner(emitted, dir).run(steps, {}, { gate });
+
+    await settle();
+    expect(emitted).toEqual([]);
+
+    gate.step();
+    await settle();
+    expect(emitted).toEqual(['a']);
+
+    gate.step();
+    await settle();
+    expect(emitted).toEqual(['a', 'b']);
+
+    gate.resume();
+    await done;
+    expect(emitted).toEqual(['a', 'b', 'c']);
+  });
+
+  it('pauses a running scenario mid-flight and resumes it', async () => {
+    const emitted: string[] = [];
+    const gate = createScenarioGate('play');
+    const steps = [{ emit: { event: 'a' } }, { delay: { ms: 20 } }, { emit: { event: 'b' } }];
+    const done = gatedRunner(emitted, dir).run(steps, {}, { gate });
+
+    gate.pause();
+    await settle();
+    expect(emitted).toEqual(['a']);
+    expect(gate.paused).toBe(true);
+
+    gate.resume();
+    await done;
+    expect(emitted).toEqual(['a', 'b']);
+  });
+
+  it('banks a step that arrives before the runner reaches the gate', async () => {
+    const gate = createScenarioGate('pause');
+    gate.step();
+    gate.step();
+    await expect(gate.wait()).resolves.toBeUndefined();
+    await expect(gate.wait()).resolves.toBeUndefined();
+    let third = false;
+    void gate.wait().then(() => (third = true));
+    await settle();
+    expect(third).toBe(false);
   });
 });

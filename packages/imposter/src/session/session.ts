@@ -13,9 +13,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { OpInvocation, Persona } from '../persona/types.ts';
 import { flagValue } from '../cli/argv.ts';
+import { ControlError, REFUSED, type FaultRequest, type ScenarioControlAction } from '../control/protocol.ts';
 import { createHookEmitter, type HookSettings } from './channels/hook.ts';
 import { createStatusLineInvoker } from './channels/statusline.ts';
 import { createTranscriptWriter, type TranscriptWriter } from './channels/transcript.ts';
+import {
+  createScenarioGate,
+  createScenarioRunner,
+  scenarioSteps,
+  type ScenarioGate,
+  type ScenarioRunner,
+} from './scenario.ts';
 import { substitute } from './template.ts';
 import { createOpTimeline, type OpTimeline, type PresentationFrame } from './timeline.ts';
 
@@ -48,7 +56,23 @@ export interface ImposterSessionOptions {
   cwd: string;
   behavior: BehaviorDocument;
   present?: (frame: PresentationFrame) => void;
+  /** Pushed for every emission in order — the control channel's log stream (§5.1). */
+  onEmitted?: (entry: EmittedRecord) => void;
+  /** Pushed when a fault disconnects a channel, so the console never polls for liveness. */
+  onChannels?: (channels: string[]) => void;
+  /**
+   * Process-level fault effects. The session owns channel-level faults (flood,
+   * channel-drop) but never reaches for `process` itself, so a test can drive
+   * `crash` without taking the test runner with it.
+   */
+  halt?: (kind: 'crash' | 'exit' | 'hang', exitCode: number) => void;
   log?: (message: string) => void;
+}
+
+export interface RunScenarioOptions {
+  stimulus?: Record<string, unknown>;
+  speed?: number;
+  mode?: 'play' | 'pause' | 'step';
 }
 
 export interface ImposterSession {
@@ -65,8 +89,16 @@ export interface ImposterSession {
   /** Emit a single raw native event, ASM-validated. */
   emit(event: string, payload: Record<string, unknown>): Promise<void>;
   statusPayload(): Record<string, unknown>;
-  invokeStatusLine(): Promise<void>;
+  invokeStatusLine(payload?: Record<string, unknown>): Promise<void>;
   dropChannel(channel: string): void;
+  /**
+   * Run one scenario document. `play` resolves when the scenario finishes;
+   * `pause`/`step` resolve as soon as the script is known to be valid, because
+   * a reply that waited for the console to press resume would be useless.
+   */
+  runScenario(document: unknown, options?: RunScenarioOptions): Promise<void>;
+  scenarioControl(action: ScenarioControlAction): void;
+  applyFault(request: FaultRequest): Promise<void>;
   end(reason?: string): Promise<void>;
 }
 
@@ -121,6 +153,7 @@ export function createImposterSession(options: ImposterSessionOptions): Imposter
     while (emitted.length > MAX_LOG_ENTRIES || emittedBytes > MAX_LOG_BYTES) {
       emittedBytes -= Buffer.byteLength(JSON.stringify(emitted.shift()));
     }
+    options.onEmitted?.(entry);
   };
 
   const envelope = (fields: Record<string, unknown>): Record<string, unknown> => ({
@@ -193,12 +226,12 @@ export function createImposterSession(options: ImposterSessionOptions): Imposter
     return payload;
   };
 
-  const invokeStatusLine = async (): Promise<void> => {
+  const invokeStatusLine = async (payload?: Record<string, unknown>): Promise<void> => {
     if (droppedChannels.has('statusline')) {
       log('dropped statusline payload: channel is disconnected');
       return;
     }
-    await statusLineInvoker?.invoke(statusPayload());
+    await statusLineInvoker?.invoke(payload ?? statusPayload());
   };
 
   const guardedTranscript: TranscriptWriter = {
@@ -237,12 +270,82 @@ export function createImposterSession(options: ImposterSessionOptions): Imposter
     log,
   });
 
+  const liveChannels = (): string[] => persona.channels.filter((channel) => !droppedChannels.has(channel));
+
+  const endSession = async (reason = 'other'): Promise<void> => {
+    await timeline.run({ op: 'session.end', with: { reason } }).catch((error: unknown) => {
+      log(`session.end failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  };
+
+  /**
+   * Process-level faults default to what a real vendor does when it dies.
+   * `setImmediate` is load-bearing: the control reply has to flush before the
+   * process goes away, or the console reports a fault as failed when it landed.
+   */
+  const halt =
+    options.halt ??
+    ((kind: 'crash' | 'exit' | 'hang', exitCode: number): void => {
+      if (kind === 'hang') {
+        process.stdin.pause();
+        return;
+      }
+      setImmediate(() => {
+        if (kind === 'crash') process.exit(exitCode);
+        else void endSession('other').finally(() => process.exit(exitCode));
+      });
+    });
+
+  const applyFault = async (request: FaultRequest): Promise<void> => {
+    switch (request.kind) {
+      case 'channel-drop': {
+        const channel = request.channel ?? 'hook';
+        droppedChannels.add(channel);
+        options.onChannels?.(liveChannels());
+        log(`fault: dropped the ${channel} channel`);
+        return;
+      }
+      case 'flood': {
+        // There is no vendor-neutral default payload, so the caller supplies
+        // one and the ASM refuses it if it is off-model — the same gate every
+        // trigger goes through (§7.3 item 3).
+        const event = request.event ?? persona.model.events[0]?.event;
+        if (!event) throw new ControlError(REFUSED, 'flood requires an event');
+        for (let index = 0; index < (request.count ?? 100); index += 1) await emit(event, request.with ?? {});
+        return;
+      }
+      case 'crash':
+        halt('crash', request.exitCode ?? 137);
+        return;
+      case 'exit':
+        halt('exit', request.exitCode ?? 0);
+        return;
+      case 'hang':
+        halt('hang', 0);
+        return;
+    }
+  };
+
+  const runner: ScenarioRunner = createScenarioRunner({
+    emit,
+    transcript: guardedTranscript,
+    statusline: (payload) => invokeStatusLine(payload),
+    // Pre-flight validation sees exactly the wire payload `emit` will build,
+    // envelope included, so a scenario cannot pass here and be refused there.
+    validate: (event, payload) => persona.validate(event, { ...envelope(payload), hook_event_name: event }),
+    fault: applyFault,
+    bindings,
+    log,
+  });
+
+  let gate: ScenarioGate | undefined;
+
   return {
     sessionId,
     transcriptPath,
     transcriptRoot,
     get liveChannels() {
-      return persona.channels.filter((channel) => !droppedChannels.has(channel));
+      return liveChannels();
     },
     emitted,
     timeline,
@@ -252,6 +355,36 @@ export function createImposterSession(options: ImposterSessionOptions): Imposter
     invokeStatusLine,
     dropChannel(channel) {
       droppedChannels.add(channel);
+      options.onChannels?.(liveChannels());
+    },
+    applyFault,
+    async runScenario(document, runOptions = {}) {
+      const mode = runOptions.mode ?? 'play';
+      const active = createScenarioGate(mode);
+      // prepare() validates the whole script and touches nothing, so a bad
+      // scenario fails the caller before the gate is ever published.
+      const prepared = runner.prepare(scenarioSteps(document), runOptions.stimulus ?? {}, {
+        speed: runOptions.speed ?? 1,
+        gate: active,
+      });
+      gate = active;
+      const finish = (): void => {
+        if (gate === active) gate = undefined;
+      };
+      if (mode === 'play') {
+        await prepared.play().finally(finish);
+        return;
+      }
+      void prepared
+        .play()
+        .catch((error: unknown) => log(`scenario failed: ${error instanceof Error ? error.message : String(error)}`))
+        .finally(finish);
+    },
+    scenarioControl(action) {
+      if (!gate) throw new ControlError(REFUSED, 'no scenario is running');
+      if (action === 'pause') gate.pause();
+      else if (action === 'step') gate.step();
+      else gate.resume();
     },
     async boot() {
       await timeline.runAll(persona.document.boot);
@@ -277,10 +410,6 @@ export function createImposterSession(options: ImposterSessionOptions): Imposter
       usedTokens += status.tokensPerTurn ?? 0;
       await invokeStatusLine();
     },
-    async end(reason = 'other') {
-      await timeline.run({ op: 'session.end', with: { reason } }).catch((error: unknown) => {
-        log(`session.end failed: ${error instanceof Error ? error.message : String(error)}`);
-      });
-    },
+    end: endSession,
   };
 }

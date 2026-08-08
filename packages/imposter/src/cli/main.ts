@@ -10,6 +10,8 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { connectControl, type ImposterControl } from '../control/client.ts';
+import { ControlError, NOT_FOUND, paletteFromModel } from '../control/protocol.ts';
 import { loadPersona, personaDirectory, shimNameMap } from '../persona/load.ts';
 import type { Persona } from '../persona/types.ts';
 import { createPasteDecoder } from '../session/channels/terminal.ts';
@@ -27,6 +29,19 @@ function safeName(name: string, what: string): string {
 function loadBehavior(persona: Persona, name: string): BehaviorDocument {
   const path = join(personaDirectory(persona.vendor), 'behavior', `${safeName(name, 'behavior name')}.json`);
   return JSON.parse(readFileSync(path, 'utf8')) as BehaviorDocument;
+}
+
+/** Named scenarios are persona-owned data; the control channel addresses them by name. */
+function loadScenario(persona: Persona, name: string): unknown {
+  const path = join(personaDirectory(persona.vendor), 'scenarios', `${safeName(name, 'scenario name')}.json`);
+  try {
+    return JSON.parse(readFileSync(path, 'utf8'));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new ControlError(NOT_FOUND, `no scenario named ${name}`);
+    }
+    throw error;
+  }
 }
 
 function detectionText(persona: Persona, field: string, fallback: string): string {
@@ -76,6 +91,15 @@ export async function main(argv: readonly string[], argv0?: string): Promise<num
   }
 
   const behaviorName = flagValue(rest, ['--behavior']) ?? 'happy-turn';
+  const log = (message: string): void => {
+    if (process.env.CHOPSTICKS_IMPOSTER_DEBUG) process.stderr.write(`[imposter] ${message}\n`);
+  };
+
+  // `control` is assigned below, after the session exists; the push callbacks
+  // close over it and stay inert until then. Nothing is emitted before boot.
+  let control: ImposterControl | undefined;
+  let closing = false;
+
   const session = createImposterSession({
     persona,
     argv: rest,
@@ -83,23 +107,62 @@ export async function main(argv: readonly string[], argv0?: string): Promise<num
     cwd: process.cwd(),
     behavior: loadBehavior(persona, behaviorName),
     present: (frame) => process.stdout.write(`${renderFrame(frame)}\r\n`),
-    log: (message) => {
-      if (process.env.CHOPSTICKS_IMPOSTER_DEBUG) process.stderr.write(`[imposter] ${message}\n`);
+    onEmitted: (entry) => control?.pushEmitted(entry),
+    onChannels: (channels) => control?.pushChannels(channels),
+    halt: (kind, exitCode) => {
+      if (kind === 'hang') {
+        process.stdin.pause();
+        return;
+      }
+      // setImmediate so the control reply flushes first. A crash sends no
+      // goodbye on purpose: a vendor that dies does not say goodbye, and the
+      // plane is meant to learn it from the socket closing (§5).
+      setImmediate(() => {
+        if (kind === 'crash') process.exit(exitCode);
+        else void shutdown(exitCode);
+      });
     },
+    log,
   });
+
+  const shutdown = async (exitCode = 0): Promise<never> => {
+    if (closing) await new Promise(() => {});
+    closing = true;
+    await session.end();
+    await control?.close('other');
+    process.exit(exitCode);
+  };
 
   process.stdout.write(
     `IMPOSTER · ${persona.vendor} ${persona.version} · ${session.sessionId} · ${session.liveChannels.join(' ')}\r\n`,
   );
+
+  // Joining the control plane MUST complete before the stdin listeners attach:
+  // under ELECTRON_RUN_AS_NODE (how apps spawn script recipes) a flowing stdin
+  // wedges later async I/O initiation, and the connect never resolves — probed
+  // 2026-08-07 against the PoC's register fetch (§7.3 item 1).
+  control = await connectControl({
+    vendor: persona.vendor,
+    version: persona.version,
+    sessionId: session.sessionId,
+    cwd: process.cwd(),
+    palette: paletteFromModel(persona.model),
+    channels: () => session.liveChannels,
+    emitted: () => session.emitted,
+    trigger: (event, payload) => session.emit(event, payload),
+    runScenario: (request) =>
+      session.runScenario(request.script ?? loadScenario(persona, request.name!), {
+        ...(request.stimulus === undefined ? {} : { stimulus: request.stimulus }),
+        speed: request.speed,
+        mode: request.mode,
+      }),
+    scenarioControl: (action) => session.scenarioControl(action),
+    fault: (request) => session.applyFault(request),
+    log,
+  });
+
   await session.boot();
 
-  let closing = false;
-  const shutdown = async (): Promise<never> => {
-    if (closing) await new Promise(() => {});
-    closing = true;
-    await session.end();
-    process.exit(0);
-  };
   process.once('SIGTERM', () => void shutdown());
   process.once('SIGINT', () => void shutdown());
 

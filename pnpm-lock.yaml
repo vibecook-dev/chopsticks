@@ -32,13 +32,16 @@ importers:
       '@vibecook/chopsticks-adapter-claude':
         specifier: workspace:*
         version: link:../../packages/adapter-claude
-      '@vibecook/chopsticks-emulator':
+      '@vibecook/chopsticks-imposter':
         specifier: workspace:*
-        version: link:../../packages/emulator
+        version: link:../../packages/imposter
     devDependencies:
       '@types/node':
         specifier: ^22.9.0
         version: 22.20.1
+      '@vibecook/chopsticks-core':
+        specifier: workspace:*
+        version: link:../../packages/core
       electron:
         specifier: ^43.1.0
         version: 43.1.0

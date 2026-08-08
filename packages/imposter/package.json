@@ -15,6 +15,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./cli": "./src/cli/main.ts",
+    "./control": "./src/control/index.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
@@ -30,6 +31,10 @@
       "./cli": {
         "types": "./dist/cli/main.d.ts",
         "import": "./dist/cli/main.js"
+      },
+      "./control": {
+        "types": "./dist/control/index.d.ts",
+        "import": "./dist/control/index.js"
       },
       "./package.json": "./package.json"
     }

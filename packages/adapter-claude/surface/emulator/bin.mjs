@@ -25,7 +25,6 @@ import {
   createStatusLineInvoker,
   createTranscriptWriter,
 } from '@vibecook/chopsticks-emulator/engine';
-import { createEmulatorControlServer } from '@vibecook/chopsticks-emulator/control';
 
 const emulatorDir = fileURLToPath(new URL('.', import.meta.url));
 const surface = join(emulatorDir, '..');
@@ -77,7 +76,6 @@ if (argv.includes(helpFlag)) {
   console.log(`  ${detectedFlags('name', '-n, --name').join(', ')} <title>        session title`);
   console.log(`      ${detectedFlags('permissionMode', '--permission-mode').at(-1)} <m> default | plan | ...`);
   console.log('      --model <model>       model alias or id');
-  console.log('      (emulator) --scenario <name> runs surface/emulator/scenarios/<name>.json on first paste');
   process.exit(0);
 }
 
@@ -135,30 +133,13 @@ const envelope = (fields) => ({
   ...fields,
 });
 
-// Every emission (boot, behavior, control trigger) goes through emitEvent:
-// enveloped, appended to the log the control server exposes, then delivered.
-const emittedLog = [];
-let emittedLogBytes = 0;
-let emittedSequence = 0;
-const recordEmission = (entry) => {
-  emittedSequence += 1;
-  let recorded = { at: new Date().toISOString(), sequence: emittedSequence, ...entry };
-  let bytes = Buffer.byteLength(JSON.stringify(recorded));
-  if (bytes > 64 * 1024) {
-    recorded = { at: recorded.at, sequence: recorded.sequence, event: recorded.event, truncated: true };
-    bytes = Buffer.byteLength(JSON.stringify(recorded));
-  }
-  emittedLog.push(recorded);
-  emittedLogBytes += bytes;
-  while (emittedLog.length > 500 || emittedLogBytes > 2 * 1024 * 1024) {
-    emittedLogBytes -= Buffer.byteLength(JSON.stringify(emittedLog.shift()));
-  }
-};
+// Every emission (boot, behavior) goes through emitEvent: enveloped, then
+// delivered. The bounded emission log this used to keep for the control server
+// now lives in the imposter's session (draft/IMPOSTER.md §7.3 item 7).
 const droppedChannels = new Set();
 const fallbackHookRoute = model.events.find((event) => (settings.hooks?.[event.event]?.length ?? 0) > 0)?.event;
 const emitEvent = (event, payload) => {
   const wirePayload = { ...envelope(payload), hook_event_name: event };
-  recordEmission({ event, payload: wirePayload });
   if (droppedChannels.has('hook')) {
     debugLog(`dropped ${event}: hook channel is disconnected`);
     return Promise.resolve();
@@ -173,17 +154,10 @@ const validate = (event, payload) => {
   return schema ? validatePayload(schema, { ...envelope(payload), hook_event_name: event }) : [];
 };
 
-const safeScenarioName = (name) => {
-  if (typeof name !== 'string' || !/^[a-z0-9][a-z0-9-]{0,127}$/i.test(name)) {
-    throw new Error('scenario name must contain only letters, numbers, and hyphens');
-  }
-  return name;
-};
-const behaviorName = flag('--scenario');
-const behaviorPath = behaviorName
-  ? join(emulatorDir, 'scenarios', `${safeScenarioName(behaviorName)}.json`)
-  : join(emulatorDir, 'behavior', 'happy-turn.json');
-const behavior = JSON.parse(readFileSync(behaviorPath, 'utf8'));
+// Named scenarios and the control channel moved to the imposter
+// (draft/IMPOSTER.md §7.2); this stand-in keeps only its behavior pack, and is
+// deleted outright at I4.
+const behavior = JSON.parse(readFileSync(join(emulatorDir, 'behavior', 'happy-turn.json'), 'utf8'));
 const scenarioSteps = (document) => {
   if (document === null || typeof document !== 'object' || Array.isArray(document)) {
     throw new Error('scenario must be a JSON object');
@@ -322,7 +296,6 @@ await invokeStatusLine(statusLinePayload());
 debugLog('statusline invoked');
 process.stdout.write(`claude ${vendorVersion} (emulator) — session ${sessionId}\r\n`);
 
-let control;
 let shuttingDown = false;
 async function shutdown() {
   if (shuttingDown) return;
@@ -332,56 +305,10 @@ async function shutdown() {
   await emitEvent('SessionEnd', { reason: 'other', prompt_id: crypto.randomUUID() }).catch((error) =>
     debugLog(`SessionEnd failed: ${error.message}`),
   );
-  await control?.close().catch(() => undefined);
   process.exit(0);
 }
 process.once('SIGTERM', () => void shutdown());
 process.once('SIGINT', () => void shutdown());
-
-// ---------------------------------------------------------------------------
-// control channel (EMULATOR.md §6): register with the control plane when one
-// is up; standalone otherwise. CHOPSTICKS_EMULATOR_CONTROL_STATE overrides the
-// well-known state-file path (tests).
-//
-// This MUST complete before the stdin listeners attach: under
-// ELECTRON_RUN_AS_NODE (how godview spawns script recipes), a flowing stdin
-// wedges later async I/O initiation — the register fetch never resolves
-// (probed 2026-08-07). Registration first keeps every runtime working.
-// ---------------------------------------------------------------------------
-control = await createEmulatorControlServer({
-  vendor: 'claude',
-  sessionId,
-  channels: ['argv', 'hook', 'transcript', 'statusline', 'terminal'],
-  channelState: () =>
-    ['argv', 'hook', 'transcript', 'statusline', 'terminal'].filter((channel) => !droppedChannels.has(channel)),
-  palette: model.events.map((event) => ({
-    event: event.event,
-    fields: Object.keys(event.payloadSchema?.properties ?? {}).sort(),
-  })),
-  buffer: emittedLog,
-  ...(process.env.CHOPSTICKS_EMULATOR_CONTROL_STATE
-    ? { stateFile: process.env.CHOPSTICKS_EMULATOR_CONTROL_STATE }
-    : {}),
-  emit: (event, payload) => {
-    const violations = validate(event, payload);
-    if (violations.length > 0) {
-      throw new Error(`trigger for ${event} is off-model: ${violations.join('; ')}`);
-    }
-    return emitEvent(event, payload);
-  },
-  runScenario: async (request) => {
-    const mode = request.mode ?? 'play';
-    if (mode !== 'play') throw new Error(`scenario mode ${mode} is not implemented yet; use play`);
-    const scenario =
-      request.script ??
-      JSON.parse(readFileSync(join(emulatorDir, 'scenarios', `${safeScenarioName(request.name)}.json`), 'utf8'));
-    await runner.run(scenarioSteps(scenario), request.stimulus ?? {}, { speed: request.speed ?? 1 });
-  },
-  fault: applyFault,
-  log: (message) => {
-    debugLog(`control: ${message}`);
-  },
-});
 
 // ---------------------------------------------------------------------------
 // terminal channel: pastes drive behavior; everything else is a stub

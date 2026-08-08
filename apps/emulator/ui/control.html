@@ -124,7 +124,7 @@
       </div>
       <div class="row muted" style="font-size: 12px">
         Center-owned sessions run through the real adapter (reducer state shown below). App-owned sessions appear when a
-        product app runs with CHOPSTICKS_CLAUDE_BIN=&lt;bin.mjs&gt; and creates sessions itself.
+        product app runs with CHOPSTICKS_CLAUDE_BIN=&lt;…/bin/ai.mjs&gt; and AI_PERSONA set.
       </div>
     </div>
 
@@ -142,7 +142,7 @@
       const sessionsEl = document.getElementById('sessions');
       const statusEl = document.getElementById('status');
       const spawnVendor = document.getElementById('spawn-vendor');
-      const cards = new Map(); // vendor + sessionId -> card element (survives re-render)
+      const cards = new Map(); // vendor + sessionId -> { el, lines }
       const sessionKey = (session) => `${session.vendor}\0${session.sessionId}`;
       const sessionApi = (session, action) =>
         `/api/sessions/${encodeURIComponent(session.sessionId)}/${action}?vendor=${encodeURIComponent(session.vendor)}`;
@@ -155,8 +155,17 @@
         `<strong>${escapeHtml(session.vendor)}</strong> <span class="muted">${escapeHtml(session.sessionId)}</span>
           ${session.channels.map((channel) => `<span class="pill">${escapeHtml(channel)}</span>`).join(' ')}`;
       const paletteSignature = (session) => JSON.stringify(session.palette);
+      const MAX_LOG_LINES = 300;
 
-      // Fields the bin supplies from its launch envelope — not user input.
+      // The empty-state placeholder is an element we own, not innerHTML we
+      // scribble over the container — the PoC wrote it with innerHTML and then
+      // could never remove it once a session appeared.
+      const placeholder = document.createElement('div');
+      placeholder.className = 'card muted';
+      placeholder.textContent =
+        'No emulated sessions. Spawn one above, or launch an app whose agent binary is the imposter.';
+
+      // Fields the imposter supplies from its launch envelope — not user input.
       const ENVELOPE_FIELDS = new Set(['session_id', 'transcript_path', 'cwd', 'hook_event_name', 'permission_mode']);
       const DEFAULTS = {
         prompt_id: () => crypto.randomUUID(),
@@ -207,7 +216,6 @@
         const result = await api('/api/spawn', { vendor: spawnVendor.value });
         out.textContent = result.sessionId ? `spawned ${result.sessionId.slice(0, 8)}…` : result.error || 'error';
         out.className = result.sessionId ? 'ok' : 'err';
-        refresh();
       };
 
       async function loadSpawners() {
@@ -238,16 +246,26 @@
           <div class="row"><button data-role="fire">fire edited payload</button><span data-role="event-out" class="muted"></span></div>
           <h2>scenario / fault</h2>
           <div class="row">
-            <input data-role="scenario" placeholder="scenario name" size="22" />
+            <input data-role="scenario" placeholder="scenario name" size="20" />
+            <select data-role="mode">
+              <option value="play">play</option>
+              <option value="pause">pause</option>
+              <option value="step">step</option>
+            </select>
             <button data-role="run">run</button>
+            <button data-role="pause">pause</button>
+            <button data-role="step">step</button>
+            <button data-role="resume">resume</button>
+            <span data-role="scenario-out" class="muted"></span>
+          </div>
+          <div class="row">
             <button class="danger" data-role="crash">crash</button>
             <button class="danger" data-role="exit">exit</button>
             <button class="danger" data-role="hang">hang</button>
-            <span data-role="scenario-out" class="muted"></span>
           </div>
           <h2>session state <span class="muted">(center-owned only)</span></h2>
           <pre data-role="state" class="muted">—</pre>
-          <h2>emitted log</h2>
+          <h2>emitted log <span class="muted">(streamed)</span></h2>
           <pre data-role="log" class="muted">—</pre>`;
         const q = (role) => el.querySelector(`[data-role="${role}"]`);
         let selected = session.palette[0]?.event;
@@ -276,69 +294,103 @@
           }
           fire(selected, payload);
         };
-        q('run').onclick = async () => {
-          const out = await api(sessionApi(session, 'scenario'), {
-            name: q('scenario').value,
-            mode: 'play',
-            stimulus: { text: 'triggered by control center' },
-          });
-          q('scenario-out').textContent = out.ok ? 'ran' : out.error || 'error';
-          q('scenario-out').className = out.ok ? 'ok' : 'err';
+        const scenarioOut = (result, okText) => {
+          q('scenario-out').textContent = result.ok ? okText : result.error || 'error';
+          q('scenario-out').className = result.ok ? 'ok' : 'err';
         };
+        q('run').onclick = async () => {
+          const mode = q('mode').value;
+          q('scenario-out').textContent = mode === 'play' ? 'running…' : 'starting…';
+          q('scenario-out').className = 'muted';
+          scenarioOut(
+            await api(sessionApi(session, 'scenario'), {
+              name: q('scenario').value,
+              mode,
+              stimulus: { text: 'triggered by control center' },
+            }),
+            mode === 'play' ? 'ran' : `${mode}d at step 1`,
+          );
+        };
+        for (const action of ['pause', 'step', 'resume']) {
+          q(action).onclick = async () =>
+            scenarioOut(await api(sessionApi(session, 'scenario-control'), { action }), action);
+        }
         for (const kind of ['crash', 'exit', 'hang']) {
           q(kind).onclick = () => api(sessionApi(session, 'fault'), { kind });
         }
         return el;
       }
 
-      async function refreshPanels(session, el) {
-        const q = (role) => el.querySelector(`[data-role="${role}"]`);
-        const state = await api(sessionApi(session, 'session-state'));
-        q('state').textContent = state.error
-          ? 'app-owned session — no reducer state here'
-          : `lifecycle: ${state.lifecycle}\nlastAssistantMessage: ${state.lastAssistantMessage ?? '—'}\ncontext: ${
-              state.contextWindow
-                ? `${state.contextWindow.usedTokens}/${state.contextWindow.capacityTokens} tokens`
-                : '—'
-            }\ntools in flight: ${Object.keys(state.tools ?? {}).length}`;
-        const log = await api(sessionApi(session, 'log'));
-        q('log').textContent =
-          (log.entries || []).map((e) => `${e.at.slice(11, 23)}  ${e.event}`).join('\n') || '(empty)';
+      // Keyed by sequence, because the one-shot `/log` backfill and the live
+      // push overlap: whatever was emitted between opening the card and the
+      // backfill landing arrives twice, and out of order.
+      function appendLog(entry, record) {
+        if (entry.records.has(record.sequence)) return;
+        entry.records.set(record.sequence, `${record.at.slice(11, 23)}  ${record.event}`);
+        while (entry.records.size > MAX_LOG_LINES) entry.records.delete(Math.min(...entry.records.keys()));
+        entry.el.querySelector('[data-role="log"]').textContent = [...entry.records.entries()]
+          .sort((left, right) => left[0] - right[0])
+          .map(([, line]) => line)
+          .join('\n');
       }
 
-      async function refresh() {
-        try {
-          const { sessions } = await api('/api/sessions');
-          statusEl.textContent = `${sessions.length} emulated session(s) · plane ${location.host}`;
-          for (const session of sessions) {
-            const key = sessionKey(session);
-            let el = cards.get(key);
-            if (!el || el.dataset.palette !== paletteSignature(session)) {
-              const replacement = card(session);
-              if (el?.isConnected) el.replaceWith(replacement);
-              el = replacement;
-              cards.set(key, el);
-            }
-            el.querySelector('[data-role="identity"]').innerHTML = identityHtml(session);
-            if (!el.isConnected) sessionsEl.append(el);
-            await refreshPanels(session, el);
-          }
-          for (const [id, el] of cards) {
-            if (!sessions.some((session) => sessionKey(session) === id)) {
-              el.remove();
-              cards.delete(id);
-            }
-          }
-          if (sessions.length === 0) {
-            sessionsEl.innerHTML =
-              '<div class="card muted">No emulated sessions. Spawn one above, or create a session in an app running with CHOPSTICKS_CLAUDE_BIN=&lt;…/surface/emulator/bin.mjs&gt;.</div>';
-          }
-        } catch (error) {
-          statusEl.textContent = `plane unreachable: ${error.message}`;
-        }
+      function renderState(entry, state) {
+        const counts = (name) => Object.keys(state[name] ?? {}).length;
+        entry.el.querySelector('[data-role="state"]').textContent =
+          `lifecycle: ${state.lifecycle}\n` +
+          `lastAssistantMessage: ${state.lastAssistantMessage ?? '—'}\n` +
+          `context: ${state.contextWindow ? `${state.contextWindow.usedTokens}/${state.contextWindow.capacityTokens} tokens` : '—'}\n` +
+          `tools in flight: ${counts('tools')} · permissions: ${counts('permissions')} · subagents: ${counts('subagents')}`;
       }
-      loadSpawners().then(refresh);
-      setInterval(refresh, 1500);
+
+      function reconcile(sessions) {
+        statusEl.textContent = `${sessions.length} emulated session(s) · plane ${location.host}`;
+        for (const session of sessions) {
+          const key = sessionKey(session);
+          let entry = cards.get(key);
+          if (!entry || entry.el.dataset.palette !== paletteSignature(session)) {
+            const el = card(session);
+            if (entry?.el.isConnected) entry.el.replaceWith(el);
+            entry = { el, records: entry?.records ?? new Map() };
+            cards.set(key, entry);
+            // Backfill once from the imposter's own log; everything after this
+            // arrives by push, so there is nothing left to poll for.
+            api(sessionApi(session, 'log')).then((log) => {
+              for (const record of log.entries || []) appendLog(entry, record);
+            });
+          }
+          entry.el.querySelector('[data-role="identity"]').innerHTML = identityHtml(session);
+          if (!entry.el.isConnected) sessionsEl.append(entry.el);
+        }
+        for (const [key, entry] of cards) {
+          if (!sessions.some((session) => sessionKey(session) === key)) {
+            entry.el.remove();
+            cards.delete(key);
+          }
+        }
+        if (cards.size === 0) sessionsEl.append(placeholder);
+        else placeholder.remove();
+      }
+
+      function connect() {
+        const events = new EventSource(`/api/events?token=${encodeURIComponent(TOKEN)}`);
+        events.addEventListener('sessions', (message) => reconcile(JSON.parse(message.data).sessions));
+        events.addEventListener('emitted', (message) => {
+          const { vendor, sessionId, entry: record } = JSON.parse(message.data);
+          const entry = cards.get(`${vendor}\0${sessionId}`);
+          if (entry) appendLog(entry, record);
+        });
+        events.addEventListener('state', (message) => {
+          const { vendor, sessionId, state } = JSON.parse(message.data);
+          const entry = cards.get(`${vendor}\0${sessionId}`);
+          if (entry) renderState(entry, state);
+        });
+        events.onerror = () => {
+          statusEl.textContent = 'plane unreachable — reconnecting…';
+        };
+      }
+
+      loadSpawners().then(connect);
     </script>
   </body>
 </html>

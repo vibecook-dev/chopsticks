@@ -196,6 +196,8 @@ Kind `replay`: a real captured session (hooks + transcript + JSON-RPC logs) repl
 
 An Electron app on the same skeleton as `apps/workbench`/`apps/godview` — the interactive half of the emulator story: spawn any agent in emulator mode and trigger its events by hand while the product app reacts.
 
+> **§6.1–§6.2 are superseded as of I3 (2026-08-08).** The transport is inverted: the plane owns one UDS at `~/.chopsticks/imposter.sock` and imposters dial in and hold the connection. There is no state file, no per-emulator HTTP server, no second bearer token, no `prune()`, and no console poll — liveness is socket close, and the console is fed by SSE. The control API below survives as the plane's browser-facing HTTP shape; behind it each verb is a JSON-RPC method over the socket. See `draft/IMPOSTER.md` §5. §6.3 and §6.4 still hold, except that the spawned process is `ai` rather than a per-adapter bin.
+
 ### 6.1 Discovery and registration
 
 - The control center listens on loopback and writes `~/.chopsticks/emulator-control.json`: `{ "url", "token", "pid" }`. Loopback + bearer token, body limits — same discipline as the hook bridge (DESIGN §16.6).
