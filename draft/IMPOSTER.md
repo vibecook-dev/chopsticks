@@ -57,7 +57,7 @@ A turn is therefore a sequence of semantic **ops**, each fanning out to both pro
 | `turn.end` | `Stop` hook | `turn/completed` | idle marker |
 | `usage.refresh` | statusline invocation | `thread/tokenUsage/updated` | context readout |
 
-(Method names verified against `packages/adapter-codex/src/normalizer.ts`. Codex approvals are deliberately generic — `driver.ts:137` passes the server-request method straight through as `tool`, so the imposter supplies the method rather than the adapter hardcoding one.)
+(Codex method names now come from the **vendor's own generated schema**, not from the adapter — see §9.1. That distinction is load-bearing: the adapter's method *names* all check out, but its item-type and approval-decision vocabularies do not, so citing it as the source would have propagated three confirmed errors. Codex approvals are generic on the adapter side — `driver.ts:137` passes the server-request method straight through as `tool` — so the imposter supplies the method.)
 
 This is `EMULATOR.md §1`'s "two projections, one truth" applied one level down. It buys three things:
 
@@ -309,19 +309,24 @@ Two console defects to fix while moving `control.html`: Map-valued reducer state
 
 Claude and Codex land **together**, before either is polished. A persona contract validated against one vendor comes out shaped like that vendor; claude (hook + transcript) and codex (JSON-RPC app-server + `--remote` attach) are the two families `ADAPTING-AN-AGENT.md §0` already identifies, and they are the test.
 
-### 8.1 Blocker: codex has no ASM yet
+### 8.1 Codex has no ASM yet — and needs a different mechanism, not just a census
 
-**Discovered 2026-08-07, during I1.** `packages/adapter-claude/surface/model/claude@2.1.207` is the *only* ASM in the repo — codex, grok, and acp have no `surface/` directory at all. §3.2's claim that "the adapter author has already done this work" holds for claude and for nobody else.
+**Discovered 2026-08-07 during I1; researched the same day.** `packages/adapter-claude/surface/model/claude@2.1.207` is the *only* ASM in the repo. §3.2's claim that "the adapter author has already done this work" holds for claude and for nobody else.
 
-The codex persona therefore cannot be authored yet, and specifically **must not be hand-written from `adapter-codex/src/normalizer.ts`**, however tempting its method names are. `EMULATOR.md §1` names that exact failure: *emulator and normalizer must never be derived from the same unverified source, or they are wrong together in the same way and no test can see it.* A persona built from the adapter would make the imposter agree with the adapter about a surface neither has observed.
+The codex persona **must not be hand-written from `adapter-codex/src/normalizer.ts`**. `EMULATOR.md §1` names that exact failure: *emulator and normalizer must never be derived from the same unverified source.* That is not hypothetical here — the audit found the adapter answers all ten server-request approvals with `{decision:'approved'|'denied'}` when `'approved'` is valid on 2 of 10 and `'denied'` on **zero**; `normalizer.ts:180` switches on `localShellCall`, which is not one of the 18 real `ThreadItem` types; and `:194`/`:232` read `item.output`/`item.result` where the schema says `aggregatedOutput`/`results`. Building the imposter from the adapter would bake all of that in, and no test could see it.
 
-What codex actually needs first is `ADAPTING-AN-AGENT.md` steps 1–2 — survey and model — against the real binary, in the `CODEX_LIVE=1` lane. Until that census exists, I2 cannot start, and the op vocabulary stays validated against one family only. The method names quoted in §2 came from the adapter and are illustrative of the *shape* problem (§2.1); they are not a substitute for captures.
+Two findings changed the plan, both verified against the installed `codex-cli 0.147.0`:
+
+1. **The binary emits its own protocol schema** (§9.1), so shape need not be inferred from captures.
+2. **A full turn runs offline** against a fake local model provider, so the census is hermetic and CI-able rather than a live-lane gamble.
+
+The full design is §9. The sequencing that replaces the old "blocked" note is §9.6.
 
 | Phase | Contents | Exit | Status |
 | --- | --- | --- | --- |
 | **I0** | Extract `packages/surface` (ASM runtime) out of `packages/emulator`. Nothing else moves. | `pnpm test` green, `surface:audit` clean, PoC still runs end to end | **done 2026-08-07** |
 | **I1** | Imposter skeleton, channel modules, persona loader, op timeline, headless session, CLI, claude persona. **No control channel yet.** | conformance green against `ai` instead of `bin.mjs` | **done 2026-08-07** |
-| **I1.5** | Codex survey + model (`ADAPTING-AN-AGENT.md` steps 1–2) in the `CODEX_LIVE=1` lane — the census §8.1 shows does not exist | `surface/model/codex@<version>` validates; captures sanitized and committed | **blocks I2** |
+| **I1.5** | Codex survey + model (§9). Ordered: capture envelope + sanitizer → committed harness → hermetic capture (approvals and tools FIRST) → `generate-model.mjs` → `surface/model/codex@0.147.0`. **Hermetic, not `CODEX_LIVE`** — a fake local provider drives a full turn offline. | Model validates; approval round-trip captured; harness committed; `diff(vendor schema, model)` clean | **blocks I2** |
 | **I2** | Claude **and** codex runtimes — hook/transcript/statusline channels, and the app-server JSON-RPC channel | Both conform hermetically in CI; ops map cleanly onto both families, or the vocabulary is revised until they do | |
 | **I3** | Control channel, both sides at once: UDS client in the imposter **and** the plane rewritten at its new home in `apps/emulator`. Delete state file, bin-side HTTP server, `prune()`, console poll. Push-based log. | §6.4 flow works over one socket; `scenario.control` pause/step lands | |
 | **I4** | Ink TUI behind `isTTY`; `ai shims install`; delete `bin.mjs` and `packages/emulator`; absorb `fake-agent.mjs`; update EMULATOR.md + ADAPTING-AN-AGENT.md | godview panes show imposter chrome; no doc still describes per-adapter bins | |
@@ -334,7 +339,193 @@ Because I0 leaves the PoC working, there is a green baseline to bisect against f
 
 ---
 
-## 9. Non-goals
+## 9. The JSON-RPC family (codex)
+
+Everything here was observed against `codex-cli 0.147.0` on 2026-08-07, or verified against the
+schema that binary emits. Sources of each claim are marked.
+
+### 9.1 The vendor emits its own protocol schema
+
+```sh
+codex app-server generate-json-schema --out <dir> [--experimental]
+```
+
+Exit 0, ~1s, **no auth, no network**. Output is a pure function of `(binary version,
+--experimental)` — repeated runs are byte-identical; a fresh `CODEX_HOME` and explicit `--enable`
+of feature flags change nothing.
+
+| Union | stable | `--experimental` |
+| --- | --- | --- |
+| ClientRequest | 95 | 133 |
+| ServerRequest | 10 | 11 |
+| ServerNotification | **70** | **70** |
+| ClientNotification | 1 | 1 |
+| files | 285 | 361 |
+
+**Every server notification is stable** — the surface the imposter *emits* is entirely the stable
+half. Churn concentrates in client control methods, which it answers.
+
+Three cautions, all verified:
+
+- **`--experimental` is not purely additive.** 25 of the 285 shared files differ in *content*; it
+  adds fields to stable methods (`CommandExecutionRequestApprovalParams` 13 → 15 properties,
+  gaining `additionalPermissions` and `availableDecisions`). Commit both variants, or pick one and
+  never mix.
+- **The schema is not the whole runtime surface.** `getAuthStatus`, `getConversationSummary`, and
+  `gitDiffToRemote` are accepted at runtime but absent from it (136 runtime vs 133 documented). An
+  audit must never treat schema-absence as proof of invalidity.
+- **`v1/`/`v2/` are Rust module names, not negotiated versions.** `initialize` carries no protocol
+  version; the only signal is the binary's own, echoed in `userAgent` and `thread.cliVersion`.
+
+Measured churn 0.146.0 → 0.147.0 (9 days): **+6 methods, 0 removed** — additive, despite a
+~2-alpha-per-day tag cadence. Field-level churn is unmeasured and plausibly higher.
+
+### 9.2 Shape from the schema, confidence from the census
+
+This is the rule that keeps `EMULATOR.md §1` honest once the model is generated. If model ← schema
+and adapter ← model and imposter ← model, everything agrees and nothing can detect a lie.
+
+- **The vendor schema supplies shape** — properties, types, required. It is a *claim*.
+- **The census supplies `confidence`, `fixture`, `firstSeen`, `lastVerified`** — evidence the thing
+  actually happens, in that order, with those values.
+
+**`generate-model.mjs` must be structurally incapable of writing `confidence`.** That single
+constraint is what stops the imposter and the adapter from being wrong together.
+
+Consequence — the drift equation gains a term, and codex ends up better instrumented than claude:
+
+```
+drift = diff(vendor schema, model)     ← mechanical, cheap, every codex release   (codex only)
+      ∪ diff(real census, model)       ← evidential                               (claude has only this)
+      ∪ diff(emulator behavior, model)
+```
+
+### 9.3 The op timeline does not cover this family — and should not be stretched
+
+A hook imposter only emits. A JSON-RPC imposter must **serve**. Three properties each independently
+break the timeline: it has no inbound path (`run()` returns `Promise<void>`); 95 client-request
+methods (`fs/readFile`, `thread/list`, `config/read`) are an RPC service surface, not agent
+semantics, and projecting them onto a 10-op vocabulary is a category error; and `initialize` is
+enforced (`-32600 "Not initialized"`), so the server has a state machine the timeline cannot hold.
+
+The split is clean, because all 70 notifications are stable:
+
+| Duty | Volume | Mechanism |
+| --- | --- | --- |
+| emit notifications | 70 | **op timeline, unchanged** — one new channel sink |
+| serve client requests | **~8 that matter**, not 95 | **new: serve table + dispatcher** |
+| issue server requests, await reply | 10 | **one flag** on `OpBinding` + id correlation |
+
+"~8 not 95" is what makes this tractable: the imposter need only be a codex app-server good enough
+for *our* adapter. `driver.ts` calls `initialize`, `initialized`, `model/list`, `thread/start`,
+`thread/resume`, `turn/start`; `observer.ts` adds `thread/list`, `thread/read`.
+
+**The fork is the trigger, not the timeline.** For claude the trigger is stdin bytes
+(`cli/main.ts`); for codex it is inbound RPC. The timeline runs downstream of the trigger in both
+cases and is genuinely shared.
+
+```
+                       trigger                          projection
+claude:  paste decoder ────┐
+                           ├──► behavior ──► OP TIMELINE ──► sinks
+codex:   RPC dispatcher ───┘                   (shared)
+             │
+             └──► synchronous reply, validated against resultSchema
+```
+
+`serve.json` carries the serve table and the state machine as data, per persona:
+
+```jsonc
+{
+  "$server": { "gate": { "until": "initialize",
+                         "error": { "code": -32600, "message": "Not initialized" } } },
+  "initialize":   { "result": { "userAgent": "$vendorVersion", "codexHome": "$imposterHome" } },
+  "thread/start": { "result": { "thread": { "id": "$uuid:thread", "status": { "type": "idle" } } },
+                    "then": [{ "op": "session.start", "with": { "threadId": "$uuid:thread" } }] },
+  "turn/start":   { "result": {}, "then": "$behavior" }
+}
+```
+
+Server-initiated requests need no timeline surgery — `run()` is already async and `runAll` already
+awaits sequentially, so an `"await": true` flag on the binding sends it as a server request and
+binds the client's reply as `$response`:
+
+```jsonc
+"permission.ask": [
+  { "channel": "appServer", "event": "item/commandExecution/requestApproval", "await": true,
+    "with": { "threadId": "$threadId", "itemId": "$uuid:item", "command": "$op.command" } }
+]
+```
+
+Three non-negotiables:
+
+1. **Replies validate against `resultSchema` before they go out** — §7.3 item 3 applied to the
+   reply direction. The `driver.ts:147` bug is the proof: an imposter doing this would have failed
+   the first scripted approval.
+2. **Inbound `params` validate against `payloadSchema`; a violation returns a JSON-RPC error, not a
+   crash.** This makes the imposter a conformance test *of the adapter's client* — a capability the
+   claude imposter structurally cannot have, and the strongest argument for doing codex properly.
+3. **`then` schedules ops; it never writes the wire.** §2's "the screen cannot contradict the wire"
+   survives only under that constraint.
+
+### 9.4 `validatePayload` stays as it is
+
+**803 of 812 top-level `v2` properties (98.9%) collapse into the existing flat subset**, 9
+untyped/free-form, **zero** non-collapsing unions. Nesting is real (1,274 `$ref`s, 239 `oneOf`s,
+depth to 11) but lives *below* the level `validatePayload` was ever meant to check.
+
+So: **pre-flatten at generation time.** Extending the validator would mean draft-07 support, i.e.
+a real JSON-Schema dependency, which breaks the dependency-free `erasableSyntaxOnly` constraint
+that justifies `packages/surface` existing at all (§7.1). Two validators would split the drift
+equation in half. Each generated event records `sourceSchema: {file, sha256}` so `audit.mjs` can
+detect "the vendor changed something the flattening discarded" without storing a megabyte.
+
+### 9.5 ASM delta — additive, zero migration for claude
+
+| Field | Status |
+| --- | --- |
+| `kind: 'event' \| 'notification' \| 'client-notification' \| 'client-request' \| 'server-request'` | add, defaults to `'event'` |
+| `resultSchema?: PayloadSchema` | add |
+| `envelope?: { payloadPath?, discriminator? }` | add — `ThreadItem` has 18 variants |
+| `sourceSchema?: { file, sha256 }` | add |
+| `validatePayload`, `channels.json` format, `diffModelVsReport` | **unchanged** |
+
+`confidence: 'unverified'` already suppresses `unobserved-verified`, so 95 generated-but-unexercised
+client methods produce zero drift and get promoted as the census reaches them.
+
+Method names contain `/`, which `loadModel`'s filename check rejects — needs a reversible slug
+(`/` → `__`), with `loadModel` asserting reversibility and uniqueness.
+
+### 9.6 Sequencing — two constraints that cannot be retrofitted
+
+1. **Fix the capture envelope before capturing.** `buildReport` derives an event name from
+   `hook_event_name` falling back to the filename (`model.ts:447-450`) — a claude accident, because
+   hooks are self-describing. JSON-RPC messages are not: a response names nothing. **Only the
+   process that watched the stream can pair a response to its method**, so the census must write
+   `{"asmCapture":1,"event":…,"kind":…,"payload":…}`. One branch in `buildReport`; claude captures
+   keep working byte-for-byte. Id pairing cannot be recovered afterwards from raw wire bytes.
+2. **Write the sanitizer before the first capture.** Pseudonyms are `sha256(value)`, so widening
+   the id-key set later rewrites every id in every fixture at once. `idKey` currently misses
+   `threadId`, `itemId`, `callId` — and codex ids are **UUIDv7, which encode wall-clock capture
+   time**, so they need regenerating as v4 (or v7 at a fixed epoch), not merely aliasing.
+
+Then: committed harness → hermetic capture (approvals and tools first — they are the entire reason
+to prefer codex over claude's absence-pattern) → `generate-model.mjs` → persona.
+
+**The harness has been lost twice** — the C1 script was never committed, and claude's
+`interactive-census.mjs` survives only inside `git show 1eea6db^:…`. Both times the output survived
+and the tool that made it did not. Committing the harness is an exit criterion.
+
+### 9.7 Still unobserved
+
+The **approval round-trip has never been captured** — it is confirmed from schema and vendor README
+only. That is precisely where the adapter's defects live, so it is the first scenario the census
+must produce. `codex exec --json` and `codex mcp-server` were both evaluated as alternative capture
+surfaces and rejected: different naming schemes, fewer events, and no schema generator.
+
+---
+
+## 10. Non-goals
 
 - **Vendor TUI parity.** Stated in §4 and repeated here because it is the requirement most likely to drift back in.
 - **Emulating model quality.** Unchanged from `EMULATOR.md §8`.

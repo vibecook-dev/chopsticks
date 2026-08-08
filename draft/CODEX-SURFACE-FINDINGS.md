@@ -185,3 +185,92 @@ Resolves §6 deferral #3, live against codex 0.144.2. Probes: `probe/codex/c6-ws
 **Materialization caveat (found building the observer):** a thread has **no rollout until its first user message** — `thread/resume`/`thread/read` right after `thread/started` error with "no rollout found" / "not materialized yet; includeTurns unavailable before first user message". So the observer **retries `thread/resume`** after `thread/started` until the first turn materializes the thread (a moment later), then observes forward. `thread/started` **does** broadcast to other connections (verified), so discovery is fine; only the resume must wait for materialization.
 
 **C6 verdict: GO.** Model: chopsticks main spawns one `codex app-server --listen unix://<sock>` (UDS preferred over TCP — no port, filesystem-scoped), connects a **WS-over-UDS controller** (observe + inject), and the renderer PTY runs `codex --remote unix://<sock>` for the native display. Needs a **WebSocket-over-UDS `Transport`** for the app-server client — the injected-transport seam (C4) already supports this, so **no driver changes**, just a new transport implementation (`ws` pkg or the ~70-line hand-rolled client from the probe). §6 #3 resolved.
+
+---
+
+# C1b — Re-probe at 0.147.0 (2026-08-07)
+
+**Probed:** 2026-08-07, `codex-cli` **0.147.0**, macOS 26.5.2 arm64. Live app-server sessions this
+time (C0 was read-only). Design consequences live in `IMPOSTER.md §9`.
+
+C0 already established the important architecture — `generate-json-schema`/`generate-ts`,
+approvals as JSON-RPC ServerRequests with real request-ids, the structured-driver recommendation.
+This section records only what is **new or corrected** three minor versions later.
+
+## What changed since C0
+
+| | C0 (0.144.2) | now (0.147.0) |
+|---|---|---|
+| v2 definitions | 516 | 557 |
+| ClientRequest | — | **95 stable / 133 `--experimental`** |
+| ServerNotification | — | **70 / 70 — all stable** |
+| ServerRequest | — | 10 / 11 |
+| schema files | — | 285 stable / 361 experimental |
+
+Measured churn 0.146.0 → 0.147.0 (9 days): **+6 methods, 0 removed**, matching the release notes.
+Additive, despite ~2 alpha tags/day.
+
+## New findings
+
+1. **Generation is deterministic** — a pure function of `(version, --experimental)`. Repeated runs
+   byte-identical; fresh `CODEX_HOME` and explicit `--enable` of feature flags change nothing. So
+   `EMULATOR.md §2.1`'s `git diff`-as-changelog promise holds for codex.
+2. **`--experimental` is NOT purely additive.** 25 of the 285 shared files differ in *content* — it
+   adds fields to stable methods. `CommandExecutionRequestApprovalParams` goes 13 → 15 properties,
+   gaining `additionalPermissions` and **`availableDecisions`** (the vendor enumerating which
+   decisions are legal, in the request itself). Commit both variants, or pick one and never mix.
+3. **The schema is not the whole runtime surface.** `getAuthStatus`, `getConversationSummary`,
+   `gitDiffToRemote` are accepted at runtime but absent from it (136 runtime vs 133 documented). An
+   audit must not treat schema-absence as invalidity.
+4. **`v1/`/`v2/` are Rust module names, not negotiated versions.** `v1/` holds only
+   `InitializeParams`/`InitializeResponse`. `initialize` carries no protocol version at all.
+5. **The wire is JSON-RPC 2.0-shaped but not conformant.** `jsonrpc` is omitted on server output
+   (22/22 in the C1 capture) and tolerated on input (4/4 accepted). Generated `JSONRPCRequest`
+   requires only `["id","method"]`. A strict JSON-RPC library will not work unmodified.
+6. **The auth wall is exactly the model call.** `initialize`, `model/list`, `account/read`,
+   `thread/start` and even `turn/start` all succeed with an empty `CODEX_HOME`; only the upstream
+   `wss://api.openai.com/v1/responses` call 401s.
+7. **A full turn runs offline** against a fake local model provider (`-c model_provider=fake`,
+   `base_url=http://127.0.0.1:8899/v1`, `wire_api=responses`, junk key). Complete arc through
+   `turn/completed`. **This makes the census hermetic and CI-able** — it resolves C0's §6 deferral
+   without needing a live-credential lane.
+8. **`codex exec --json` and `codex mcp-server` are worse capture surfaces** — different naming
+   schemes (`thread.started` vs `thread/started`), fewer events, and no schema generator. Stay on
+   app-server.
+
+## Corrections to the adapter (all confirmed against the 0.147.0 schema)
+
+C0's protocol reading was sound; the adapter built from it has since drifted.
+
+- **Approval replies are malformed on every method.** `driver.ts:133-150` returns
+  `{decision:'approved'|'denied'}` uniformly. `'approved'` is valid on 2 of 10; **`'denied'` on
+  zero** (legacy deny is the object `{denied:{rejection}}`; current is `"decline"`); 6 of 10 have
+  no `decision` field at all. `driver.ts:147` already carries an `UNVERIFIED` comment.
+- **`localShellCall` (`normalizer.ts:180`) is not a real item type.** The 18 real ones are
+  userMessage, hookPrompt, agentMessage, plan, reasoning, commandExecution, fileChange, mcpToolCall,
+  dynamicToolCall, collabAgentToolCall, subAgentActivity, webSearch, imageView, sleep,
+  imageGeneration, enteredReviewMode, exitedReviewMode, contextCompaction.
+- **Two field reads can never resolve**: `normalizer.ts:194` reads `item.output` (real:
+  `aggregatedOutput`); `:232` reads `item.result` (real: `results`).
+- `clientUserMessageId` and `clientId` ARE real, so C0's deterministic-confirmation design is
+  sound — but the round-trip was never exercised, and `driver.ts:239` returns `confirmed` on the
+  `turn/start` promise alone without reading it.
+
+## Privacy — `probe/codex/c1-appserver-capture.jsonl`
+
+That capture is **committed raw to a public repo** (`origin/main` + 4 branches). It contains
+`/Users/jamesyong/.codex`, hostname `Jamess-MacBook-Pro-9.local`, `installationId`, the prompt and
+reply, and a `userAgent` carrying OS version and terminal emulator. No credentials. `.gitignore`
+covers `packages/adapter-*/surface/captures-raw/` but not `probe/`.
+
+Worse, the claude sanitizer **passes it clean** while leaving all of the above intact, because
+`idKey` misses `threadId`/`itemId`/`callId` and codex has no `sensitiveContainer` equivalent. Two
+constraints follow, neither retrofittable: widen the id set BEFORE the first capture (pseudonyms
+are `sha256(value)`, so widening later rewrites every id in every fixture), and rewrite timestamps
+— **codex ids are UUIDv7 and encode wall-clock capture time**, so aliasing alone does not anonymise
+them.
+
+## Still unobserved (C0's §6 item #6, still open)
+
+The **approval round-trip has never been captured** — schema- and README-confirmed only. It is
+where every adapter defect above lives, so it is the first scenario the census must produce.
