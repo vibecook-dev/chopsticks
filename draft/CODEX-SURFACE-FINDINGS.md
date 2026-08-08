@@ -274,3 +274,53 @@ them.
 
 The **approval round-trip has never been captured** — schema- and README-confirmed only. It is
 where every adapter defect above lives, so it is the first scenario the census must produce.
+
+## C1c — Hermetic harness groundwork (2026-08-08)
+
+Probing toward the census harness. Two blockers from the earlier pass are
+resolved; one remains.
+
+**SOLVED — a hermetic turn now completes end to end.** The earlier attempt failed
+with `stream disconnected before completion: failed to parse ResponseCompleted:
+missing field 'total_tokens'`. A fake `responses` provider must send
+`usage: {input_tokens, output_tokens, total_tokens}` — `total_tokens` is
+required. With it, a turn runs offline through the full arc: `turn/started` →
+`item/started`/`item/completed` (userMessage, agentMessage) →
+`thread/tokenUsage/updated` → `account/rateLimits/updated` → `turn/completed`.
+No account, no network, no tokens spent.
+
+**SOLVED — the tool inventory.** Codex declares tools to the provider nested in
+`input[0].tools` as *namespaces*, not a top-level `tools` array:
+
+| namespace | tools |
+| --- | --- |
+| `functions` | `exec`, `wait`, `request_user_input` |
+| `collaboration` | `followup_task`, `interrupt_agent`, `list_agents`, `send_message`, `spawn_agent`, `wait_agent` |
+
+There is no `shell` tool in 0.147.0, which is why the earlier probe got
+`unsupported call: shell`. `exec` is **`"type": "custom"`** — it takes a
+`custom_tool_call` whose `input` is RAW JavaScript source, not a `function_call`
+with JSON arguments. Nested tools reach the real capabilities:
+`await tools.exec_command({cmd: [...]})`.
+
+**UNSOLVED — eliciting a tool execution from a fake provider.** Four shapes
+tried: `function_call` with JSON arguments; `custom_tool_call` with raw source;
+each with and without a preceding `response.output_item.added`; and with the
+item echoed into `response.completed.output`. In every case codex accepts the
+stream and completes the turn cleanly, but emits only `userMessage` and
+`agentMessage` items — the call is silently not executed, with no error.
+
+Untested hypotheses, in rough order of promise:
+1. `exec` may need the code-mode host running; `code_mode_host` is a stable
+   feature but the host may not come up against a fake provider.
+2. The call may need to name the namespaced tool (`functions.exec`) rather than
+   the bare name.
+3. The item may need additional fields (`status`, or `arguments` alongside
+   `input`) that the vendor's own client sends.
+
+**Consequence for the plan:** the hermetic lane can capture a full turn, token
+usage and rate limits today, which is most of a behaviour census. Approvals and
+tool items — the highest-value scenarios (IMPOSTER.md §9.7) — remain blocked on
+the above. If it stays blocked, the fallback is one credentialed turn in a
+sandbox: it costs tokens and gives up hermeticity, but it is the only other way
+to observe an approval round-trip.
