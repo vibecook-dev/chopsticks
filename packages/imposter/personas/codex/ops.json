@@ -4,7 +4,7 @@
       "channel": "jsonrpc",
       "event": "thread/started",
       "with": {
-        "thread": { "id": "$threadId", "sessionId": "$threadId", "cwd": "$cwd", "status": { "type": "idle" } }
+        "thread": { "id": "$threadId", "sessionId": "$threadId", "cwd": "$threadCwd", "status": { "type": "idle" } }
       }
     }
   ],

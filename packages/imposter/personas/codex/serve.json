@@ -11,7 +11,7 @@
   "account/rateLimits/read": { "result": { "rateLimits": {} } },
 
   "thread/start": {
-    "bind": { "$threadId": "$uuid:thread" },
+    "bind": { "$threadId": "$uuid:thread", "$threadCwd": "$params.cwd" },
     "result": {
       "thread": { "id": "$threadId", "sessionId": "$threadId", "cwd": "$params.cwd", "status": { "type": "idle" } }
     },
@@ -19,7 +19,7 @@
   },
 
   "thread/resume": {
-    "bind": { "$threadId": "$uuid:thread" },
+    "bind": { "$threadId": "$uuid:thread", "$threadCwd": "$params.cwd" },
     "result": {
       "thread": { "id": "$threadId", "sessionId": "$threadId", "cwd": "$params.cwd", "status": { "type": "idle" } }
     },
