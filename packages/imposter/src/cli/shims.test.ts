@@ -7,17 +7,18 @@
  * launch recipe finds it (draft/IMPOSTER.md §6).
  */
 import { execFileSync } from 'node:child_process';
-import { lstatSync, mkdtempSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdtempSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  defaultBinDirectory,
   defaultShimDirectory,
+  fallbackBinDirectory,
   imposterBinPath,
   installSelf,
   installShims,
   listShims,
+  preferredBinDirectory,
   runLinkCommand,
   runShimsCommand,
 } from './shims.ts';
@@ -106,7 +107,34 @@ describe('ai link', () => {
     // The decisive property: no vendor name here, ever. A `claude` in this
     // directory would silently replace the user's real Claude Code.
     expect(result.written.every((entry) => entry.vendor === undefined)).toBe(true);
-    expect(defaultBinDirectory()).not.toBe(defaultShimDirectory());
+    expect(fallbackBinDirectory()).not.toBe(defaultShimDirectory());
+  });
+
+  it('picks a directory that is already on PATH, which is why `pnpm link` just works', () => {
+    // The first version of this command installed into a fresh
+    // `~/.chopsticks/bin` and printed an export line — so `ai` was linked and
+    // `ai: command not found` was still the next thing that happened.
+    const onPath = temporaryDirectory();
+    expect(preferredBinDirectory({ PATH: `/nowhere:${onPath}`, PNPM_HOME: onPath })).toBe(onPath);
+
+    // A candidate that is NOT on PATH is not a candidate, however conventional.
+    const offPath = temporaryDirectory();
+    expect(preferredBinDirectory({ PATH: '/nowhere', PNPM_HOME: offPath })).toBe(fallbackBinDirectory());
+  });
+
+  it('skips a directory on PATH that it cannot write, rather than asking for sudo', () => {
+    const readOnly = temporaryDirectory();
+    const writable = temporaryDirectory();
+    chmodSync(readOnly, 0o500);
+    try {
+      expect(
+        preferredBinDirectory({ PATH: `${readOnly}:${writable}`, PNPM_HOME: readOnly, npm_config_prefix: undefined }),
+      ).toBe(fallbackBinDirectory());
+      // …and when a writable candidate is offered instead, it takes it.
+      expect(preferredBinDirectory({ PATH: `${readOnly}:${writable}`, PNPM_HOME: writable })).toBe(writable);
+    } finally {
+      chmodSync(readOnly, 0o700);
+    }
   });
 
   it.skipIf(!posix)('runs: a linked `ai` selects a persona from its flag', () => {
@@ -125,7 +153,7 @@ describe('ai link', () => {
     ).toThrow(/no persona selected|Command failed/);
   });
 
-  it('tells the user how to reach it, and says the directory is safe to keep', () => {
+  it('says there is still a step to take when the directory is not on PATH', () => {
     const lines: string[] = [];
     const code = runLinkCommand(['--dir', temporaryDirectory()], ((chunk: string) => {
       lines.push(chunk);
@@ -135,6 +163,24 @@ describe('ai link', () => {
     const output = lines.join('');
     expect(output).toContain('export PATH=');
     expect(output).toContain('ai --claude');
-    expect(output).toMatch(/shadows no real agent/);
+    // "Add it to PATH" read as a note; this has to read as an instruction.
+    expect(output).toMatch(/NOT on your PATH/);
+  });
+
+  it('says nothing is left to do when the directory is already on PATH', () => {
+    const dir = temporaryDirectory();
+    process.env.PATH = `${dir}${delimiter}${process.env.PATH}`;
+    try {
+      const lines: string[] = [];
+      runLinkCommand(['--dir', dir], ((chunk: string) => {
+        lines.push(chunk);
+        return true;
+      }) as typeof process.stdout.write);
+      const output = lines.join('');
+      expect(output).toContain('already on your PATH');
+      expect(output).not.toContain('export PATH=');
+    } finally {
+      process.env.PATH = process.env.PATH!.slice(`${dir}${delimiter}`.length);
+    }
   });
 });

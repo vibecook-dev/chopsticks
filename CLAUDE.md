@@ -100,7 +100,7 @@ pnpm godview        # bundle + launch the Electron swarm app
 pnpm workbench      # bundle + launch the original workbench
 pnpm format         # prettier --write over packages/*/src (CI runs format:check FIRST)
 pnpm pack:check     # build + pack every public package into tarballs
-pnpm ai:link        # put `ai` on PATH (~/.chopsticks/bin) — then `ai --claude`, `ai --codex`
+pnpm ai:link        # symlink `ai` into a dir already on PATH — then `ai --claude`, `ai --codex`
 ```
 
 Live adapter probes are opt-in and skipped by default: `CODEX_LIVE=1`, `GROK_LIVE=1`,

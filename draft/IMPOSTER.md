@@ -274,7 +274,7 @@ Persona resolution, in order: **argv0** → `--<vendor>` flag → `AI_PERSONA` e
 
 `ai shims install --dir <d>` writes `claude`, `codex`, … symlinks pointing at `ai`. Prepend that directory to PATH and **godview needs no changes at all** — the adapter's normal recipe finds `claude`, detection probes answer from `detection.json`, and the session spawns. Those names shadow the real binaries, which is the point of that mode and the reason it is opt-in.
 
-`ai link` is the other half, and the one to reach for first: it installs `ai` and `imposter` into `~/.chopsticks/bin`, which shadows nothing and is safe to keep on PATH permanently. See §11.1; the serve/interactive fork also comes from argv rather than from the persona.
+`ai link` is the other half, and the one to reach for first: it symlinks `ai` and `imposter` into a directory that is **already on PATH**, so there is no follow-up step. See §11.1; the serve/interactive fork also comes from argv rather than from the persona.
 
 `apps/godview/src/shim/agent-shim.ts` is the working reference: argv0 dispatch (`shimPath.split('/').at(-1)`), PATH cleaning to avoid recursion, `process.execve` replacement. Reuse its shape; note it is POSIX-only (`execve`), so the imposter's shims spawn rather than exec on Windows.
 
@@ -617,7 +617,11 @@ Three properties carry the design:
 
 Two changes make `ai` a command you can actually run.
 
-**`ai link`** installs `ai` and `imposter` into `~/.chopsticks/bin` — a directory that shadows nothing, so it is safe to leave on PATH forever. `ai shims install` keeps writing *vendor* names into `~/.chopsticks/shims`, which does shadow the real binaries wherever it is prepended; that is the point of it, but it is now a separate, clearly-labelled act rather than the only way to reach the tool.
+**`ai link`** symlinks `ai` and `imposter` into the first directory that is **already on PATH and writable** — `$PNPM_HOME`, then the npm global bin, then `~/.local/bin` — falling back to `~/.chopsticks/bin` only when none of them qualifies. `ai shims install` keeps writing *vendor* names into `~/.chopsticks/shims`, which does shadow the real binaries wherever it is prepended; that is the point of it, but it is a separate, clearly-labelled act rather than the only way to reach the tool.
+
+The first version installed into a fresh `~/.chopsticks/bin` and printed an export line, reasoning that a directory of our own shadows nothing. Correct constraint, wrong conclusion: `ai` and `imposter` shadow nothing *wherever they live* — the shadowing `~/.chopsticks/shims` exists to contain is a property of the VENDOR names, not of the directory. So the isolation bought nothing and cost the only thing that mattered, which is being on PATH. `pnpm link --global` "just works" for exactly this reason: `pnpm setup` already put its global bin there. Reported 2026-08-08 with `ai: command not found` immediately after a successful link.
+
+The message now tells the truth about what is left to do — "already on your PATH" or "NOT on your PATH yet", decided by looking rather than by printing an export line either way.
 
 **Serve mode comes from argv, not from the persona.** `serve.json`'s `$server.command` names the vendor subcommand that turns the binary into a server, and the fork is taken only when argv asks for it: `ai --codex app-server` speaks the protocol, bare `ai --codex` opens the shared chrome. The real vendor works exactly this way, and an imposter that always served failed the most visible faithfulness test there is — you could not run it by hand. A serve persona run interactively reports its app-server channel **detached**, because nothing is attached to it; the ops run and reach no wire, which is the truth of the mode.
 

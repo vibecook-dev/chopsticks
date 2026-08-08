@@ -22,9 +22,19 @@
  * knowing about: only the POSIX path proves argv0 dispatch.
  */
 
-import { chmodSync, lstatSync, mkdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  accessSync,
+  chmodSync,
+  constants,
+  lstatSync,
+  mkdirSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { shimNameMap } from '../persona/load.ts';
 
@@ -56,9 +66,51 @@ export interface ShimInstallResult {
 /** The tool's own names. Neither selects a persona: `ai --claude` does that. */
 export const SELF_NAMES = ['ai', 'imposter'] as const;
 
-/** Safe to keep on PATH forever — nothing here shares a name with a real agent. */
-export function defaultBinDirectory(): string {
+/** Last resort: ours, safe, and on nobody's PATH until the user says so. */
+export function fallbackBinDirectory(): string {
   return join(homedir(), '.chopsticks', 'bin');
+}
+
+/**
+ * Where `ai link` puts the tool: the first directory that is ALREADY on PATH
+ * and writable, falling back to one of our own.
+ *
+ * This is why `pnpm link --global` "just works" and the first version of this
+ * command did not. pnpm's global bin is on PATH because `pnpm setup` put it
+ * there, so linking into it needs no further step; a fresh `~/.chopsticks/bin`
+ * needs an export the user has to run, and printing that line is not the same
+ * as it happening.
+ *
+ * Only `ai` and `imposter` are installed here, and neither shares a name with
+ * any real agent — the shadowing that `~/.chopsticks/shims` exists to contain
+ * is a property of the VENDOR names, not of the directory.
+ */
+export function preferredBinDirectory(env: Record<string, string | undefined> = process.env): string {
+  const onPath = new Set(
+    (env.PATH ?? '')
+      .split(delimiter)
+      .filter(Boolean)
+      .map((entry) => resolve(entry)),
+  );
+  const candidates = [
+    // pnpm first: it is the idiom this repo already uses, and `pnpm setup`
+    // guarantees the entry rather than hoping for it.
+    env.PNPM_HOME,
+    env.npm_config_prefix ? join(env.npm_config_prefix, 'bin') : undefined,
+    join(homedir(), '.local', 'bin'),
+    fallbackBinDirectory(),
+  ];
+  for (const candidate of candidates) {
+    if (!candidate || !onPath.has(resolve(candidate))) continue;
+    try {
+      accessSync(candidate, constants.W_OK);
+      return resolve(candidate);
+    } catch {
+      // On PATH but not ours to write (a system directory): keep looking
+      // rather than ask anyone for sudo.
+    }
+  }
+  return fallbackBinDirectory();
 }
 
 /** Vendor names. Shadows the real binaries wherever it is prepended. */
@@ -135,7 +187,7 @@ export function installSelf(options: ShimInstallOptions = {}): ShimInstallResult
   return installEntries(
     SELF_NAMES.map((name) => ({ name })),
     options,
-    defaultBinDirectory(),
+    preferredBinDirectory(),
   );
 }
 
@@ -154,6 +206,14 @@ function report(result: ShimInstallResult, write: (text: string) => void, hint: 
   return result.conflicts.length > 0 ? 1 : 0;
 }
 
+/** True when a directory is on PATH, i.e. when installing there is the whole job. */
+export function isOnPath(directory: string, env: Record<string, string | undefined> = process.env): boolean {
+  return (env.PATH ?? '')
+    .split(delimiter)
+    .filter(Boolean)
+    .some((entry) => resolve(entry) === resolve(directory));
+}
+
 /** `ai link`; returns the process exit code. */
 export function runLinkCommand(argv: readonly string[], write = process.stdout.write.bind(process.stdout)): number {
   const dirIndex = argv.indexOf('--dir');
@@ -163,11 +223,16 @@ export function runLinkCommand(argv: readonly string[], write = process.stdout.w
     return 2;
   }
   const result = installSelf({ ...(dir ? { dir } : {}), force: argv.includes('--force') });
+  // The old message printed an export line unconditionally, which read as a
+  // note rather than a step and left `ai: command not found` as the next thing
+  // that happened. Whether PATH already covers this is knowable right here.
   return report(
     result,
     write,
-    'Add it to PATH — it shadows no real agent, so this is safe to keep:\n' +
-      '  export PATH="{DIR}:$PATH"\n\nThen: ai --claude · ai --codex\n',
+    isOnPath(result.dir)
+      ? 'That directory is already on your PATH.\n\nReady: ai --claude · ai --codex\n'
+      : 'NOT on your PATH yet. Run this, and add it to your shell profile to keep it:\n' +
+          '  export PATH="{DIR}:$PATH"\n\nThen: ai --claude · ai --codex\n',
   );
 }
 
