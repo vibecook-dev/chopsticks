@@ -4,9 +4,13 @@
  * op and holds the two against each other. Everything above it is the shape of
  * a real turn, taken from the personas that ship.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { loadPersona, personaDirectory } from '../persona/load.ts';
 import { OP_NAMES } from '../persona/types.ts';
-import { createOpMachine, describeMachine, type MachineStateId } from './machine.ts';
+import { createImposterSession, type BehaviorDocument } from './session.ts';
+import { createOpMachine, describeMachine, type MachineSnapshot, type MachineStateId } from './machine.ts';
 
 const run = (ops: readonly string[]): ReturnType<typeof createOpMachine> => {
   const machine = createOpMachine();
@@ -87,6 +91,48 @@ describe('the op lifecycle machine', () => {
     off();
     machine.send('turn.start');
     expect(seen).toEqual(['booting', 'ready']);
+  });
+});
+
+describe('the machine inside a session', () => {
+  const persona = loadPersona('claude');
+  const behavior = JSON.parse(
+    readFileSync(join(personaDirectory('claude'), 'behavior', 'happy-turn.json'), 'utf8'),
+  ) as BehaviorDocument;
+  const session = (onMachine?: (snapshot: MachineSnapshot) => void) =>
+    createImposterSession({
+      persona,
+      argv: [],
+      env: {},
+      cwd: process.cwd(),
+      behavior,
+      ...(onMachine ? { onMachine } : {}),
+    });
+
+  it('advances whether or not anyone is watching', async () => {
+    // The lifecycle is a property of the session, not of having a subscriber.
+    // Folded into `options.onMachine?.(machine.send(op).snapshot)` it was the
+    // latter, because an optional call does not evaluate its arguments — so a
+    // session with no callback booted straight to `starting`, forever.
+    const unwatched = session();
+    await unwatched.boot();
+    expect(unwatched.machine.state).toBe('ready');
+    expect(unwatched.machine.applied).toBe(3);
+
+    const seen: string[] = [];
+    const watched = session((snapshot) => seen.push(snapshot.state));
+    await watched.boot();
+    expect(watched.machine.state).toBe('ready');
+    // Both halves agree: the same three ops, reported and recorded.
+    expect(seen).toEqual(['booting', 'ready', 'ready']);
+  });
+
+  it('reports a turn through the getter the control channel reads', async () => {
+    const live = session();
+    await live.boot();
+    await live.turn('do a thing');
+    expect(live.machine.state).toBe('ready');
+    expect(live.machine.offModel).toBe(0);
   });
 });
 

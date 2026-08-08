@@ -82,9 +82,14 @@ describe('ai --codex', () => {
     await waitFor(() => run.stdout().includes('IMPOSTER'), 'banner');
     const banner = run.stdout().split('\n')[0]!;
     expect(banner).toContain('codex');
-    // Claiming a live app-server with no client on it would be the one kind of
-    // lie this whole package exists to avoid.
-    expect(banner).not.toContain('app-server');
+    // The ASM calls this channel `appserver`, one word. Asserting on
+    // "app-server" — the SUBCOMMAND's spelling — could never fail, which is
+    // how this test passed while proving nothing (found in review).
+    expect(banner).not.toContain('appserver');
+    // Positive half, so the absence above means "dropped" and not "no channels
+    // were ever listed": the other two are still there.
+    expect(banner).toContain('argv');
+    expect(banner).toContain('terminal');
   });
 
   it('serves the protocol when argv asks for the server subcommand', async () => {

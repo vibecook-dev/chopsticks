@@ -348,7 +348,15 @@ export function createImposterSession(options: ImposterSessionOptions): Imposter
 
   const timeline = createOpTimeline({
     persona,
-    observe: (invocation) => options.onMachine?.(machine.send(invocation.op).snapshot),
+    // Advance FIRST, notify second, and never in one expression: `f?.(g())`
+    // does not evaluate `g()` when `f` is nullish, so folding these together
+    // left the machine frozen at `starting` for every caller that passed no
+    // `onMachine` — the lifecycle silently depending on whether anyone happened
+    // to be watching it (found in review, 2026-08-08).
+    observe: (invocation) => {
+      const { snapshot } = machine.send(invocation.op);
+      options.onMachine?.(snapshot);
+    },
     emitHook: emit,
     emitJsonRpc: emitRpc,
     requestJsonRpc: requestRpc,
