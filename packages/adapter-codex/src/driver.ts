@@ -33,7 +33,7 @@ import { approvalResponse } from './approvals.js';
 import { AppServerClient, spawnAppServerTransport, type Transport } from './app-server-client.js';
 import { CodexNotificationNormalizer } from './normalizer.js';
 
-const CLIENT_INFO = { name: 'chopsticks', version: '0.1.8' } as const; // x-release-please-version
+const CLIENT_INFO = { name: 'chopsticks', version: '0.1.9' } as const; // x-release-please-version
 
 export type CodexApprovalDecision = 'approved' | 'denied';
 

@@ -1,6 +1,6 @@
 {
   "name": "@vibecook/chopsticks-imposter",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "type": "module",
   "description": "One executable that impersonates every coding agent: speaks each vendor's real machine surfaces (hooks, transcripts, statuslines, JSON-RPC) from its captured Agent Surface Model (draft/IMPOSTER.md).",
   "license": "MIT",

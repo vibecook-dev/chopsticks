@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.1.9](https://github.com/vibecook-dev/chopsticks/compare/v0.1.8...v0.1.9) (2026-08-09)
+
+
+### Features
+
+* **adapter-codex:** hermetic census harness; the tool blocker was the log ([7c7e098](https://github.com/vibecook-dev/chopsticks/commit/7c7e098a9cc171f7c033ae66d6bf4c2a89fcca20))
+* **adapter-codex:** the codex ASM, generated from vendor schema + census ([d453c57](https://github.com/vibecook-dev/chopsticks/commit/d453c570e383b157469b6afe398056faf03607be))
+* **apps:** emulator control center and godview agent smoke/autocreate ([b4f14ef](https://github.com/vibecook-dev/chopsticks/commit/b4f14ef249a9cb631f6ececc160ae0c5aa7851eb))
+* **emulator:** agent surface model, emulator engine, and claude reference surface ([0fe5d68](https://github.com/vibecook-dev/chopsticks/commit/0fe5d68e068400123be711e5066902d29c82696f))
+* **imposter:** codex scenario pack and the approval round-trip, end to end ([f002de0](https://github.com/vibecook-dev/chopsticks/commit/f002de0690bbfee6dfec5537a9509a7c83107a66))
+* **imposter:** invert the control channel onto one socket (I3) ([50edf1d](https://github.com/vibecook-dev/chopsticks/commit/50edf1d879128e910c3a25f63cbc7f8099492b23))
+* **imposter:** lifecycle machine, `ai` on PATH, and a chrome worth looking at ([ffb9873](https://github.com/vibecook-dev/chopsticks/commit/ffb98738ac875d7625d0c0126de6eac9af3fad00))
+* **imposter:** op timeline, session, CLI, and conformance against `ai` ([3fbd1ef](https://github.com/vibecook-dev/chopsticks/commit/3fbd1ef753cafd802948aca4a78920fa9b2c0d98))
+* **imposter:** package skeleton, channel modules, and the persona loader ([5b7084c](https://github.com/vibecook-dev/chopsticks/commit/5b7084c1344edab3b28a4f70ff5abfbc2694c31f))
+* **imposter:** the app-server channel and serve table (I2, partial) ([0ae9f8a](https://github.com/vibecook-dev/chopsticks/commit/0ae9f8a4ea151e2ed0efd420437ee94b3f5ca469))
+* **imposter:** the codex persona — one timeline, two families (I2) ([2a7c138](https://github.com/vibecook-dev/chopsticks/commit/2a7c13872a04d5300e97893ec5a47c29a977d478))
+* **imposter:** TUI, shims, a synthetic persona, and the end of the PoC (I4) ([34cfad7](https://github.com/vibecook-dev/chopsticks/commit/34cfad7c118cd3692cfd2c9ef0ee7463b560a8a3))
+* the agent imposter — one executable, N personas, a lifecycle you can see ([ac0da41](https://github.com/vibecook-dev/chopsticks/commit/ac0da4124427891da35564e56ec0b8e9d8365f86))
+* the agent imposter — one executable, N personas, a lifecycle you can see ([#23](https://github.com/vibecook-dev/chopsticks/issues/23)) ([ac0da41](https://github.com/vibecook-dev/chopsticks/commit/ac0da4124427891da35564e56ec0b8e9d8365f86))
+
+
+### Bug Fixes
+
+* **adapter-codex:** correct approval replies and item field names ([71e1b62](https://github.com/vibecook-dev/chopsticks/commit/71e1b626e79a0ea8632d9bdb3f5732eda532bf4e))
+* **ci:** inner deadlines under the outer one, and Windows-safe teardown ([01eff8c](https://github.com/vibecook-dev/chopsticks/commit/01eff8cfd6bdd0181300d9cb7782e3dcd68b2816))
+* **ci:** pnpm discovery, LF checkouts, and a timeout the spawners can meet ([eda508f](https://github.com/vibecook-dev/chopsticks/commit/eda508fa2728293f86870aa67f29d262396268b2))
+* **ci:** run the imposter's spawn suites serially; skip the Windows control channel ([3f652dc](https://github.com/vibecook-dev/chopsticks/commit/3f652dca2bc813ff3c130d7524fcaf12505885cc))
+* **ci:** Windows cannot listen on a .sock path, and is slower to spawn ([aa0adeb](https://github.com/vibecook-dev/chopsticks/commit/aa0adebc5cefab7a381bb5ff0497b860b2222b5c))
+* **ci:** Windows has no execute bit, and cleanup must not fail a passed test ([8d9a714](https://github.com/vibecook-dev/chopsticks/commit/8d9a714956e82289a985124b70acc656a4b6aafc))
+* **emulator:** harden agent surface implementation ([93d8a17](https://github.com/vibecook-dev/chopsticks/commit/93d8a173460387af3165999714c69a5a6ae2f43b))
+* **imposter:** `ai link` installs where PATH already looks ([b4bf768](https://github.com/vibecook-dev/chopsticks/commit/b4bf768448bdc886dab84594645eb3b1a46feada))
+* **imposter:** codex thread/started must report the cwd the client asked for ([6df7b82](https://github.com/vibecook-dev/chopsticks/commit/6df7b82e39e49308634782b7b44f4db55b2b1758))
+* make the suite pass in CI, not just on this laptop ([4e3b55a](https://github.com/vibecook-dev/chopsticks/commit/4e3b55a4f630b7d283922c54829b1cee9db750a5))
+* **privacy:** sanitise the shipped fixtures and gate captures in CI ([36ca4cc](https://github.com/vibecook-dev/chopsticks/commit/36ca4cc424d91fcd7f3c678e5631000a948e9ab8))
+* **release:** register the imposter package for publishing ([52ca55a](https://github.com/vibecook-dev/chopsticks/commit/52ca55a7231a0bb6f413323cce99e896c938b5e7))
+* **runtime:** include Windows essentials in the clean agent environment ([5ab4ce0](https://github.com/vibecook-dev/chopsticks/commit/5ab4ce07a5ff9e77427a7b9ff3ed253902ff7a36))
+* **surface:** share the capture sanitiser and close the holes codex found ([974c608](https://github.com/vibecook-dev/chopsticks/commit/974c608abd0cb822aee818b72d3b102a9bb914b5))
+* Windows platform support for git paths and package-manager spawns ([546b41e](https://github.com/vibecook-dev/chopsticks/commit/546b41ebe4302d639bb75d93aed2508a49c3f9cf))
+
 ## [0.1.8](https://github.com/vibecook-dev/chopsticks/compare/v0.1.7...v0.1.8) (2026-08-03)
 
 
