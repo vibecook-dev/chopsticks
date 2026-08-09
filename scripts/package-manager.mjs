@@ -52,8 +52,27 @@ export function packageManagerInvocation(manager, environment = process.env, nod
           resolve(nodeDirectory, '..', 'lib', 'node_modules', 'pnpm', 'bin', 'pnpm.cjs'),
           resolve(nodeDirectory, '..', 'lib', 'node_modules', 'pnpm', 'bin', 'pnpm.mjs'),
         ];
-  const toolHome = manager === 'pnpm' ? findFile(join(environment.PNPM_HOME ?? '', '.tools'), fileNames, 6) : undefined;
-  const cli = firstExisting([override, lifecycleCli, ...conventional, toolHome]);
+  /**
+   * pnpm installed beside a home directory, in the two layouts that exist.
+   *
+   * `PNPM_HOME/.tools/**` is the self-managed one. The other is what
+   * `pnpm/action-setup` produces, and it is NOT a superset: PNPM_HOME points at
+   * `…/setup-pnpm/node_modules/.bin`, one level BELOW the package, so the CLI
+   * is at `../pnpm/bin/pnpm.cjs` and no amount of searching downward finds it.
+   * CI proved this the only way it could — every test passed and the pack-check
+   * step, which runs `node scripts/…` directly and so has no `npm_execpath`,
+   * could not find pnpm at all (2026-08-09).
+   */
+  const pnpmHome = environment.PNPM_HOME ?? '';
+  const homeCandidates =
+    manager === 'pnpm'
+      ? [
+          resolve(pnpmHome, '..', 'pnpm', 'bin', 'pnpm.cjs'),
+          resolve(pnpmHome, '..', 'pnpm', 'bin', 'pnpm.mjs'),
+          findFile(join(pnpmHome, '.tools'), fileNames, 6),
+        ]
+      : [];
+  const cli = firstExisting([override, lifecycleCli, ...conventional, ...homeCandidates]);
   if (!cli) {
     throw new Error(
       `could not locate the ${manager} JavaScript CLI; set CHOPSTICKS_${manager.toUpperCase()}_CLI to its entry point`,
