@@ -1,0 +1,20 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "thread/name/updated",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "threadId": {
+        "type": "string"
+      },
+      "threadName": {}
+    },
+    "required": [
+      "threadId"
+    ]
+  },
+  "confidence": "unverified"
+}

@@ -1,0 +1,19 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "app/list/updated",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "data": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "data"
+    ]
+  },
+  "confidence": "unverified"
+}

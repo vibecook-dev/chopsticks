@@ -1,0 +1,46 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "item/commandExecution/requestApproval",
+  "channel": "appserver",
+  "transport": "jsonrpc-request",
+  "trigger": "NEW APIs Sent when approval is requested for a specific command execution. This request is used for Turns started via turn/start.",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "additionalPermissions": {},
+      "approvalId": {},
+      "availableDecisions": {},
+      "command": {},
+      "commandActions": {},
+      "cwd": {},
+      "environmentId": {},
+      "itemId": {
+        "type": "string"
+      },
+      "networkApprovalContext": {},
+      "proposedExecpolicyAmendment": {},
+      "proposedNetworkPolicyAmendments": {},
+      "reason": {},
+      "startedAtMs": {
+        "type": "number"
+      },
+      "threadId": {
+        "type": "string"
+      },
+      "turnId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "itemId",
+      "startedAtMs",
+      "threadId",
+      "turnId"
+    ]
+  },
+  "confidence": "verified-headless",
+  "firstSeen": "0.147.0",
+  "lastVerified": "0.147.0",
+  "fixture": "captures/codex@0.147.0/approval-accept.jsonl"
+}

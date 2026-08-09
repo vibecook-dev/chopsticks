@@ -29,6 +29,7 @@ import {
   type PromptReceipt,
   type PromptSubmission,
 } from '@vibecook/chopsticks-core';
+import { approvalResponse } from './approvals.js';
 import { AppServerClient, spawnAppServerTransport, type Transport } from './app-server-client.js';
 import { CodexNotificationNormalizer } from './normalizer.js';
 
@@ -144,9 +145,10 @@ export async function createCodexSession(options: CreateCodexSessionOptions): Pr
       'native-hook',
       { method, params, id },
     );
-    // UNVERIFIED response shape — no live approval fixture yet (the pong turn had
-    // none). Confirm the exact field against a workspace-write probe.
-    return { decision };
+    // Translated to this method's own response shape; `{decision}` verbatim was
+    // valid on none of them (approvals.ts). Non-approval server requests throw,
+    // which the client turns into a JSON-RPC error.
+    return approvalResponse(method, decision);
   });
 
   client.onClose(({ code, signal }) => {

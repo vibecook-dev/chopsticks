@@ -1,0 +1,9 @@
+{
+  "surface": "claude",
+  "surfaceVersion": "2.1.207",
+  "event": "StopFailure",
+  "channel": "hook",
+  "transport": "http",
+  "confidence": "unverified",
+  "timeoutSec": 5
+}

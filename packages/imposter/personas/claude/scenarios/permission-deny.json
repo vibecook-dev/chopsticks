@@ -1,0 +1,39 @@
+{
+  "name": "permission-deny",
+  "notes": "Claude represents denial by the absence of PreToolUse/PostToolUse after PermissionRequest.",
+  "steps": [
+    {
+      "at": 0,
+      "do": {
+        "emit": {
+          "event": "PermissionRequest",
+          "with": {
+            "prompt_id": "$uuid:prompt",
+            "tool_name": "Bash",
+            "tool_input": { "command": "rm protected-file" },
+            "permission_suggestions": [],
+            "effort": { "level": "xhigh" },
+            "permission_mode": "$permissionMode"
+          }
+        }
+      }
+    },
+    {
+      "at": 100,
+      "do": {
+        "emit": {
+          "event": "Stop",
+          "with": {
+            "prompt_id": "$uuid:prompt",
+            "last_assistant_message": "Permission denied.",
+            "stop_hook_active": false,
+            "background_tasks": [],
+            "session_crons": [],
+            "effort": { "level": "xhigh" },
+            "permission_mode": "$permissionMode"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "surface": "claude",
+  "surfaceVersion": "2.1.207",
+  "event": "PostCompact",
+  "channel": "hook",
+  "transport": "command",
+  "confidence": "unverified",
+  "timeoutSec": 10
+}

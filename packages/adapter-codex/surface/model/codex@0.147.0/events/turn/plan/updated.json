@@ -1,0 +1,28 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "turn/plan/updated",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "explanation": {},
+      "plan": {
+        "type": "array"
+      },
+      "threadId": {
+        "type": "string"
+      },
+      "turnId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "plan",
+      "threadId",
+      "turnId"
+    ]
+  },
+  "confidence": "unverified"
+}

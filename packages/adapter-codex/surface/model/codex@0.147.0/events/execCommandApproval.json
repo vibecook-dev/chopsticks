@@ -1,0 +1,38 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "execCommandApproval",
+  "channel": "appserver",
+  "transport": "jsonrpc-request",
+  "trigger": "Request to exec a command. This request is used for Turns started via the legacy APIs (i.e. SendUserTurn, SendUserMessage).",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "approvalId": {},
+      "callId": {
+        "type": "string"
+      },
+      "command": {
+        "type": "array"
+      },
+      "conversationId": {
+        "type": "string"
+      },
+      "cwd": {
+        "type": "string"
+      },
+      "parsedCmd": {
+        "type": "array"
+      },
+      "reason": {}
+    },
+    "required": [
+      "callId",
+      "command",
+      "conversationId",
+      "cwd",
+      "parsedCmd"
+    ]
+  },
+  "confidence": "unverified"
+}

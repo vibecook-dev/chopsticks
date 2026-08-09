@@ -4,6 +4,8 @@ import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
 
 type Agent = 'claude' | 'codex' | 'grok';
 
+const AGENTS: readonly Agent[] = ['claude', 'codex', 'grok'];
+
 interface ExecResponse {
   action: 'exec';
   preparationId: string;
@@ -14,8 +16,30 @@ type Response = ExecResponse | { action: 'fallback'; reason: string } | { action
 
 const shimPath = resolve(process.argv[1]!);
 const shimDirectory = dirname(shimPath);
-const agent = shimPath.split('/').at(-1) as Agent;
+const invokedAs = shimPath.split('/').at(-1)!;
+
+/**
+ * `ai --claude` is the imposter's own invocation, so the vendor comes from the
+ * flag rather than from the shim's name, and the flag is stripped before the
+ * rest of argv is handed on — everything after it belongs to the vendor, just
+ * as it does under a vendor-named shim.
+ *
+ * The real `ai` still has to exist on PATH for this to run at all: the shim
+ * execs it, and falls back to it when Godview declines. `ai link` puts it there.
+ */
+const imposter = invokedAs === 'ai';
 const originalArgv = process.argv.slice(2);
+const flagIndex = imposter
+  ? originalArgv.findIndex(
+      (argument) => argument.startsWith('--') && AGENTS.includes(argument.slice(2) as Agent),
+    )
+  : -1;
+const agent: Agent | undefined = imposter
+  ? flagIndex >= 0
+    ? (originalArgv[flagIndex]!.slice(2) as Agent)
+    : undefined
+  : (invokedAs as Agent);
+const forwardedArgv = flagIndex >= 0 ? originalArgv.filter((_, index) => index !== flagIndex) : originalArgv;
 const originalCwd = process.cwd();
 
 function cleanPath(): string {
@@ -113,20 +137,23 @@ function request(payload: object): Promise<Response> {
 }
 
 async function main(): Promise<never> {
-  const realExecutable = executableOnPath(agent, cleanPath());
+  const realExecutable = executableOnPath(invokedAs, cleanPath());
   if (!realExecutable) {
-    process.stderr.write(`chopsticks: ${agent} is not installed outside the Godview shim path\n`);
+    process.stderr.write(`chopsticks: ${invokedAs} is not installed outside the Godview shim path\n`);
     process.exit(127);
   }
-  if (!['claude', 'codex', 'grok'].includes(agent)) return fallback(realExecutable);
+  // `ai` with no persona flag is the imposter's own error to report, not
+  // something to guess at: hand it straight through and let it say so.
+  if (!agent || !AGENTS.includes(agent)) return fallback(realExecutable);
   try {
     const response = await request({
       type: 'launch',
       agent,
       cwd: originalCwd,
-      argv: originalArgv,
+      argv: forwardedArgv,
       pid: process.pid,
       parentPid: process.ppid,
+      ...(imposter ? { imposter: true } : {}),
     });
     if (response.action !== 'exec') return fallback(realExecutable);
     try {

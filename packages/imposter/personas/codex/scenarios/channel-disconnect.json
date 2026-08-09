@@ -1,0 +1,7 @@
+{
+  "name": "channel-disconnect",
+  "then": [
+    { "at": 0, "do": { "fault": { "kind": "channel-drop", "channel": "appserver" } } },
+    { "at": 20, "do": { "emit": { "event": "turn/completed", "with": { "threadId": "$threadId", "turn": { "id": "$uuid:turn", "status": "completed", "error": null } } } } }
+  ]
+}

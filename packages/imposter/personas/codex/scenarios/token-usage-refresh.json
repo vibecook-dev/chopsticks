@@ -1,0 +1,7 @@
+{
+  "name": "token-usage-refresh",
+  "then": [
+    { "at": 0, "do": { "emit": { "event": "thread/tokenUsage/updated", "with": { "threadId": "$threadId", "turnId": "$uuid:turn", "tokenUsage": { "total": { "totalTokens": 128000, "inputTokens": 120000, "outputTokens": 8000 } } } } } },
+    { "at": 20, "do": { "emit": { "event": "account/rateLimits/updated", "with": { "rateLimits": { "primary": { "usedPercent": 87 } } } } } }
+  ]
+}

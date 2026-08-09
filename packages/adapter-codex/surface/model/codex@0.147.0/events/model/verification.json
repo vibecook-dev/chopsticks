@@ -1,0 +1,27 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "model/verification",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "threadId": {
+        "type": "string"
+      },
+      "turnId": {
+        "type": "string"
+      },
+      "verifications": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "threadId",
+      "turnId",
+      "verifications"
+    ]
+  },
+  "confidence": "unverified"
+}

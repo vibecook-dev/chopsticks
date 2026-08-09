@@ -1,0 +1,14 @@
+{
+  "name": "unknown-event",
+  "steps": [
+    {
+      "at": 0,
+      "do": {
+        "emit": {
+          "event": "FutureHookEvent",
+          "with": { "future_field": "retained by the emulator log" }
+        }
+      }
+    }
+  ]
+}

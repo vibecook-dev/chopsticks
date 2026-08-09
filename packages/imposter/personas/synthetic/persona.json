@@ -1,0 +1,11 @@
+{
+  "vendor": "synthetic",
+  "asm": { "path": "model" },
+  "shimNames": ["synthetic"],
+  "envelope": {
+    "sid": "$sessionId",
+    "workdir": "$cwd"
+  },
+  "eventNameField": "kind",
+  "boot": [{ "op": "session.start" }, { "op": "session.ready" }]
+}

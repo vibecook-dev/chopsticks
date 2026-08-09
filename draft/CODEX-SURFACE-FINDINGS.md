@@ -185,3 +185,278 @@ Resolves §6 deferral #3, live against codex 0.144.2. Probes: `probe/codex/c6-ws
 **Materialization caveat (found building the observer):** a thread has **no rollout until its first user message** — `thread/resume`/`thread/read` right after `thread/started` error with "no rollout found" / "not materialized yet; includeTurns unavailable before first user message". So the observer **retries `thread/resume`** after `thread/started` until the first turn materializes the thread (a moment later), then observes forward. `thread/started` **does** broadcast to other connections (verified), so discovery is fine; only the resume must wait for materialization.
 
 **C6 verdict: GO.** Model: chopsticks main spawns one `codex app-server --listen unix://<sock>` (UDS preferred over TCP — no port, filesystem-scoped), connects a **WS-over-UDS controller** (observe + inject), and the renderer PTY runs `codex --remote unix://<sock>` for the native display. Needs a **WebSocket-over-UDS `Transport`** for the app-server client — the injected-transport seam (C4) already supports this, so **no driver changes**, just a new transport implementation (`ws` pkg or the ~70-line hand-rolled client from the probe). §6 #3 resolved.
+
+---
+
+# C1b — Re-probe at 0.147.0 (2026-08-07)
+
+**Probed:** 2026-08-07, `codex-cli` **0.147.0**, macOS 26.5.2 arm64. Live app-server sessions this
+time (C0 was read-only). Design consequences live in `IMPOSTER.md §9`.
+
+C0 already established the important architecture — `generate-json-schema`/`generate-ts`,
+approvals as JSON-RPC ServerRequests with real request-ids, the structured-driver recommendation.
+This section records only what is **new or corrected** three minor versions later.
+
+## What changed since C0
+
+| | C0 (0.144.2) | now (0.147.0) |
+|---|---|---|
+| v2 definitions | 516 | 557 |
+| ClientRequest | — | **95 stable / 133 `--experimental`** |
+| ServerNotification | — | **70 / 70 — all stable** |
+| ServerRequest | — | 10 / 11 |
+| schema files | — | 285 stable / 361 experimental |
+
+Measured churn 0.146.0 → 0.147.0 (9 days): **+6 methods, 0 removed**, matching the release notes.
+Additive, despite ~2 alpha tags/day.
+
+## New findings
+
+1. **Generation is deterministic** — a pure function of `(version, --experimental)`. Repeated runs
+   byte-identical; fresh `CODEX_HOME` and explicit `--enable` of feature flags change nothing. So
+   `EMULATOR.md §2.1`'s `git diff`-as-changelog promise holds for codex.
+2. **`--experimental` is NOT purely additive.** 25 of the 285 shared files differ in *content* — it
+   adds fields to stable methods. `CommandExecutionRequestApprovalParams` goes 13 → 15 properties,
+   gaining `additionalPermissions` and **`availableDecisions`** (the vendor enumerating which
+   decisions are legal, in the request itself). Commit both variants, or pick one and never mix.
+3. **The schema is not the whole runtime surface.** `getAuthStatus`, `getConversationSummary`,
+   `gitDiffToRemote` are accepted at runtime but absent from it (136 runtime vs 133 documented). An
+   audit must not treat schema-absence as invalidity.
+4. **`v1/`/`v2/` are Rust module names, not negotiated versions.** `v1/` holds only
+   `InitializeParams`/`InitializeResponse`. `initialize` carries no protocol version at all.
+5. **The wire is JSON-RPC 2.0-shaped but not conformant.** `jsonrpc` is omitted on server output
+   (22/22 in the C1 capture) and tolerated on input (4/4 accepted). Generated `JSONRPCRequest`
+   requires only `["id","method"]`. A strict JSON-RPC library will not work unmodified.
+6. **The auth wall is exactly the model call.** `initialize`, `model/list`, `account/read`,
+   `thread/start` and even `turn/start` all succeed with an empty `CODEX_HOME`; only the upstream
+   `wss://api.openai.com/v1/responses` call 401s.
+7. **A full turn runs offline** against a fake local model provider (`-c model_provider=fake`,
+   `base_url=http://127.0.0.1:8899/v1`, `wire_api=responses`, junk key). Complete arc through
+   `turn/completed`. **This makes the census hermetic and CI-able** — it resolves C0's §6 deferral
+   without needing a live-credential lane.
+8. **`codex exec --json` and `codex mcp-server` are worse capture surfaces** — different naming
+   schemes (`thread.started` vs `thread/started`), fewer events, and no schema generator. Stay on
+   app-server.
+
+## Corrections to the adapter (all confirmed against the 0.147.0 schema)
+
+C0's protocol reading was sound; the adapter built from it has since drifted.
+
+- **Approval replies are malformed on every method.** `driver.ts:133-150` returns
+  `{decision:'approved'|'denied'}` uniformly. `'approved'` is valid on 2 of 10; **`'denied'` on
+  zero** (legacy deny is the object `{denied:{rejection}}`; current is `"decline"`); 6 of 10 have
+  no `decision` field at all. `driver.ts:147` already carries an `UNVERIFIED` comment.
+- **`localShellCall` (`normalizer.ts:180`) is not a real item type.** The 18 real ones are
+  userMessage, hookPrompt, agentMessage, plan, reasoning, commandExecution, fileChange, mcpToolCall,
+  dynamicToolCall, collabAgentToolCall, subAgentActivity, webSearch, imageView, sleep,
+  imageGeneration, enteredReviewMode, exitedReviewMode, contextCompaction.
+- **Two field reads can never resolve**: `normalizer.ts:194` reads `item.output` (real:
+  `aggregatedOutput`); `:232` reads `item.result` (real: `results`).
+- `clientUserMessageId` and `clientId` ARE real, so C0's deterministic-confirmation design is
+  sound — but the round-trip was never exercised, and `driver.ts:239` returns `confirmed` on the
+  `turn/start` promise alone without reading it.
+
+## Privacy — `probe/codex/c1-appserver-capture.jsonl`
+
+That capture is **committed raw to a public repo** (`origin/main` + 4 branches). It contains
+`/Users/<user>/.codex`, hostname `<hostname>.local`, `installationId`, the prompt and
+reply, and a `userAgent` carrying OS version and terminal emulator. No credentials. `.gitignore`
+covers `packages/adapter-*/surface/captures-raw/` but not `probe/`.
+
+Worse, the claude sanitizer **passes it clean** while leaving all of the above intact, because
+`idKey` misses `threadId`/`itemId`/`callId` and codex has no `sensitiveContainer` equivalent. Two
+constraints follow, neither retrofittable: widen the id set BEFORE the first capture (pseudonyms
+are `sha256(value)`, so widening later rewrites every id in every fixture), and rewrite timestamps
+— **codex ids are UUIDv7 and encode wall-clock capture time**, so aliasing alone does not anonymise
+them.
+
+## Still unobserved (C0's §6 item #6, still open)
+
+The **approval round-trip has never been captured** — schema- and README-confirmed only. It is
+where every adapter defect above lives, so it is the first scenario the census must produce.
+
+## C1c — Hermetic harness groundwork (2026-08-08)
+
+Probing toward the census harness. Two blockers from the earlier pass are
+resolved; one remains.
+
+**SOLVED — a hermetic turn now completes end to end.** The earlier attempt failed
+with `stream disconnected before completion: failed to parse ResponseCompleted:
+missing field 'total_tokens'`. A fake `responses` provider must send
+`usage: {input_tokens, output_tokens, total_tokens}` — `total_tokens` is
+required. With it, a turn runs offline through the full arc: `turn/started` →
+`item/started`/`item/completed` (userMessage, agentMessage) →
+`thread/tokenUsage/updated` → `account/rateLimits/updated` → `turn/completed`.
+No account, no network, no tokens spent.
+
+**SOLVED — the tool inventory.** Codex declares tools to the provider nested in
+`input[0].tools` as *namespaces*, not a top-level `tools` array:
+
+| namespace | tools |
+| --- | --- |
+| `functions` | `exec`, `wait`, `request_user_input` |
+| `collaboration` | `followup_task`, `interrupt_agent`, `list_agents`, `send_message`, `spawn_agent`, `wait_agent` |
+
+There is no `shell` tool in 0.147.0, which is why the earlier probe got
+`unsupported call: shell`. `exec` is **`"type": "custom"`** — it takes a
+`custom_tool_call` whose `input` is RAW JavaScript source, not a `function_call`
+with JSON arguments. Nested tools reach the real capabilities:
+`await tools.exec_command({cmd: [...]})`.
+
+**UNSOLVED — eliciting a tool execution from a fake provider.** Four shapes
+tried: `function_call` with JSON arguments; `custom_tool_call` with raw source;
+each with and without a preceding `response.output_item.added`; and with the
+item echoed into `response.completed.output`. In every case codex accepts the
+stream and completes the turn cleanly, but emits only `userMessage` and
+`agentMessage` items — the call is silently not executed, with no error.
+
+RULED OUT (each tested against 0.147.0, all producing the same result — turn
+completes cleanly, only `userMessage`/`agentMessage` items, no error):
+
+1. Tool type — custom (`exec`) AND plain function (`request_user_input`).
+2. Plan mode vs default mode.
+3. Preceding `response.output_item.added`, present and absent.
+4. The item echoed into `response.completed.output` vs an empty array.
+5. `status: completed` on the item.
+6. `--disable code_mode_host` — the declared tool list is unchanged, so
+   `exec` is unconditional in this version.
+7. Namespaced call names — `functions.request_user_input` and
+   `functions_request_user_input`.
+8. The `response.function_call_arguments.delta`/`.done` sequence the real
+   streaming API emits for a function call.
+
+The diagnostic that matters: **message items parse correctly** (the assistant
+message from turn 2 always arrives) and codex proceeds to a SECOND provider
+request after the tool call, so the stream is accepted rather than rejected. The
+call is being silently discarded specifically in non-message item parsing.
+
+**Consequence for the plan:** the hermetic lane can capture a full turn, token
+usage and rate limits today, which is most of a behaviour census. Approvals and
+tool items — the highest-value scenarios (IMPOSTER.md §9.7) — remain blocked on
+the above. Recommended next move, and it is a BOOTSTRAP rather than a fallback: run ONE
+credentialed turn that uses a tool, and record the provider's exact SSE bytes.
+That yields the ground truth for the fake provider, after which the hermetic
+lane replays those bytes forever at zero cost. Reading codex's own response
+parser in openai/codex is the alternative, and is determinate rather than
+guesswork — but the recorded bytes are useful regardless.
+
+## C1d — The hermetic blocker, solved (2026-08-08)
+
+**C1c was wrong about the layer.** It concluded the tool call was "silently
+discarded specifically in non-message item parsing", and ruled out eight
+hypotheses on that basis. All eight were probing the wrong thing: the item was
+parsing correctly the whole time.
+
+### How it was found
+
+`strings` on the codex binary (210 MB, `@openai/codex-darwin-arm64`) shows the
+parser logs `failed to parse ResponseItem from output_item.done` on a parse
+failure — and that **`RUST_LOG` is honoured**. Running the existing probe with
+`RUST_LOG=codex_core=debug` produced no parse error at all, and instead:
+
+```
+ERROR codex_core::tools::router: error=request_user_input is unavailable in Default mode
+```
+
+The call reached the **tool router**, which rejected it. The rejection goes to
+the log and is never surfaced on the app-server protocol, which is why every
+earlier probe saw a clean turn with no error. **A silent failure in the protocol
+was a loud one in the log.**
+
+The lesson generalises: probe a vendor with its own diagnostics turned on before
+inferring behaviour from what its protocol does not say.
+
+### The actual requirements for a tool call from a fake provider
+
+1. `exec` is `"type": "custom"`, and its declared `format` is a **lark grammar**:
+   the `input` is raw JavaScript source, evaluated in a fresh V8 isolate as an
+   async module. Nested tools hang off a global `tools` object.
+2. **Nested tool arguments are the trap.** `await tools.exec_command({cmd: [...]})`
+   fails with `invalid type: sequence, expected a string at line 1 column 7` —
+   `cmd` is a **string**, not an argv array. With
+   `await tools.exec_command({cmd: "echo hi"})` the turn produces a real
+   `commandExecution` item.
+3. `namespace` on the item is **not** required (the hypothesis that came out of
+   the `ResponseItem` field table was wrong; it parsed fine without it).
+4. `request_user_input` is gated: *"unavailable in Default mode"*. There is a
+   `tools.experimental_request_user_input` config key.
+
+### The approval round-trip — CAPTURED (C0 §6 #6, open since 2026-07-13)
+
+Trusted commands are auto-approved even under `approvalPolicy: "untrusted"`, so
+`echo` never escalates. A **non-allowlisted** command does:
+`sandbox: "read-only"` + `curl` produces
+`item/commandExecution/requestApproval`.
+
+```json
+{
+  "threadId": "…", "turnId": "…", "itemId": "exec-…",
+  "startedAtMs": 1786207320888, "environmentId": "local",
+  "command": "/bin/zsh -lc 'curl -s https://example.com'",
+  "cwd": "…",
+  "commandActions": [{ "type": "unknown", "command": "curl -s https://example.com" }],
+  "proposedExecpolicyAmendment": ["curl", "-s", "https://example.com"],
+  "availableDecisions": [
+    "accept",
+    { "acceptWithExecpolicyAmendment": { "execpolicy_amendment": ["curl","-s","https://example.com"] } },
+    "cancel"
+  ]
+}
+```
+
+**The runtime sends `availableDecisions`; the stable schema does not declare it.**
+An earlier draft of this section said it "ships on the stable surface, not just
+under `--experimental` as C1b recorded" — that was wrong, and C1b was right.
+Measured directly: stable declares 13 properties on
+`CommandExecutionRequestApprovalParams`, `--experimental` declares 15 including
+`availableDecisions`, and the wire carries it either way. This is C1b finding #3
+again — the runtime surface is wider than the documented one — and it decides
+which schema variant the ASM is generated from: **`--experimental`**, because a
+model built from stable would omit a field the adapter must read.
+
+The vendor enumerating its own legal decisions in the request is the useful
+part: an adapter should read them rather than hard-code a table.
+
+**`cancel` and `decline` are both accepted but are NOT synonyms:**
+
+| reply | item status | turn |
+| --- | --- | --- |
+| `{"decision":"accept"}` | `failed`, `exitCode: 6` (sandbox blocked the network) | continues |
+| `{"decision":"cancel"}` | `declined` | **ends** — no `agentMessage` follows |
+| `{"decision":"decline"}` | `declined` | continues to `agentMessage` |
+
+`decline` is absent from `availableDecisions` yet accepted, which is C1b finding
+#3 again: **the enumerated surface is not the whole accepted surface**, in both
+directions. For "deny this command but let the agent keep working" — the useful
+default — `decline` is correct and `cancel` is wrong.
+
+The completed item confirms two I3 corrections against real bytes:
+`aggregatedOutput` (not `output`) and a real `exitCode`.
+
+### Consequence
+
+The census is now **fully hermetic**: turn, token usage, rate limits, tool
+execution, and both approval outcomes, with no account and no tokens spent. The
+credentialed bootstrap turn recommended at the end of C1c is **no longer
+needed**.
+
+### A leak the automated check could not see
+
+Sanitizing the first census output produced a clean report while
+`startedAtMs: 1786207526734` sat in the committed fixture. Every value-level
+rule in the sanitizer operates on **strings**; a wall-clock timestamp is a
+**number**, so it walked past all of them — while the UUIDv7 ids beside it were
+being aliased into synthetic v4s specifically to destroy the clock they encode.
+The redaction and the leak were the same fact, handled in one place and missed
+in the other.
+
+`SanitizerRules` gained `timestampKey`, with both halves — the redactor pins
+matching numeric values to `REDACTED_EPOCH_MS` (2026-01-01T00:00:00Z, not 0, so
+fixtures stay shape-faithful), and the detector reports an unpinned clock.
+
+Turning the detector on immediately failed the repo's capture gate with **20
+real leaks in `probe/codex/c1-appserver-capture.jsonl` and
+`c1-notification-shapes.json`** — the files C1b flagged as committed raw to a
+public repo. Both are now sanitized and the gate is clean. That is twice this
+capture has been found leaking by a rule written for something else, which is
+the argument for the sanitizer's deliberately broad defaults.

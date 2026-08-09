@@ -14,7 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { cp, mkdir, realpath, rm, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
-import { filesFromPorcelain, git, headCommit, isGitRepo, parseShortstat, porcelainStatus } from './git.js';
+import { filesFromPorcelain, git, gitPath, headCommit, isGitRepo, parseShortstat, porcelainStatus } from './git.js';
 
 export type WorkspaceMode = 'direct' | 'exclusive' | 'worktree' | 'copy';
 
@@ -204,7 +204,12 @@ async function assertRetainedWorktree(source: string, root: string, branch: stri
   const expectedBranch = `refs/heads/${branch}`;
   const match = entries.find((entry) => {
     const lines = entry.split('\n');
-    return lines.includes(`worktree ${canonicalRoot}`) && lines.includes(`branch ${expectedBranch}`);
+    // The registered path comes back in git's separator style, so it has to be
+    // normalized before it can equal a realpath() result.
+    const registered = lines.find((line) => line.startsWith('worktree '))?.slice('worktree '.length);
+    return (
+      registered !== undefined && gitPath(registered) === canonicalRoot && lines.includes(`branch ${expectedBranch}`)
+    );
   });
   if (!match) {
     throw new WorkspaceError(

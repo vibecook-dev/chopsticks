@@ -1,0 +1,41 @@
+{
+  "$server": {
+    "command": "app-server",
+    "gate": { "until": "initialize", "error": { "code": -32600, "message": "Not initialized" } }
+  },
+
+  "initialize": {
+    "result": { "userAgent": "$vendorVersion", "platformFamily": "unix", "platformOs": "linux" }
+  },
+
+  "model/list": { "result": { "models": [] } },
+  "account/rateLimits/read": { "result": { "rateLimits": {} } },
+
+  "thread/start": {
+    "bind": { "$threadId": "$uuid:thread", "$threadCwd": "$params.cwd" },
+    "result": {
+      "thread": { "id": "$threadId", "sessionId": "$threadId", "cwd": "$params.cwd", "status": { "type": "idle" } }
+    },
+    "then": [{ "op": "session.start" }]
+  },
+
+  "thread/resume": {
+    "bind": { "$threadId": "$uuid:thread", "$threadCwd": "$params.cwd" },
+    "result": {
+      "thread": { "id": "$threadId", "sessionId": "$threadId", "cwd": "$params.cwd", "status": { "type": "idle" } }
+    },
+    "then": [{ "op": "session.start" }]
+  },
+
+  "thread/read": {
+    "result": {
+      "thread": { "id": "$threadId", "sessionId": "$threadId", "cwd": "$params.cwd", "status": { "type": "idle" } }
+    }
+  },
+
+  "turn/start": {
+    "bind": { "$turnId": "$uuid:turn" },
+    "result": {},
+    "then": "$behavior"
+  }
+}

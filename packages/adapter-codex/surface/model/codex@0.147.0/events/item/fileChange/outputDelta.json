@@ -1,0 +1,32 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "item/fileChange/outputDelta",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "trigger": "Deprecated legacy apply_patch output stream notification.",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "delta": {
+        "type": "string"
+      },
+      "itemId": {
+        "type": "string"
+      },
+      "threadId": {
+        "type": "string"
+      },
+      "turnId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "delta",
+      "itemId",
+      "threadId",
+      "turnId"
+    ]
+  },
+  "confidence": "unverified"
+}

@@ -1,0 +1,10 @@
+{
+  "name": "happy-turn",
+  "reply": "imposter: ok",
+  "ops": [
+    { "op": "turn.start", "with": { "text": "$stimulus.text" } },
+    { "op": "assistant.delta", "with": { "text": "$reply" } },
+    { "op": "turn.end" },
+    { "op": "usage.refresh" }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "deprecationNotice",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "details": {},
+      "summary": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "summary"
+    ]
+  },
+  "confidence": "unverified"
+}

@@ -1,0 +1,19 @@
+{
+  "name": "channel-disconnect",
+  "steps": [
+    { "at": 0, "do": { "fault": { "kind": "channel-drop", "channel": "hook" } } },
+    {
+      "at": 25,
+      "do": {
+        "emit": {
+          "event": "Notification",
+          "with": {
+            "message": "this event is logged but not delivered",
+            "notification_type": "channel-disconnect",
+            "prompt_id": "$uuid:prompt"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,10 +1,11 @@
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { publicPackages } from './public-packages.mjs';
+import { spawnPackageManager } from './package-manager.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const rootManifest = JSON.parse(readFileSync(`${root}/package.json`, 'utf8'));
@@ -12,6 +13,7 @@ const version = rootManifest.version;
 const expectedTag = `v${version}`;
 const publicPackageNames = new Set(publicPackages.map(([, packageName]) => packageName));
 const releaseToolingFiles = new Set([
+  'scripts/package-manager.mjs',
   'scripts/publish-errors.mjs',
   'scripts/publish-errors.test.mjs',
   'scripts/publish-packages.mjs',
@@ -48,15 +50,12 @@ if (tagCommit !== headCommit) {
 }
 
 function isPublished(packageName) {
-  try {
-    execFileSync('npm', ['view', `${packageName}@${version}`, 'version', '--registry=https://registry.npmjs.org/'], {
-      cwd: root,
-      stdio: 'ignore',
-    });
-    return true;
-  } catch {
-    return false;
-  }
+  const result = spawnPackageManager(
+    'npm',
+    ['view', `${packageName}@${version}`, 'version', '--registry=https://registry.npmjs.org/'],
+    { cwd: root, stdio: 'ignore' },
+  );
+  return result.status === 0;
 }
 
 async function waitForPublished(packageName) {
@@ -121,7 +120,7 @@ for (const [directory, expectedName] of publicPackages) {
   let result;
 
   try {
-    const packResult = spawnSync('pnpm', ['--dir', directory, 'pack', '--pack-destination', packDirectory], {
+    const packResult = spawnPackageManager('pnpm', ['--dir', directory, 'pack', '--pack-destination', packDirectory], {
       cwd: root,
       stdio: 'inherit',
     });
@@ -138,7 +137,7 @@ for (const [directory, expectedName] of publicPackages) {
     const tarballPath = join(packDirectory, tarballs[0]);
     validatePackedManifest(tarballPath, expectedName);
 
-    result = spawnSync('npm', ['publish', tarballPath, '--access', 'public'], {
+    result = spawnPackageManager('npm', ['publish', tarballPath, '--access', 'public'], {
       cwd: root,
       stdio: 'inherit',
     });

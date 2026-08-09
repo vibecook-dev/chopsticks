@@ -1,0 +1,7 @@
+{
+  "name": "crash-mid-turn",
+  "then": [
+    { "at": 0, "do": { "emit": { "event": "turn/started", "with": { "threadId": "$threadId", "turn": { "id": "$uuid:turn", "status": "inProgress" } } } } },
+    { "at": 20, "do": { "fault": { "kind": "crash", "exitCode": 137 } } }
+  ]
+}

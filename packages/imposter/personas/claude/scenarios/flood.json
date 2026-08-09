@@ -1,0 +1,11 @@
+{
+  "name": "flood",
+  "steps": [
+    {
+      "at": 0,
+      "do": {
+        "fault": { "kind": "flood", "count": 250, "event": "Notification" }
+      }
+    }
+  ]
+}

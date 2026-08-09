@@ -1,0 +1,23 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "thread/realtime/outputAudio/delta",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "audio": {
+        "type": "object"
+      },
+      "threadId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "audio",
+      "threadId"
+    ]
+  },
+  "confidence": "unverified"
+}

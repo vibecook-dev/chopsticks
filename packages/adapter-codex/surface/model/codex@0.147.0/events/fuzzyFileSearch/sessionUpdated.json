@@ -1,0 +1,27 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "fuzzyFileSearch/sessionUpdated",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "files": {
+        "type": "array"
+      },
+      "query": {
+        "type": "string"
+      },
+      "sessionId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "files",
+      "query",
+      "sessionId"
+    ]
+  },
+  "confidence": "unverified"
+}

@@ -1,0 +1,40 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "model/safetyBuffering/updated",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "fasterModel": {},
+      "model": {
+        "type": "string"
+      },
+      "reasons": {
+        "type": "array"
+      },
+      "showBufferingUi": {
+        "type": "boolean"
+      },
+      "threadId": {
+        "type": "string"
+      },
+      "turnId": {
+        "type": "string"
+      },
+      "useCases": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "model",
+      "reasons",
+      "showBufferingUi",
+      "threadId",
+      "turnId",
+      "useCases"
+    ]
+  },
+  "confidence": "unverified"
+}

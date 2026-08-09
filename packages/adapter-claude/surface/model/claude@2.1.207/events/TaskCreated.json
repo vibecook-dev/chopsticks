@@ -1,0 +1,10 @@
+{
+  "surface": "claude",
+  "surfaceVersion": "2.1.207",
+  "event": "TaskCreated",
+  "channel": "hook",
+  "transport": "command",
+  "confidence": "unverified",
+  "timeoutSec": 5,
+  "notes": "NOT fired by Task-tool subagents"
+}

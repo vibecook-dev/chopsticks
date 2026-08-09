@@ -1,0 +1,16 @@
+{
+  "channels": {
+    "argv": {
+      "kind": "argv-env",
+      "notes": "Deliberately different flag names from claude: --sid rather than --session-id."
+    },
+    "event": {
+      "kind": "hook-http",
+      "notes": "Named `event`, not `hook` — the imposter must not hard-code claude's channel names."
+    },
+    "transcript": {
+      "kind": "transcript",
+      "notes": "Present so the transcript channel is exercised. Note there is NO statusline channel: a persona that omits one must not break the session."
+    }
+  }
+}

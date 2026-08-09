@@ -1,17 +1,17 @@
-import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { publicPackages } from './public-packages.mjs';
+import { spawnPackageManager } from './package-manager.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const destination = mkdtempSync(join(tmpdir(), 'chopsticks-packs-'));
 
 try {
   for (const [directory] of publicPackages) {
-    const result = spawnSync('pnpm', ['--dir', directory, 'pack', '--pack-destination', destination], {
+    const result = spawnPackageManager('pnpm', ['--dir', directory, 'pack', '--pack-destination', destination], {
       cwd: root,
       stdio: 'inherit',
     });

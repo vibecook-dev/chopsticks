@@ -1,0 +1,37 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "item/tool/requestUserInput",
+  "channel": "appserver",
+  "transport": "jsonrpc-request",
+  "trigger": "EXPERIMENTAL - Request input from the user for a tool call.",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "autoResolutionMs": {},
+      "isBlocking": {
+        "type": "boolean"
+      },
+      "itemId": {
+        "type": "string"
+      },
+      "questions": {
+        "type": "array"
+      },
+      "threadId": {
+        "type": "string"
+      },
+      "turnId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "isBlocking",
+      "itemId",
+      "questions",
+      "threadId",
+      "turnId"
+    ]
+  },
+  "confidence": "unverified"
+}

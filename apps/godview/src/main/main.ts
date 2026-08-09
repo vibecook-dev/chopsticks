@@ -76,6 +76,7 @@ const AGENT_FLUSH_MS = 16;
 const SHUTDOWN_CLEANUP_TIMEOUT_MS = 5_000;
 const SMOKE = process.argv.includes('--smoke');
 const RESTORE_SMOKE = process.argv.includes('--restore-smoke');
+const AGENT_SMOKE = process.env.CHOPSTICKS_AGENT_SMOKE as BuiltinExecutableAgentKind | undefined;
 const SPAWN_THROUGH_SMOKE = process.argv
   .find((argument) => argument.startsWith('--spawn-through-smoke='))
   ?.slice('--spawn-through-smoke='.length) as BuiltinExecutableAgentKind | undefined;
@@ -116,6 +117,16 @@ const realAgentExecutables: Partial<Record<BuiltinExecutableAgentKind, string>> 
   }),
 );
 
+/**
+ * The chopsticks imposter, found the same way the real agents are.
+ *
+ * Resolved off PATH rather than through a package dependency, so Godview and
+ * the pane agree on which `ai` is in play — the one the user linked with
+ * `ai link`. A build with none simply cannot emulate, which is reported as
+ * such rather than silently falling back to the real agent.
+ */
+const imposterExecutable = executableOnOriginalPath(process.env.CHOPSTICKS_IMPOSTER_BIN ?? 'ai');
+
 app.setName('Godview');
 nativeTheme.themeSource = 'light';
 if (process.platform === 'darwin') app.setActivationPolicy('regular');
@@ -126,7 +137,7 @@ const ownsTruffleState = app.requestSingleInstanceLock({ application: 'godview' 
 if (!ownsTruffleState) {
   // A smoke run that loses the lock never reaches its assertions, so quitting
   // quietly would report success for work that never happened.
-  if (SMOKE || SPAWN_THROUGH_SMOKE || RESTORE_SMOKE) {
+  if (SMOKE || SPAWN_THROUGH_SMOKE || RESTORE_SMOKE || AGENT_SMOKE) {
     console.error('another Godview instance owns the Truffle state; smoke did not run');
     app.exit(1);
   }
@@ -662,9 +673,7 @@ function recoverBackend(): Promise<void> {
 const RESTORABLE_AGENTS: readonly string[] = ['claude', 'codex', 'grok', 'acp'];
 
 function defaultShell(): string {
-  return process.platform === 'win32'
-    ? (process.env.COMSPEC ?? 'powershell.exe')
-    : (process.env.SHELL ?? '/bin/zsh');
+  return process.platform === 'win32' ? (process.env.COMSPEC ?? 'powershell.exe') : (process.env.SHELL ?? '/bin/zsh');
 }
 
 /**
@@ -766,6 +775,7 @@ async function handleSpawnThroughRequest(request: SpawnThroughRequest): Promise<
   await ensureBackend();
   return prepareSpawnThroughLaunch(request, {
     runtime: agentRuntime,
+    imposterBin: () => imposterExecutable,
     listSessions: () => backend!.automation.listSessions(),
     onAdopted: ({ info: adopted, session, processId, preparationId }) => {
       const info: AgentSessionInfo = {
@@ -782,15 +792,18 @@ async function handleSpawnThroughRequest(request: SpawnThroughRequest): Promise<
 
 async function initializeSpawnThrough(): Promise<void> {
   if (spawnThroughGateway || process.platform === 'win32') return;
-  const agents = Object.keys(realAgentExecutables) as BuiltinExecutableAgentKind[];
-  if (agents.length === 0) return;
+  // `ai` is shimmed on its own terms: an emulated pane needs no real agent
+  // installed at all, so a machine with only the imposter still gets
+  // spawn-through. The shim reads its own name to tell the two apart.
+  const names = [...(Object.keys(realAgentExecutables) as string[]), ...(imposterExecutable ? ['ai'] : [])];
+  if (names.length === 0) return;
   const token = randomBytes(32).toString('hex');
   spawnThroughGateway = await startSpawnThroughGateway(token, handleSpawnThroughRequest);
   spawnThroughDirectory = join(app.getPath('temp'), `godview-agent-shims-${process.pid}`);
   rmSync(spawnThroughDirectory, { recursive: true, force: true });
   mkdirSync(spawnThroughDirectory, { recursive: true, mode: 0o700 });
-  for (const agent of agents) {
-    const destination = join(spawnThroughDirectory, agent);
+  for (const name of names) {
+    const destination = join(spawnThroughDirectory, name);
     copyFileSync(join(__dirname, 'agent-shim.cjs'), destination);
     chmodSync(destination, 0o700);
   }
@@ -1247,6 +1260,42 @@ async function runRestoreSmoke(): Promise<void> {
   console.log(`RESTORE SMOKE OK (${savedSessionId} -> ${restoredId})`);
 }
 
+/**
+ * Direct agent-session smoke (CHOPSTICKS_AGENT_SMOKE=<agent>): exercises the
+ * runtime createSession path — the one the emulator bin rides on. Pair with
+ * CHOPSTICKS_CLAUDE_BIN=<emulator bin> to smoke the emulator integration.
+ */
+async function runAgentSmoke(agent: BuiltinExecutableAgentKind): Promise<void> {
+  await ensureBackend();
+  const result = await createAgentSession({ agent, cwd: repoRoot });
+  if ('error' in result)
+    throw new Error(`agent smoke createSession failed: ${result.error.code} ${result.error.message}`);
+  // Watch for the spawned process dying so the failure says WHY, not just none.
+  let exitInfo: string | undefined;
+  void backend!.automation.waitForExit(result.runtimeSessionId, 35_000).then(
+    (exit) => {
+      exitInfo = `process exited code=${exit.exitCode ?? 'null'} signal=${exit.exitSignal ?? 'null'}`;
+    },
+    () => undefined,
+  );
+  const deadline = Date.now() + 30_000;
+  let lifecycle: string | undefined;
+  while (Date.now() < deadline) {
+    lifecycle = agentRuntime.sessionState(result.runtimeSessionId)?.lifecycle;
+    if (lifecycle === 'ready' || lifecycle === 'failed' || lifecycle === 'exited') break;
+    if (exitInfo) break;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+  }
+  if (lifecycle !== 'ready') {
+    throw new Error(`${agent} did not become ready (lifecycle=${lifecycle ?? 'none'}; ${exitInfo ?? 'process alive'})`);
+  }
+  console.log(`AGENT SMOKE OK ${agent} ${result.sessionId}`);
+  // Diagnostic hold (CHOPSTICKS_AGENT_SMOKE_HOLD_MS): keep the session alive
+  // so external observers (e.g. the emulator control plane) can see it.
+  const holdMs = Number(process.env.CHOPSTICKS_AGENT_SMOKE_HOLD_MS ?? 0);
+  if (holdMs > 0) await new Promise((resolveDelay) => setTimeout(resolveDelay, holdMs));
+}
+
 async function runSpawnThroughSmoke(agent: BuiltinExecutableAgentKind): Promise<void> {
   if (!realAgentExecutables[agent]) throw new Error(`${agent} is not installed`);
   await ensureBackend();
@@ -1388,9 +1437,10 @@ app
   .whenReady()
   .then(async () => {
     await initializeSpawnThrough();
-    if (SMOKE || SPAWN_THROUGH_SMOKE || RESTORE_SMOKE) {
+    if (SMOKE || SPAWN_THROUGH_SMOKE || RESTORE_SMOKE || AGENT_SMOKE) {
       if (SPAWN_THROUGH_SMOKE) await runSpawnThroughSmoke(SPAWN_THROUGH_SMOKE);
       else if (RESTORE_SMOKE) await runRestoreSmoke();
+      else if (AGENT_SMOKE) await runAgentSmoke(AGENT_SMOKE);
       else await runSmoke();
       await shutdown();
       app.exit(0);
@@ -1398,6 +1448,17 @@ app
     }
     accountUsageMonitor.start();
     await openInitialWindows();
+    // Emulator/dev flow: CHOPSTICKS_AUTOCREATE_AGENTS=claude[,codex,…] creates
+    // agent sessions at startup. The shim spawn-through path is POSIX-only, so
+    // on Windows this is the way to get an agent session in the swarm.
+    for (const agent of (process.env.CHOPSTICKS_AUTOCREATE_AGENTS ?? '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)) {
+      void createAgentSession({ agent: agent as BuiltinExecutableAgentKind, cwd: repoRoot }).catch((error) =>
+        console.error(`[main] autocreate ${agent} failed`, error),
+      );
+    }
   })
   .catch((error) => {
     console.error(error);

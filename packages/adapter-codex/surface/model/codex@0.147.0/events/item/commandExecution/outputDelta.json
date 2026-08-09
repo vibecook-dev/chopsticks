@@ -1,0 +1,31 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "item/commandExecution/outputDelta",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "delta": {
+        "type": "string"
+      },
+      "itemId": {
+        "type": "string"
+      },
+      "threadId": {
+        "type": "string"
+      },
+      "turnId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "delta",
+      "itemId",
+      "threadId",
+      "turnId"
+    ]
+  },
+  "confidence": "unverified"
+}

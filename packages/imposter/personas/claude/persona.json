@@ -1,0 +1,20 @@
+{
+  "vendor": "claude",
+  "asm": {
+    "package": "@vibecook/chopsticks-adapter-claude",
+    "path": "surface/model/claude@2.1.207"
+  },
+  "shimNames": ["claude"],
+  "envelope": {
+    "session_id": "$sessionId",
+    "transcript_path": "$transcriptPath",
+    "cwd": "$cwd",
+    "permission_mode": "$permissionMode"
+  },
+  "eventNameField": "hook_event_name",
+  "boot": [
+    { "op": "session.start", "with": { "source": "startup" } },
+    { "op": "session.ready" },
+    { "op": "usage.refresh" }
+  ]
+}

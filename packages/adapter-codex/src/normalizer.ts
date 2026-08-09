@@ -173,29 +173,37 @@ export class CodexNotificationNormalizer {
           break;
         }
 
-        // UNVERIFIED — the C1 "pong" turn used no tools, so these item types have
-        // no captured fixtures yet. Mapped structurally; confirm exact shapes
-        // (ids, output fields) with a workspace-write probe (M5 C4).
-        case 'commandExecution':
-        case 'localShellCall':
+        // Field names below come from the vendor's generated schema (verified
+        // against codex-cli 0.147.0, 2026-08-07). Still no captured fixture —
+        // the C1 "pong" turn used no tools — so ORDERING and which fields are
+        // actually populated remain unconfirmed; only the shapes are settled.
+        case 'commandExecution': {
+          // `aggregatedOutput`, not `output`: the latter is not a field of this
+          // item, so the old read silently yielded undefined on every command.
+          const command = item.command;
           if (phase === 'started') {
             events.push({
               type: 'tool.started',
               toolCallId: itemId,
               tool: 'command',
-              input: item.command ?? item.cmd,
-              presentation: presentation('command', 'Running command', item.command ?? item.cmd),
+              input: command,
+              presentation: presentation('command', 'Running command', command),
             });
           } else {
+            // `status` distinguishes a failed command from a successful one;
+            // without it every exit code normalized identically.
+            const failed = item.status === 'failed' || (typeof item.exitCode === 'number' && item.exitCode !== 0);
             events.push({
-              type: 'tool.completed',
+              type: failed ? 'tool.failed' : 'tool.completed',
               toolCallId: itemId,
               tool: 'command',
-              output: item.output,
-              presentation: presentation('command', 'Ran command', item.command ?? item.cmd),
+              output: item.aggregatedOutput,
+              ...(failed ? { error: `command exited with status ${String(item.status ?? item.exitCode)}` } : {}),
+              presentation: presentation('command', failed ? 'Command failed' : 'Ran command', command),
             });
           }
           break;
+        }
 
         case 'fileChange':
           if (phase === 'started') {
@@ -229,7 +237,8 @@ export class CodexNotificationNormalizer {
               type: 'tool.completed',
               toolCallId: itemId,
               tool: 'web_search',
-              output: item.result,
+              // `results`, not `result` — the singular is not a field of this item.
+              output: item.results,
               presentation: presentation('web-search', 'Searched the web', item.query),
             });
           }

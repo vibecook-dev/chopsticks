@@ -1,0 +1,16 @@
+{
+  "channels": {
+    "argv": {
+      "kind": "argv-env",
+      "notes": "The adapter launches `codex app-server` and configures it with repeated `-c key=value`. There is no session id at spawn: the thread id arrives on thread/started (C0 §3)."
+    },
+    "appserver": {
+      "kind": "app-server",
+      "notes": "NDJSON over stdio, JSON-RPC-2.0-SHAPED but not conformant: `jsonrpc` is omitted on server output and merely tolerated on input, and the generated JSONRPCRequest requires only id+method. A strict JSON-RPC library will not work unmodified (C1b finding 5)."
+    },
+    "terminal": {
+      "kind": "terminal",
+      "notes": "The native ratatui TUI, attached over `--remote` (C0 §8). Semantics are never derived from it (ADR-003); it exists so a human can watch."
+    }
+  }
+}

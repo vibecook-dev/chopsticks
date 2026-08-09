@@ -1,0 +1,25 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "mcpServer/elicitation/request",
+  "channel": "appserver",
+  "transport": "jsonrpc-request",
+  "trigger": "Request input for an MCP server elicitation.",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "serverName": {
+        "type": "string"
+      },
+      "threadId": {
+        "type": "string"
+      },
+      "turnId": {}
+    },
+    "required": [
+      "serverName",
+      "threadId"
+    ]
+  },
+  "confidence": "unverified"
+}

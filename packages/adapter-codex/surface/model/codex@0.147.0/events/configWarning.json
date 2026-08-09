@@ -1,0 +1,22 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "configWarning",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "details": {},
+      "path": {},
+      "range": {},
+      "summary": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "summary"
+    ]
+  },
+  "confidence": "unverified"
+}

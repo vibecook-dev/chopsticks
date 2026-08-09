@@ -1,0 +1,23 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "guardianWarning",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "message": {
+        "type": "string"
+      },
+      "threadId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "message",
+      "threadId"
+    ]
+  },
+  "confidence": "unverified"
+}

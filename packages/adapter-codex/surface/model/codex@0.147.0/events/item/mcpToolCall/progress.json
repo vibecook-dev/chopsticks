@@ -1,0 +1,31 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "item/mcpToolCall/progress",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "itemId": {
+        "type": "string"
+      },
+      "message": {
+        "type": "string"
+      },
+      "threadId": {
+        "type": "string"
+      },
+      "turnId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "itemId",
+      "message",
+      "threadId",
+      "turnId"
+    ]
+  },
+  "confidence": "unverified"
+}

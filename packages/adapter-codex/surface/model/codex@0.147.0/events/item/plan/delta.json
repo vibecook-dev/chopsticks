@@ -1,0 +1,32 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "item/plan/delta",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "trigger": "EXPERIMENTAL - proposed plan streaming deltas for plan items.",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "delta": {
+        "type": "string"
+      },
+      "itemId": {
+        "type": "string"
+      },
+      "threadId": {
+        "type": "string"
+      },
+      "turnId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "delta",
+      "itemId",
+      "threadId",
+      "turnId"
+    ]
+  },
+  "confidence": "unverified"
+}

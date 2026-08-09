@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/MessageDisplay.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/MessageDisplay.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/MessageDisplay.jsonl\"; echo >> \"/workspace/probe/captures/MessageDisplay.jsonl\"'"
           }
         ]
       }
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/PermissionResolved.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/PermissionResolved.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/PermissionResolved.jsonl\"; echo >> \"/workspace/probe/captures/PermissionResolved.jsonl\"'"
           }
         ]
       }
@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/TurnStart.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/TurnStart.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/TurnStart.jsonl\"; echo >> \"/workspace/probe/captures/TurnStart.jsonl\"'"
           }
         ]
       }
@@ -35,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/BogusEventProbe.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/BogusEventProbe.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/BogusEventProbe.jsonl\"; echo >> \"/workspace/probe/captures/BogusEventProbe.jsonl\"'"
           }
         ]
       }

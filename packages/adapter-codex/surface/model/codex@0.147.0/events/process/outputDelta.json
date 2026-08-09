@@ -1,0 +1,30 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "process/outputDelta",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "trigger": "Stream base64-encoded stdout/stderr chunks for a running `process/spawn` session.",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "capReached": {
+        "type": "boolean"
+      },
+      "deltaBase64": {
+        "type": "string"
+      },
+      "processHandle": {
+        "type": "string"
+      },
+      "stream": {}
+    },
+    "required": [
+      "capReached",
+      "deltaBase64",
+      "processHandle",
+      "stream"
+    ]
+  },
+  "confidence": "unverified"
+}

@@ -42,7 +42,7 @@ jobs:
 
       - name: Load current release tooling for retry
         if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: git restore --source "${GITHUB_SHA}" -- scripts/publish-packages.mjs
+        run: git restore --source "${GITHUB_SHA}" -- scripts/publish-packages.mjs scripts/package-manager.mjs
 
       - uses: pnpm/action-setup@v6
         with:
@@ -52,7 +52,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 22.18.0
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
 

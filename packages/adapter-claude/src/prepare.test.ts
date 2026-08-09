@@ -139,6 +139,30 @@ describe('prepareClaudeSession', () => {
     expect(p.args).toEqual(expect.arrayContaining(['--settings', p.settingsPath]));
   });
 
+  it('wraps a script executable with the current node (emulator bin, shims)', async () => {
+    const p = await prepare({ executable: '/abs/path/bin.mjs' });
+    expect(p.command).toBe(process.execPath);
+    expect(p.args[0]).toBe('/abs/path/bin.mjs');
+    expect(p.args).toContain('--session-id');
+    // Binary executables pass through untouched.
+    const binary = await prepare({ executable: '/usr/local/bin/claude' });
+    expect(binary.command).toBe('/usr/local/bin/claude');
+    expect(binary.args[0]).toBe('--session-id');
+  });
+
+  it('under Electron, script recipes resolve a real node from PATH (electron-as-node only as fallback)', async () => {
+    process.versions.electron = '43.1.0';
+    try {
+      const p = await prepare({ executable: '/abs/path/bin.mjs' });
+      // A dev machine running this repo has node on PATH, so it wins.
+      expect(p.command.toLowerCase()).toContain('node');
+      expect(p.env.ELECTRON_RUN_AS_NODE).toBeUndefined();
+      expect(p.args[0]).toBe('/abs/path/bin.mjs');
+    } finally {
+      delete process.versions.electron;
+    }
+  });
+
   it('multiplexes context telemetry while preserving the existing status-line output and presentation', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'prepare-statusline-'));
     const delegatePath = join(dir, 'delegate.mjs');

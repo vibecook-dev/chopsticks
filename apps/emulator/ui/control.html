@@ -1,0 +1,907 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>chopsticks — emulator control</title>
+    <!--
+      The console is one self-contained page, served by the plane. No build
+      step, no external anything: the plane's CSP allows inline script and
+      style and nothing else, which keeps an operator console from ever being
+      the reason this repo grows a bundler for the browser.
+
+      It draws the machine the IMPOSTER runs (GET /api/machine), never a copy
+      of it, so the picture and the thing pictured cannot drift apart.
+    -->
+    <style>
+      :root {
+        color-scheme: dark;
+        /* The same two prime hues as the TUI (packages/imposter/src/tui/theme.ts):
+           an emulated agent must never be mistaken for the real one. */
+        --violet: #a78bfa;
+        --violet-deep: #7c5cff;
+        --blue: #60a5fa;
+        --sky: #38bdf8;
+        --ink: #0f1117;
+        --panel: #171a22;
+        --panel-2: #1e222c;
+        --line: #2b3040;
+        --text: #d7dce2;
+        --muted: #7c8496;
+        --warn: #f0788a;
+        --ok: #7dcfa3;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        font:
+          13px/1.55 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+        background: radial-gradient(1200px 600px at 20% -10%, #1b1733 0%, var(--ink) 60%);
+        color: var(--text);
+        margin: 0;
+        padding: 18px 22px 40px;
+      }
+      h1 {
+        font-size: 15px;
+        margin: 0;
+        letter-spacing: 0.02em;
+      }
+      h2 {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--muted);
+        margin: 18px 0 8px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      h2::after {
+        content: '';
+        flex: 1;
+        height: 1px;
+        background: var(--line);
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .ok {
+        color: var(--ok);
+      }
+      .err {
+        color: var(--warn);
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-bottom: 16px;
+      }
+      .ghost {
+        color: var(--violet);
+        white-space: pre;
+        font-size: 11px;
+        line-height: 1.1;
+      }
+      .card {
+        background: linear-gradient(180deg, var(--panel) 0%, #14171e 100%);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 16px 18px;
+        margin-bottom: 16px;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .row + .row {
+        margin-top: 8px;
+      }
+      .grow {
+        flex: 1;
+      }
+      select,
+      input,
+      textarea,
+      button {
+        font: inherit;
+        background: var(--panel-2);
+        color: inherit;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        padding: 5px 9px;
+      }
+      textarea {
+        width: 100%;
+        min-height: 96px;
+        resize: vertical;
+      }
+      button {
+        cursor: pointer;
+        transition:
+          background 0.12s,
+          border-color 0.12s;
+      }
+      button:hover {
+        background: #262b38;
+      }
+      button.primary {
+        background: linear-gradient(180deg, var(--violet-deep), #5b3fd6);
+        border-color: var(--violet);
+        color: #fff;
+      }
+      button.primary:hover {
+        filter: brightness(1.12);
+      }
+      button.danger {
+        border-color: #5c2e35;
+        color: #e8a1a8;
+      }
+      /* An op the current state handles: the organic next step. */
+      button.op {
+        font-size: 12px;
+        padding: 4px 10px;
+        border-color: var(--line);
+        color: var(--muted);
+      }
+      button.op.enabled {
+        border-color: var(--violet);
+        color: var(--violet);
+        background: #221d3a;
+      }
+      button.op.selected {
+        outline: 1px solid var(--sky);
+      }
+      /* Bound to no channel by this persona — it will run and say nothing. */
+      button.op.unbound {
+        border-style: dashed;
+        opacity: 0.55;
+      }
+      button.event {
+        font-size: 11px;
+        padding: 3px 8px;
+        color: var(--muted);
+      }
+      .pill {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 1px 9px;
+        font-size: 11px;
+        color: var(--sky);
+      }
+      .pill.state {
+        border-color: var(--violet);
+        color: var(--violet);
+        background: #221d3a;
+      }
+      pre {
+        background: #0c0e13;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 10px;
+        max-height: 210px;
+        overflow: auto;
+        font-size: 12px;
+        white-space: pre-wrap;
+        margin: 0;
+      }
+      details > summary {
+        cursor: pointer;
+        color: var(--muted);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        margin: 16px 0 8px;
+      }
+      .split {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      @media (max-width: 900px) {
+        .split {
+          grid-template-columns: 1fr;
+        }
+      }
+      /* --- the graph ------------------------------------------------- */
+      .graph {
+        width: 100%;
+        overflow-x: auto;
+        background: #0c0e13;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 6px 0;
+      }
+      .graph svg {
+        display: block;
+        margin: 0 auto;
+      }
+      .node rect {
+        fill: var(--panel-2);
+        stroke: var(--line);
+        stroke-width: 1;
+      }
+      .node text {
+        fill: var(--muted);
+        font:
+          11px ui-monospace,
+          monospace;
+        text-anchor: middle;
+        dominant-baseline: middle;
+      }
+      .node.current rect {
+        fill: #2a2154;
+        stroke: var(--violet);
+        stroke-width: 2;
+      }
+      .node.current text {
+        fill: #fff;
+      }
+      .node.current .halo {
+        fill: none;
+        stroke: var(--violet);
+        stroke-width: 2;
+        opacity: 0.5;
+        animation: pulse 1.9s ease-out infinite;
+      }
+      @keyframes pulse {
+        0% {
+          transform: scale(1);
+          opacity: 0.5;
+        }
+        70% {
+          transform: scale(1.06);
+          opacity: 0;
+        }
+        100% {
+          opacity: 0;
+        }
+      }
+      .group rect {
+        fill: rgba(124, 92, 255, 0.05);
+        stroke: var(--line);
+        stroke-dasharray: 3 4;
+      }
+      .group text {
+        fill: var(--muted);
+        font:
+          10px ui-monospace,
+          monospace;
+        letter-spacing: 0.14em;
+      }
+      .edge path {
+        fill: none;
+        stroke: #333a4d;
+        stroke-width: 1.4;
+      }
+      .edge.secondary path {
+        stroke-dasharray: 4 4;
+      }
+      /* Leaving the state you are in: these are the moves available now. */
+      .edge.live path {
+        stroke: var(--violet);
+        stroke-width: 2;
+      }
+      .edge text {
+        fill: var(--muted);
+        font:
+          10px ui-monospace,
+          monospace;
+        text-anchor: middle;
+        opacity: 0;
+      }
+      .edge.live text {
+        fill: var(--violet);
+        opacity: 1;
+      }
+      .edge.taken path {
+        stroke: var(--sky);
+        stroke-width: 2.4;
+        stroke-dasharray: 5 4;
+        animation: flow 0.55s linear;
+      }
+      @keyframes flow {
+        from {
+          stroke-dashoffset: 18;
+        }
+        to {
+          stroke-dashoffset: 0;
+        }
+      }
+      .legend {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="ghost"> ╭───╮
+ │· ·│
+ ╰~~~╯</div>
+      <div>
+        <h1>Emulator control</h1>
+        <div class="muted" id="status">connecting…</div>
+      </div>
+    </header>
+
+    <div class="card" id="spawn">
+      <h2>spawn emulated agent</h2>
+      <div class="row">
+        <select id="spawn-vendor"></select>
+        <button class="primary" id="spawn-button">spawn</button>
+        <span id="spawn-out" class="muted"></span>
+      </div>
+      <div class="row muted" style="font-size: 12px">
+        Center-owned sessions run through the real adapter. App-owned sessions appear on their own — run
+        <code>ai --claude</code> anywhere the plane can be reached.
+      </div>
+    </div>
+
+    <div id="sessions"></div>
+
+    <script>
+      const TOKEN = '{TOKEN}';
+      const api = (path, body) =>
+        fetch(path, {
+          method: body === undefined ? 'GET' : 'POST',
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
+          body: body === undefined ? undefined : JSON.stringify(body),
+        }).then((r) => r.json());
+
+      const sessionsEl = document.getElementById('sessions');
+      const statusEl = document.getElementById('status');
+      const spawnVendor = document.getElementById('spawn-vendor');
+      const cards = new Map(); // vendor + sessionId -> entry
+      const sessionKey = (session) => `${session.vendor}\0${session.sessionId}`;
+      const sessionApi = (session, action) =>
+        `/api/sessions/${encodeURIComponent(session.sessionId)}/${action}?vendor=${encodeURIComponent(session.vendor)}`;
+      const escapeHtml = (value) =>
+        String(value).replace(
+          /[&<>"']/g,
+          (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character],
+        );
+      const MAX_LOG_LINES = 300;
+      let MACHINE = { nodes: [], edges: [], globals: [], groups: [] };
+
+      const placeholder = document.createElement('div');
+      placeholder.className = 'card muted';
+      placeholder.textContent = 'No emulated sessions. Spawn one above, or run `ai --claude` in any terminal.';
+
+      // ---------------------------------------------------------------
+      // The state graph
+      // ---------------------------------------------------------------
+
+      const COL = 152;
+      const ROW = 96;
+      const PAD = 76;
+      const NODE_W = 98;
+      const NODE_H = 38;
+
+      const at = (node) => ({ x: PAD + node.x * COL, y: PAD * 0.55 + node.y * ROW });
+
+      /** Where a straight line from `from` to `to` leaves `from`'s box. */
+      function border(from, to) {
+        const start = at(from);
+        const end = at(to);
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        if (dx === 0 && dy === 0) return start;
+        const halfW = NODE_W / 2 + 4;
+        const halfH = NODE_H / 2 + 4;
+        const scale = Math.min(
+          dx === 0 ? Infinity : halfW / Math.abs(dx),
+          dy === 0 ? Infinity : halfH / Math.abs(dy),
+        );
+        return { x: start.x + dx * scale, y: start.y + dy * scale };
+      }
+
+      function svgEl(name, attributes = {}) {
+        const element = document.createElementNS('http://www.w3.org/2000/svg', name);
+        for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, String(value));
+        return element;
+      }
+
+      function drawGraph() {
+        const nodes = new Map(MACHINE.nodes.map((node) => [node.id, node]));
+        const width = PAD * 2 + Math.max(...MACHINE.nodes.map((node) => node.x)) * COL;
+        const height = PAD + Math.max(...MACHINE.nodes.map((node) => node.y)) * ROW + NODE_H;
+        const svg = svgEl('svg', { width, height, viewBox: `0 0 ${width} ${height}` });
+
+        const defs = svgEl('defs');
+        for (const [id, color] of [
+          ['arrow', '#333a4d'],
+          ['arrow-live', '#a78bfa'],
+          ['arrow-taken', '#38bdf8'],
+        ]) {
+          const marker = svgEl('marker', {
+            id,
+            viewBox: '0 0 10 10',
+            refX: 9,
+            refY: 5,
+            markerWidth: 6,
+            markerHeight: 6,
+            orient: 'auto-start-reverse',
+          });
+          marker.append(svgEl('path', { d: 'M 0 1 L 10 5 L 0 9 z', fill: color }));
+          defs.append(marker);
+        }
+        svg.append(defs);
+
+        // Compound states first, so their container sits behind the members.
+        for (const group of MACHINE.groups) {
+          const members = MACHINE.nodes.filter((node) => node.group === group.id).map(at);
+          if (members.length === 0) continue;
+          const left = Math.min(...members.map((point) => point.x)) - NODE_W / 2 - 20;
+          const right = Math.max(...members.map((point) => point.x)) + NODE_W / 2 + 20;
+          const top = Math.min(...members.map((point) => point.y)) - NODE_H / 2 - 26;
+          const bottom = Math.max(...members.map((point) => point.y)) + NODE_H / 2 + 16;
+          const box = svgEl('g', { class: 'group' });
+          box.append(svgEl('rect', { x: left, y: top, width: right - left, height: bottom - top, rx: 14 }));
+          const label = svgEl('text', { x: left + 12, y: top + 16 });
+          label.textContent = group.label.toUpperCase();
+          box.append(label);
+          svg.append(box);
+        }
+
+        const edgeElements = [];
+        for (const edge of MACHINE.edges) {
+          const from = nodes.get(edge.from);
+          const to = nodes.get(edge.to);
+          if (!from || !to) continue;
+          const group = svgEl('g', { class: `edge${edge.secondary ? ' secondary' : ''}` });
+          let path;
+          let labelAt;
+          if (edge.from === edge.to) {
+            // Self transition: a loop over the top of the box.
+            const centre = at(from);
+            const top = centre.y - NODE_H / 2;
+            path = svgEl('path', {
+              d: `M ${centre.x - 22} ${top} C ${centre.x - 30} ${top - 40}, ${centre.x + 30} ${top - 40}, ${centre.x + 22} ${top}`,
+              'marker-end': 'url(#arrow)',
+            });
+            labelAt = { x: centre.x, y: top - 34 };
+          } else {
+            const start = border(from, to);
+            const end = border(to, from);
+            const midX = (start.x + end.x) / 2;
+            const midY = (start.y + end.y) / 2;
+            // A gentle bow, so the two directions between a pair never overlap.
+            const bow = 14;
+            const nx = -(end.y - start.y);
+            const ny = end.x - start.x;
+            const length = Math.hypot(nx, ny) || 1;
+            const controlX = midX + (nx / length) * bow;
+            const controlY = midY + (ny / length) * bow;
+            path = svgEl('path', {
+              d: `M ${start.x} ${start.y} Q ${controlX} ${controlY} ${end.x} ${end.y}`,
+              'marker-end': 'url(#arrow)',
+            });
+            labelAt = { x: (midX + controlX) / 2, y: (midY + controlY) / 2 - 6 };
+          }
+          group.append(path);
+          const text = svgEl('text', labelAt);
+          text.textContent = edge.op;
+          group.append(text);
+          svg.append(group);
+          edgeElements.push({ edge, group, path });
+        }
+
+        const nodeElements = new Map();
+        for (const node of MACHINE.nodes) {
+          const point = at(node);
+          const group = svgEl('g', { class: 'node' });
+          group.append(
+            svgEl('rect', {
+              class: 'halo',
+              x: point.x - NODE_W / 2,
+              y: point.y - NODE_H / 2,
+              width: NODE_W,
+              height: NODE_H,
+              rx: 10,
+              style: `transform-origin: ${point.x}px ${point.y}px`,
+            }),
+          );
+          group.append(
+            svgEl('rect', {
+              x: point.x - NODE_W / 2,
+              y: point.y - NODE_H / 2,
+              width: NODE_W,
+              height: NODE_H,
+              rx: 10,
+            }),
+          );
+          const label = svgEl('text', { x: point.x, y: point.y + 1 });
+          label.textContent = node.label;
+          group.append(label);
+          svg.append(group);
+          nodeElements.set(node.id, group);
+        }
+
+        return { svg, edgeElements, nodeElements };
+      }
+
+      /** Highlight the current state and the moves it offers. */
+      function paintGraph(graph, machine, previous) {
+        for (const [id, element] of graph.nodeElements) {
+          element.classList.toggle('current', id === machine.state);
+        }
+        for (const { edge, group, path } of graph.edgeElements) {
+          const live = edge.from === machine.state;
+          group.classList.toggle('live', live);
+          group.firstChild.setAttribute('marker-end', live ? 'url(#arrow-live)' : 'url(#arrow)');
+          const taken = previous && edge.from === previous && edge.to === machine.state;
+          group.classList.remove('taken');
+          if (taken) {
+            // Restart the animation: removing and re-adding in one frame is a
+            // no-op, so force a reflow between.
+            void path.getBoundingClientRect();
+            group.classList.add('taken');
+          }
+        }
+      }
+
+      // ---------------------------------------------------------------
+      // Payload defaults
+      // ---------------------------------------------------------------
+
+      // Fields the imposter supplies from its launch envelope — not user input.
+      const ENVELOPE_FIELDS = new Set(['session_id', 'transcript_path', 'cwd', 'hook_event_name', 'permission_mode']);
+      const uuid = () => crypto.randomUUID();
+      const DEFAULTS = {
+        prompt_id: uuid,
+        tool_use_id: () => `toolu_${uuid().replaceAll('-', '').slice(0, 20)}`,
+        agent_id: () => uuid().replaceAll('-', '').slice(0, 17),
+        message_id: () => `msg_${uuid().replaceAll('-', '').slice(0, 12)}`,
+        turn_id: uuid,
+        turnId: uuid,
+        message: () => 'hello from emulator control',
+        notification_type: () => 'emulator',
+        tool_name: () => 'Bash',
+        tool_input: () => ({ command: 'echo hi' }),
+        tool_response: () => ({ output: 'ok' }),
+        session_title: () => 'emulator-session',
+        source: () => 'startup',
+        reason: () => 'other',
+        load_reason: () => 'session_start',
+        memory_type: () => 'User',
+        file_path: () => '/tmp/CLAUDE.md',
+        prompt: () => 'triggered by hand',
+        last_assistant_message: () => 'emulator: ok',
+        stop_hook_active: () => false,
+        background_tasks: () => [],
+        session_crons: () => [],
+        effort: () => ({ level: 'xhigh' }),
+        duration_ms: () => 42,
+        delta: () => '…',
+        index: () => 0,
+        final: () => true,
+        agent_type: () => 'general-purpose',
+        is_interrupt: () => false,
+        error: () => 'emulated error',
+        permission_suggestions: () => [],
+        agent_transcript_path: () => '/tmp/subagent.jsonl',
+        // Op arguments, as the personas' ops.json name them.
+        text: () => 'driven from the control centre',
+        tool: () => 'Bash',
+        toolId: () => `toolu_${uuid().replaceAll('-', '').slice(0, 20)}`,
+        command: () => 'echo hi',
+        input: () => ({ command: 'echo hi' }),
+        output: () => 'ok',
+      };
+      const defaultPayload = (fields, skipEnvelope = true) => {
+        const payload = {};
+        for (const field of fields || []) {
+          if (skipEnvelope && ENVELOPE_FIELDS.has(field)) continue;
+          payload[field] = (DEFAULTS[field] ?? (() => ''))();
+        }
+        return payload;
+      };
+
+      // ---------------------------------------------------------------
+      // Session card
+      // ---------------------------------------------------------------
+
+      document.getElementById('spawn-button').onclick = async () => {
+        const out = document.getElementById('spawn-out');
+        out.textContent = 'spawning…';
+        out.className = 'muted';
+        const result = await api('/api/spawn', { vendor: spawnVendor.value });
+        out.textContent = result.sessionId ? `spawned ${result.sessionId.slice(0, 8)}…` : result.error || 'error';
+        out.className = result.sessionId ? 'ok' : 'err';
+      };
+
+      async function loadSpawners() {
+        const { spawners } = await api('/api/spawners');
+        spawnVendor.replaceChildren(
+          ...spawners.map((s) => {
+            const option = document.createElement('option');
+            option.value = s.vendor;
+            option.textContent = s.label;
+            return option;
+          }),
+        );
+        document.getElementById('spawn').style.display = spawners.length ? '' : 'none';
+      }
+
+      function card(session) {
+        const el = document.createElement('div');
+        el.className = 'card';
+        el.innerHTML = `
+          <div class="row">
+            <strong data-role="vendor"></strong>
+            <span class="muted" data-role="sid"></span>
+            <span class="pill state" data-role="state">—</span>
+            <span class="grow"></span>
+            <span data-role="channels"></span>
+          </div>
+          <h2>lifecycle</h2>
+          <div class="graph" data-role="graph"></div>
+          <div class="legend">
+            <span><span style="color: var(--violet)">▬</span> available now</span>
+            <span><span style="color: var(--sky)">▬</span> just taken</span>
+            <span>┄ legal, not the usual route</span>
+            <span data-role="globals"></span>
+            <span data-role="counters"></span>
+          </div>
+          <h2>ops <span class="muted" style="text-transform:none;letter-spacing:0">— traffic a real turn produces</span></h2>
+          <div class="row" data-role="ops"></div>
+          <div class="row"><textarea data-role="op-args" spellcheck="false">{}</textarea></div>
+          <div class="row">
+            <button class="primary" data-role="run-op">run op</button>
+            <span data-role="op-out" class="muted"></span>
+          </div>
+          <details>
+            <summary>adversarial — raw events, scenarios, faults</summary>
+            <div class="row muted" style="font-size:12px">
+              Raw events go straight to the wire without an op, so the lifecycle above does not move. That is the
+              point: this is how out-of-order, duplicate and post-exit traffic gets tested.
+            </div>
+            <div class="row" data-role="events"></div>
+            <div class="row"><textarea data-role="payload" spellcheck="false">{}</textarea></div>
+            <div class="row"><button data-role="fire">fire edited payload</button><span data-role="event-out" class="muted"></span></div>
+            <div class="row">
+              <input data-role="scenario" placeholder="scenario name" size="20" />
+              <select data-role="mode">
+                <option value="play">play</option>
+                <option value="pause">pause</option>
+                <option value="step">step</option>
+              </select>
+              <button data-role="run">run</button>
+              <button data-role="pause">pause</button>
+              <button data-role="step">step</button>
+              <button data-role="resume">resume</button>
+              <span data-role="scenario-out" class="muted"></span>
+            </div>
+            <div class="row">
+              <button class="danger" data-role="crash">crash</button>
+              <button class="danger" data-role="exit">exit</button>
+              <button class="danger" data-role="hang">hang</button>
+            </div>
+          </details>
+          <div class="split" style="margin-top:16px">
+            <div>
+              <h2>reducer state <span class="muted" style="text-transform:none">(center-owned)</span></h2>
+              <pre data-role="state-dump" class="muted">—</pre>
+            </div>
+            <div>
+              <h2>emitted</h2>
+              <pre data-role="log" class="muted">—</pre>
+            </div>
+          </div>`;
+        const q = (role) => el.querySelector(`[data-role="${role}"]`);
+
+        const graph = drawGraph();
+        q('graph').append(graph.svg);
+        q('globals').textContent = MACHINE.globals.map((global) => `${global.op}: ${global.note}`).join(' · ');
+
+        // --- ops -----------------------------------------------------
+        const bound = new Map(session.ops.map((entry) => [entry.op, entry]));
+        const vocabulary = [
+          ...new Set([...MACHINE.edges.map((edge) => edge.op), ...MACHINE.globals.map((global) => global.op)]),
+        ];
+        let selectedOp = null;
+        const opButtons = new Map();
+        for (const op of vocabulary) {
+          const button = document.createElement('button');
+          button.className = `op${bound.has(op) ? '' : ' unbound'}`;
+          button.textContent = op;
+          button.title = bound.has(op)
+            ? `${bound.get(op).channels.join(', ')}${bound.get(op).awaits ? ' — waits for the client' : ''}`
+            : 'this persona binds no channel for this op: it will run and say nothing';
+          button.onclick = () => {
+            selectedOp = op;
+            for (const [name, other] of opButtons) other.classList.toggle('selected', name === op);
+            q('op-args').value = JSON.stringify(defaultPayload(bound.get(op)?.fields ?? []), null, 2);
+            runOp();
+          };
+          opButtons.set(op, button);
+          q('ops').append(button);
+        }
+        const runOp = async () => {
+          if (!selectedOp) return;
+          let argument;
+          try {
+            argument = JSON.parse(q('op-args').value || '{}');
+          } catch {
+            q('op-out').textContent = 'invalid JSON';
+            q('op-out').className = 'err';
+            return;
+          }
+          const out = await api(sessionApi(session, 'op'), { op: selectedOp, with: argument });
+          q('op-out').textContent = out.machine ? `${selectedOp} → ${out.machine.state}` : out.error || 'error';
+          q('op-out').className = out.machine ? 'ok' : 'err';
+        };
+        q('run-op').onclick = runOp;
+
+        // --- raw events ----------------------------------------------
+        let selectedEvent = session.palette[0]?.event;
+        const fire = async (event, payload) => {
+          const out = await api(sessionApi(session, 'trigger'), { event, with: payload });
+          q('event-out').textContent = out.ok ? `${event} fired` : out.error || 'error';
+          q('event-out').className = out.ok ? 'ok' : 'err';
+        };
+        for (const entry of session.palette) {
+          const button = document.createElement('button');
+          button.className = 'event';
+          button.textContent = entry.event;
+          button.onclick = () => {
+            selectedEvent = entry.event;
+            const payload = defaultPayload(entry.fields);
+            q('payload').value = JSON.stringify(payload, null, 2);
+            fire(selectedEvent, payload);
+          };
+          q('events').append(button);
+        }
+        q('fire').onclick = () => {
+          let payload;
+          try {
+            payload = JSON.parse(q('payload').value || '{}');
+          } catch {
+            q('event-out').textContent = 'invalid JSON';
+            q('event-out').className = 'err';
+            return;
+          }
+          fire(selectedEvent, payload);
+        };
+
+        // --- scenarios and faults ------------------------------------
+        const scenarioOut = (result, okText) => {
+          q('scenario-out').textContent = result.ok ? okText : result.error || 'error';
+          q('scenario-out').className = result.ok ? 'ok' : 'err';
+        };
+        q('run').onclick = async () => {
+          const mode = q('mode').value;
+          q('scenario-out').textContent = mode === 'play' ? 'running…' : 'starting…';
+          q('scenario-out').className = 'muted';
+          scenarioOut(
+            await api(sessionApi(session, 'scenario'), {
+              name: q('scenario').value,
+              mode,
+              stimulus: { text: 'triggered by control center' },
+            }),
+            mode === 'play' ? 'ran' : `${mode}d at step 1`,
+          );
+        };
+        for (const action of ['pause', 'step', 'resume']) {
+          q(action).onclick = async () =>
+            scenarioOut(await api(sessionApi(session, 'scenario-control'), { action }), action);
+        }
+        for (const kind of ['crash', 'exit', 'hang']) {
+          q(kind).onclick = () => api(sessionApi(session, 'fault'), { kind });
+        }
+
+        return { el, graph, opButtons, q };
+      }
+
+      function renderIdentity(entry, session) {
+        entry.q('vendor').textContent = `${session.vendor} ${session.version}`;
+        entry.q('sid').textContent = session.sessionId.slice(0, 8);
+        entry.q('channels').innerHTML = session.channels.length
+          ? session.channels.map((channel) => `<span class="pill">${escapeHtml(channel)}</span>`).join(' ')
+          : '<span class="muted">no channels attached</span>';
+      }
+
+      function renderMachine(entry, machine) {
+        const previous = entry.state;
+        entry.state = machine.state;
+        entry.q('state').textContent = machine.state;
+        paintGraph(entry.graph, machine, previous);
+        for (const [op, button] of entry.opButtons) {
+          button.classList.toggle('enabled', machine.enabled.includes(op));
+        }
+        entry.q('counters').textContent =
+          `${machine.applied} ops` + (machine.offModel ? ` · ${machine.offModel} off-model` : '');
+      }
+
+      // Keyed by sequence, because the one-shot `/log` backfill and the live
+      // push overlap: whatever was emitted between opening the card and the
+      // backfill landing arrives twice, and out of order.
+      function appendLog(entry, record) {
+        if (entry.records.has(record.sequence)) return;
+        entry.records.set(record.sequence, `${record.at.slice(11, 23)}  ${record.event}`);
+        while (entry.records.size > MAX_LOG_LINES) entry.records.delete(Math.min(...entry.records.keys()));
+        entry.q('log').textContent = [...entry.records.entries()]
+          .sort((left, right) => left[0] - right[0])
+          .map(([, line]) => line)
+          .join('\n');
+      }
+
+      function renderState(entry, state) {
+        const counts = (name) => Object.keys(state[name] ?? {}).length;
+        entry.q('state-dump').textContent =
+          `lifecycle: ${state.lifecycle}\n` +
+          `lastAssistantMessage: ${state.lastAssistantMessage ?? '—'}\n` +
+          `context: ${state.contextWindow ? `${state.contextWindow.usedTokens}/${state.contextWindow.capacityTokens} tokens` : '—'}\n` +
+          `tools in flight: ${counts('tools')} · permissions: ${counts('permissions')} · subagents: ${counts('subagents')}`;
+      }
+
+      function signature(session) {
+        return JSON.stringify([session.palette, session.ops]);
+      }
+
+      function reconcile(sessions) {
+        statusEl.textContent = `${sessions.length} emulated session(s) · plane ${location.host}`;
+        for (const session of sessions) {
+          const key = sessionKey(session);
+          let entry = cards.get(key);
+          if (!entry || entry.signature !== signature(session)) {
+            const built = card(session);
+            if (entry?.el.isConnected) entry.el.replaceWith(built.el);
+            entry = { ...built, signature: signature(session), records: entry?.records ?? new Map() };
+            cards.set(key, entry);
+            api(sessionApi(session, 'log')).then((log) => {
+              for (const record of log.entries || []) appendLog(entry, record);
+            });
+          }
+          renderIdentity(entry, session);
+          renderMachine(entry, session.machine);
+          if (!entry.el.isConnected) sessionsEl.append(entry.el);
+        }
+        for (const [key, entry] of cards) {
+          if (!sessions.some((session) => sessionKey(session) === key)) {
+            entry.el.remove();
+            cards.delete(key);
+          }
+        }
+        if (cards.size === 0) sessionsEl.append(placeholder);
+        else placeholder.remove();
+      }
+
+      function connect() {
+        const events = new EventSource(`/api/events?token=${encodeURIComponent(TOKEN)}`);
+        events.addEventListener('sessions', (message) => reconcile(JSON.parse(message.data).sessions));
+        events.addEventListener('emitted', (message) => {
+          const { vendor, sessionId, entry: record } = JSON.parse(message.data);
+          const entry = cards.get(`${vendor}\0${sessionId}`);
+          if (entry) appendLog(entry, record);
+        });
+        events.addEventListener('machine', (message) => {
+          const { vendor, sessionId, machine } = JSON.parse(message.data);
+          const entry = cards.get(`${vendor}\0${sessionId}`);
+          if (entry) renderMachine(entry, machine);
+        });
+        events.addEventListener('state', (message) => {
+          const { vendor, sessionId, state } = JSON.parse(message.data);
+          const entry = cards.get(`${vendor}\0${sessionId}`);
+          if (entry) renderState(entry, state);
+        });
+        events.onerror = () => {
+          statusEl.textContent = 'plane unreachable — reconnecting…';
+        };
+      }
+
+      // The graph is fetched before anything renders: every card draws from it.
+      Promise.all([api('/api/machine').then((machine) => (MACHINE = machine)), loadSpawners()]).then(connect);
+    </script>
+  </body>
+</html>

@@ -1,0 +1,40 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "item/autoApprovalReview/started",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "object"
+      },
+      "review": {
+        "type": "object"
+      },
+      "reviewId": {
+        "type": "string"
+      },
+      "startedAtMs": {
+        "type": "number"
+      },
+      "targetItemId": {},
+      "threadId": {
+        "type": "string"
+      },
+      "turnId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "action",
+      "review",
+      "reviewId",
+      "startedAtMs",
+      "threadId",
+      "turnId"
+    ]
+  },
+  "confidence": "unverified"
+}

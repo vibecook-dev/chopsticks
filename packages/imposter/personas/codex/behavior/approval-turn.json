@@ -1,0 +1,12 @@
+{
+  "name": "approval-turn",
+  "reply": "imposter: command finished",
+  "ops": [
+    { "op": "turn.start", "with": { "text": "$stimulus.text" } },
+    { "op": "permission.ask", "with": { "toolId": "$uuid:item", "command": "curl -s https://example.com" } },
+    { "op": "tool.start", "with": { "toolId": "$uuid:item", "command": "curl -s https://example.com" } },
+    { "op": "tool.end", "with": { "toolId": "$uuid:item", "command": "curl -s https://example.com", "output": "<html/>" } },
+    { "op": "assistant.delta", "with": { "text": "$reply" } },
+    { "op": "turn.end" }
+  ]
+}

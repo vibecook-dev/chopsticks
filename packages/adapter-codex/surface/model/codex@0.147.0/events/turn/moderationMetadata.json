@@ -1,0 +1,25 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "turn/moderationMetadata",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "metadata": {},
+      "threadId": {
+        "type": "string"
+      },
+      "turnId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "metadata",
+      "threadId",
+      "turnId"
+    ]
+  },
+  "confidence": "unverified"
+}

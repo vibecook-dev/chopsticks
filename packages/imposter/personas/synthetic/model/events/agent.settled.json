@@ -1,0 +1,16 @@
+{
+  "surface": "synthetic",
+  "surfaceVersion": "0.0.0",
+  "event": "agent.settled",
+  "channel": "event",
+  "transport": "http",
+  "trigger": "turn finished",
+  "payloadSchema": {
+    "type": "object",
+    "required": ["kind", "sid", "workdir", "turn"],
+    "properties": {"kind": { "type": "string" }, "sid": { "type": "string" }, "workdir": { "type": "string" }, "turn": { "type": "string" }}
+  },
+  "firstSeen": "0.0.0",
+  "confidence": "unverified",
+  "notes": "Invented. Field names deliberately differ from claude's so a claude-shaped assumption fails loudly."
+}

@@ -1,0 +1,57 @@
+{
+  "name": "duplicate-out-of-order",
+  "steps": [
+    {
+      "at": 0,
+      "do": {
+        "emit": {
+          "event": "PostToolUse",
+          "with": {
+            "prompt_id": "$uuid:prompt",
+            "tool_name": "Bash",
+            "tool_input": { "command": "echo reordered" },
+            "tool_response": { "output": "reordered" },
+            "tool_use_id": "$uuid:tool",
+            "duration_ms": 10,
+            "effort": { "level": "xhigh" },
+            "permission_mode": "$permissionMode"
+          }
+        }
+      }
+    },
+    {
+      "at": 25,
+      "do": {
+        "emit": {
+          "event": "PreToolUse",
+          "with": {
+            "prompt_id": "$uuid:prompt",
+            "tool_name": "Bash",
+            "tool_input": { "command": "echo reordered" },
+            "tool_use_id": "$uuid:tool",
+            "effort": { "level": "xhigh" },
+            "permission_mode": "$permissionMode"
+          }
+        }
+      }
+    },
+    {
+      "at": 50,
+      "do": {
+        "emit": {
+          "event": "PostToolUse",
+          "with": {
+            "prompt_id": "$uuid:prompt",
+            "tool_name": "Bash",
+            "tool_input": { "command": "echo reordered" },
+            "tool_response": { "output": "reordered" },
+            "tool_use_id": "$uuid:tool",
+            "duration_ms": 10,
+            "effort": { "level": "xhigh" },
+            "permission_mode": "$permissionMode"
+          }
+        }
+      }
+    }
+  ]
+}

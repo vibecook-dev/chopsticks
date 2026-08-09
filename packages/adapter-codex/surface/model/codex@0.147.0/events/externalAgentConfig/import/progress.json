@@ -1,0 +1,23 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "externalAgentConfig/import/progress",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "importId": {
+        "type": "string"
+      },
+      "itemTypeResults": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "importId",
+      "itemTypeResults"
+    ]
+  },
+  "confidence": "unverified"
+}

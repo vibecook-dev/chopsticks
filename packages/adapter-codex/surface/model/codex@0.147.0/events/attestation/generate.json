@@ -1,0 +1,9 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "attestation/generate",
+  "channel": "appserver",
+  "transport": "jsonrpc-request",
+  "trigger": "Generate a fresh upstream attestation result on demand.",
+  "confidence": "unverified"
+}

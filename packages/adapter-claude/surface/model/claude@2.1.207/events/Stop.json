@@ -1,0 +1,65 @@
+{
+  "surface": "claude",
+  "surfaceVersion": "2.1.207",
+  "event": "Stop",
+  "channel": "hook",
+  "transport": "http",
+  "trigger": "assistant turn ends",
+  "payloadSchema": {
+    "type": "object",
+    "required": [
+      "background_tasks",
+      "cwd",
+      "effort",
+      "hook_event_name",
+      "last_assistant_message",
+      "permission_mode",
+      "prompt_id",
+      "session_crons",
+      "session_id",
+      "stop_hook_active",
+      "transcript_path"
+    ],
+    "properties": {
+      "background_tasks": {
+        "type": "array"
+      },
+      "cwd": {
+        "type": "string"
+      },
+      "effort": {
+        "type": "object"
+      },
+      "hook_event_name": {
+        "type": "string"
+      },
+      "last_assistant_message": {
+        "type": "string"
+      },
+      "permission_mode": {
+        "type": "string"
+      },
+      "prompt_id": {
+        "type": "string"
+      },
+      "session_crons": {
+        "type": "array"
+      },
+      "session_id": {
+        "type": "string"
+      },
+      "stop_hook_active": {
+        "type": "boolean"
+      },
+      "transcript_path": {
+        "type": "string"
+      }
+    }
+  },
+  "firstSeen": "2.1.207",
+  "lastVerified": "2.1.207",
+  "fixture": "captures/claude@2.1.207/headless/Stop.jsonl",
+  "confidence": "verified-headless",
+  "timeoutSec": 5,
+  "notes": "last_assistant_message, stop_hook_active"
+}

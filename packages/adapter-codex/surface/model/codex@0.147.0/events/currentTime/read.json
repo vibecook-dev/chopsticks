@@ -1,0 +1,20 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "currentTime/read",
+  "channel": "appserver",
+  "transport": "jsonrpc-request",
+  "trigger": "Read the current time from an external clock owned by the client.",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "threadId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "threadId"
+    ]
+  },
+  "confidence": "unverified"
+}

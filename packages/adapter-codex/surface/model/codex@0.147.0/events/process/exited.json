@@ -1,0 +1,40 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "process/exited",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "trigger": "Final exit notification for a `process/spawn` session.",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "exitCode": {
+        "type": "number"
+      },
+      "processHandle": {
+        "type": "string"
+      },
+      "stderr": {
+        "type": "string"
+      },
+      "stderrCapReached": {
+        "type": "boolean"
+      },
+      "stdout": {
+        "type": "string"
+      },
+      "stdoutCapReached": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "exitCode",
+      "processHandle",
+      "stderr",
+      "stderrCapReached",
+      "stdout",
+      "stdoutCapReached"
+    ]
+  },
+  "confidence": "unverified"
+}

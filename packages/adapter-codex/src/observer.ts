@@ -31,6 +31,7 @@ import {
   type SessionRuntimeState,
 } from '@vibecook/chopsticks-core';
 import { AppServerClient, type Transport } from './app-server-client.js';
+import { approvalResponse } from './approvals.js';
 import type { CodexApprovalDecision, CodexApprovalRequest } from './driver.js';
 import { CodexNotificationNormalizer } from './normalizer.js';
 import { readLastCodexContextWindow } from './rollout-context.js';
@@ -314,7 +315,8 @@ export async function createCodexObserver(opts: CreateCodexObserverOptions): Pro
       'native-hook',
       { method, params, id },
     );
-    return { decision };
+    // Per-method response shape; see approvals.ts.
+    return approvalResponse(method, decision);
   });
 
   client.onClose(() => {

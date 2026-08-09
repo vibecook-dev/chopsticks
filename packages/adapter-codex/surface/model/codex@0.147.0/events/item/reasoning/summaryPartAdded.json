@@ -1,0 +1,31 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "item/reasoning/summaryPartAdded",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "itemId": {
+        "type": "string"
+      },
+      "summaryIndex": {
+        "type": "number"
+      },
+      "threadId": {
+        "type": "string"
+      },
+      "turnId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "itemId",
+      "summaryIndex",
+      "threadId",
+      "turnId"
+    ]
+  },
+  "confidence": "unverified"
+}

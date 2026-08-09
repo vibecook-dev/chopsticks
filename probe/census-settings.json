@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/SessionStart.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/SessionStart.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/SessionStart.jsonl\"; echo >> \"/workspace/probe/captures/SessionStart.jsonl\"'"
           }
         ]
       }
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/SessionEnd.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/SessionEnd.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/SessionEnd.jsonl\"; echo >> \"/workspace/probe/captures/SessionEnd.jsonl\"'"
           }
         ]
       }
@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/UserPromptSubmit.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/UserPromptSubmit.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/UserPromptSubmit.jsonl\"; echo >> \"/workspace/probe/captures/UserPromptSubmit.jsonl\"'"
           }
         ]
       }
@@ -35,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/PreToolUse.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/PreToolUse.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/PreToolUse.jsonl\"; echo >> \"/workspace/probe/captures/PreToolUse.jsonl\"'"
           }
         ]
       }
@@ -45,7 +45,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/PermissionRequest.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/PermissionRequest.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/PermissionRequest.jsonl\"; echo >> \"/workspace/probe/captures/PermissionRequest.jsonl\"'"
           }
         ]
       }
@@ -55,7 +55,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/PostToolUse.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/PostToolUse.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/PostToolUse.jsonl\"; echo >> \"/workspace/probe/captures/PostToolUse.jsonl\"'"
           }
         ]
       }
@@ -65,7 +65,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/PostToolUseFailure.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/PostToolUseFailure.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/PostToolUseFailure.jsonl\"; echo >> \"/workspace/probe/captures/PostToolUseFailure.jsonl\"'"
           }
         ]
       }
@@ -75,7 +75,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/Notification.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/Notification.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/Notification.jsonl\"; echo >> \"/workspace/probe/captures/Notification.jsonl\"'"
           }
         ]
       }
@@ -85,7 +85,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/SubagentStart.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/SubagentStart.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/SubagentStart.jsonl\"; echo >> \"/workspace/probe/captures/SubagentStart.jsonl\"'"
           }
         ]
       }
@@ -95,7 +95,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/SubagentStop.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/SubagentStop.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/SubagentStop.jsonl\"; echo >> \"/workspace/probe/captures/SubagentStop.jsonl\"'"
           }
         ]
       }
@@ -105,7 +105,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/TaskCreated.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/TaskCreated.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/TaskCreated.jsonl\"; echo >> \"/workspace/probe/captures/TaskCreated.jsonl\"'"
           }
         ]
       }
@@ -115,7 +115,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/TaskCompleted.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/TaskCompleted.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/TaskCompleted.jsonl\"; echo >> \"/workspace/probe/captures/TaskCompleted.jsonl\"'"
           }
         ]
       }
@@ -125,7 +125,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/Stop.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/Stop.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/Stop.jsonl\"; echo >> \"/workspace/probe/captures/Stop.jsonl\"'"
           }
         ]
       }
@@ -135,7 +135,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/StopFailure.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/StopFailure.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/StopFailure.jsonl\"; echo >> \"/workspace/probe/captures/StopFailure.jsonl\"'"
           }
         ]
       }
@@ -145,7 +145,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/TeammateIdle.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/TeammateIdle.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/TeammateIdle.jsonl\"; echo >> \"/workspace/probe/captures/TeammateIdle.jsonl\"'"
           }
         ]
       }
@@ -155,7 +155,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/InstructionsLoaded.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/InstructionsLoaded.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/InstructionsLoaded.jsonl\"; echo >> \"/workspace/probe/captures/InstructionsLoaded.jsonl\"'"
           }
         ]
       }
@@ -165,7 +165,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/ConfigChange.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/ConfigChange.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/ConfigChange.jsonl\"; echo >> \"/workspace/probe/captures/ConfigChange.jsonl\"'"
           }
         ]
       }
@@ -175,7 +175,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/CwdChanged.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/CwdChanged.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/CwdChanged.jsonl\"; echo >> \"/workspace/probe/captures/CwdChanged.jsonl\"'"
           }
         ]
       }
@@ -185,7 +185,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/FileChanged.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/FileChanged.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/FileChanged.jsonl\"; echo >> \"/workspace/probe/captures/FileChanged.jsonl\"'"
           }
         ]
       }
@@ -195,7 +195,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/PreCompact.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/PreCompact.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/PreCompact.jsonl\"; echo >> \"/workspace/probe/captures/PreCompact.jsonl\"'"
           }
         ]
       }
@@ -205,7 +205,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/PostCompact.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/PostCompact.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/PostCompact.jsonl\"; echo >> \"/workspace/probe/captures/PostCompact.jsonl\"'"
           }
         ]
       }
@@ -215,7 +215,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/WorktreeCreate.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/WorktreeCreate.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/WorktreeCreate.jsonl\"; echo >> \"/workspace/probe/captures/WorktreeCreate.jsonl\"'"
           }
         ]
       }
@@ -225,7 +225,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/WorktreeRemove.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/WorktreeRemove.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/WorktreeRemove.jsonl\"; echo >> \"/workspace/probe/captures/WorktreeRemove.jsonl\"'"
           }
         ]
       }
@@ -235,7 +235,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/Elicitation.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/Elicitation.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/Elicitation.jsonl\"; echo >> \"/workspace/probe/captures/Elicitation.jsonl\"'"
           }
         ]
       }
@@ -245,7 +245,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'cat >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/ElicitationResult.jsonl\"; echo >> \"/Users/jamesyong/Projects/project100/p008/chopsticks/probe/captures/ElicitationResult.jsonl\"'"
+            "command": "sh -c 'cat >> \"/workspace/probe/captures/ElicitationResult.jsonl\"; echo >> \"/workspace/probe/captures/ElicitationResult.jsonl\"'"
           }
         ]
       }

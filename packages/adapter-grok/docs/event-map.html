@@ -1,0 +1,692 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Grok adapter — event map</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #fbfbfa; --fg: #1a1a19; --muted: #6b6b66; --line: #e0dfdb;
+        --head: #f2f1ee; --code: #f5f4f1; --live: #1f7a3d; --dead: #a33b2a; --partial: #9a6b12;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #14140f; --fg: #e8e6e0; --muted: #9a978e; --line: #2e2e28;
+          --head: #1d1d17; --code: #1c1c16; --live: #5ec27c; --dead: #e07a63; --partial: #d9a441;
+        }
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 40px 28px 90px; background: var(--bg); color: var(--fg);
+        font: 15px/1.6 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+      main { max-width: 1180px; margin: 0 auto; }
+      h1 { margin: 0 0 6px; font-size: 26px; letter-spacing: -0.01em; }
+      h2 { margin: 44px 0 10px; font-size: 17px; letter-spacing: -0.01em; }
+      .sub { margin: 0 0 30px; color: var(--muted); font-size: 14px; }
+      p { margin: 0 0 14px; }
+      code, .m { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+      code { padding: 1px 5px; border-radius: 4px; background: var(--code); }
+      .scroll { overflow-x: auto; margin: 0 0 10px; border: 1px solid var(--line); border-radius: 8px; }
+      table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      th, td { padding: 8px 11px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+      th { position: sticky; top: 0; background: var(--head); font-size: 11px; font-weight: 700;
+        letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+      tbody tr:last-child td { border-bottom: 0; }
+      td.m { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+      .tag { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+      .t-live { color: var(--live); background: color-mix(in srgb, var(--live) 14%, transparent); }
+      .t-dead { color: var(--dead); background: color-mix(in srgb, var(--dead) 14%, transparent); }
+      .t-partial { color: var(--partial); background: color-mix(in srgb, var(--partial) 16%, transparent); }
+      .none { color: var(--muted); }
+      .note { margin: 18px 0; padding: 12px 15px; border-left: 3px solid var(--partial);
+        background: color-mix(in srgb, var(--partial) 7%, transparent); font-size: 13.5px; }
+/* ── Ground truth layout ── */
+      .gt {
+        margin: 8px 0 36px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        overflow: hidden;
+        background: var(--bg);
+      }
+      .gt-hero {
+        display: flex; flex-wrap: wrap; gap: 20px; justify-content: space-between; align-items: flex-start;
+        padding: 22px 22px 18px;
+        background: linear-gradient(135deg,
+          color-mix(in srgb, #3b6fd4 12%, var(--head)),
+          color-mix(in srgb, #7c4dff 8%, var(--head)));
+        border-bottom: 1px solid var(--line);
+      }
+      .gt-kicker {
+        margin: 0 0 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+        text-transform: uppercase; color: #3b6fd4;
+      }
+      @media (prefers-color-scheme: dark) {
+        .gt-kicker { color: #8ab4ff; }
+      }
+      .gt-hero h2 { margin: 0 0 6px; font-size: 22px; letter-spacing: -0.02em; }
+      .gt-hero .sub { margin: 0; max-width: 52ch; }
+      .gt-toc {
+        display: flex; flex-direction: column; gap: 6px; min-width: 180px;
+        padding: 10px 12px; border-radius: 8px;
+        background: color-mix(in srgb, var(--bg) 70%, transparent);
+        border: 1px solid var(--line); font-size: 12.5px;
+      }
+      .gt-toc a {
+        color: var(--fg); text-decoration: none; padding: 3px 6px; border-radius: 4px;
+      }
+      .gt-toc a:hover { background: var(--code); color: #3b6fd4; }
+      .cites {
+        margin: 0; padding: 14px 22px; font-size: 12.5px;
+        border-bottom: 1px solid var(--line);
+        background: var(--code);
+      }
+      .cites ul { margin: 8px 0 6px; padding-left: 18px; }
+      .cites li { margin-bottom: 4px; }
+      .cites a { color: #3b6fd4; }
+      @media (prefers-color-scheme: dark) { .cites a { color: #8ab4ff; } }
+      .cite-date { color: var(--muted); }
+      .cite-note { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+      .gt-part { padding: 22px 22px 10px; }
+      .gt-part + .gt-part { border-top: 1px solid var(--line); }
+      .gt-part-head {
+        display: flex; gap: 14px; align-items: flex-start;
+        margin: 0 0 18px; padding: 14px 16px; border-radius: 10px;
+      }
+      .gt-part-head.part-official {
+        background: color-mix(in srgb, #3b6fd4 10%, var(--head));
+        border: 1px solid color-mix(in srgb, #3b6fd4 28%, var(--line));
+      }
+      .gt-part-head.part-ours {
+        background: color-mix(in srgb, #1f7a3d 10%, var(--head));
+        border: 1px solid color-mix(in srgb, #1f7a3d 28%, var(--line));
+      }
+      .part-num {
+        flex: 0 0 auto; width: 32px; height: 32px; border-radius: 50%;
+        display: grid; place-items: center; font-weight: 800; font-size: 14px;
+        color: #fff; background: #3b6fd4;
+      }
+      .part-ours .part-num { background: #1f7a3d; }
+      .gt-part-head h3 { margin: 0 0 4px; font-size: 16px; }
+      .gt-part-head p { margin: 0; font-size: 13px; color: var(--muted); }
+      .gt h4 {
+        margin: 28px 0 10px; font-size: 13px; font-weight: 700;
+        letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted);
+        padding-bottom: 6px; border-bottom: 1px solid var(--line);
+      }
+      .gt h5 { margin: 14px 0 6px; font-size: 13px; font-weight: 700; color: var(--fg); }
+      .stat-row {
+        display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+        gap: 10px; margin: 0 0 20px;
+      }
+      .stat {
+        padding: 12px 12px 10px; border-radius: 8px; border: 1px solid var(--line);
+        background: var(--head); text-align: center;
+      }
+      .stat-n { display: block; font-size: 22px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
+      .stat-l { display: block; margin-top: 4px; font-size: 11px; color: var(--muted); line-height: 1.3; }
+      .stat.used { border-color: color-mix(in srgb, var(--live) 40%, var(--line)); background: color-mix(in srgb, var(--live) 10%, var(--head)); }
+      .stat.used .stat-n { color: var(--live); }
+      .stat.partial { border-color: color-mix(in srgb, var(--partial) 40%, var(--line)); background: color-mix(in srgb, var(--partial) 10%, var(--head)); }
+      .stat.partial .stat-n { color: var(--partial); }
+      .stat.registry { border-color: color-mix(in srgb, #6b5b95 40%, var(--line)); background: color-mix(in srgb, #6b5b95 10%, var(--head)); }
+      .stat.registry .stat-n { color: #6b5b95; }
+      @media (prefers-color-scheme: dark) { .stat.registry .stat-n { color: #b5a5e0; } }
+      .stat.unused .stat-n { color: var(--muted); }
+      .prose-box {
+        margin: 0 0 14px; padding: 12px 14px; border-radius: 8px;
+        border: 1px solid var(--line); background: var(--head); font-size: 13.5px;
+      }
+      .prose-box p:last-child { margin-bottom: 0; }
+      .muted-p { color: var(--muted); font-size: 13px; }
+      .tag { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 700; white-space: nowrap; vertical-align: middle; }
+      .t-used, .t-live { color: var(--live); background: color-mix(in srgb, var(--live) 14%, transparent); }
+      .t-dead, .t-unused { color: var(--dead); background: color-mix(in srgb, var(--dead) 12%, transparent); }
+      .t-partial { color: var(--partial); background: color-mix(in srgb, var(--partial) 16%, transparent); }
+      .t-registry { color: #6b5b95; background: color-mix(in srgb, #6b5b95 14%, transparent); }
+      @media (prefers-color-scheme: dark) {
+        .t-registry { color: #b5a5e0; background: color-mix(in srgb, #b5a5e0 16%, transparent); }
+      }
+      .hook-index {
+        display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px;
+      }
+      .hook-chip {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 5px 10px; border-radius: 999px; text-decoration: none; color: var(--fg);
+        border: 1px solid var(--line); background: var(--head); font-size: 12px;
+        transition: border-color .12s, transform .12s;
+      }
+      .hook-chip:hover { transform: translateY(-1px); border-color: #3b6fd4; }
+      .hook-chip code { font-size: 11.5px; background: transparent; padding: 0; }
+      .hook-chip.use-used { border-color: color-mix(in srgb, var(--live) 45%, var(--line)); background: color-mix(in srgb, var(--live) 8%, var(--head)); }
+      .hook-chip.use-partial { border-color: color-mix(in srgb, var(--partial) 45%, var(--line)); background: color-mix(in srgb, var(--partial) 8%, var(--head)); }
+      .hook-chip.use-registry { border-color: color-mix(in srgb, #6b5b95 45%, var(--line)); background: color-mix(in srgb, #6b5b95 8%, var(--head)); }
+      .hook-chip.use-unused { opacity: 0.85; }
+      .hook-catalog { display: flex; flex-direction: column; gap: 12px; margin: 0 0 20px; }
+      .hook-card {
+        border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+        background: var(--bg); scroll-margin-top: 16px;
+      }
+      .hook-card.use-used { border-left: 4px solid var(--live); }
+      .hook-card.use-partial { border-left: 4px solid var(--partial); }
+      .hook-card.use-registry { border-left: 4px solid #6b5b95; }
+      .hook-card.use-unused { border-left: 4px solid var(--line); }
+      .hook-card-h {
+        padding: 12px 14px 10px;
+        background: var(--head); border-bottom: 1px solid var(--line);
+      }
+      .hook-card-title { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+      .hook-anchor { color: inherit; text-decoration: none; }
+      .hook-anchor code {
+        font-size: 13.5px; font-weight: 700; background: var(--code); padding: 2px 7px; border-radius: 4px;
+      }
+      .hook-when { margin: 6px 0 0; font-size: 12.5px; color: var(--muted); }
+      .hook-card-body { padding: 12px 14px 14px; font-size: 13.5px; }
+      .hook-card-body p { margin: 0 0 10px; }
+      .hook-card-body ul { margin: 0 0 10px; padding-left: 18px; }
+      .hook-card-body li { margin-bottom: 3px; }
+      .hook-usage {
+        margin: 12px 0 0 !important; padding: 8px 10px; border-radius: 6px;
+        background: color-mix(in srgb, var(--head) 80%, var(--code));
+        border: 1px dashed var(--line); font-size: 12.5px;
+      }
+      .def-table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin: 0 0 10px; }
+      .def-table th, .def-table td {
+        padding: 7px 10px; text-align: left; vertical-align: top;
+        border-bottom: 1px solid var(--line);
+      }
+      .def-table th {
+        background: var(--head); font-size: 10.5px; font-weight: 700;
+        letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted);
+      }
+      .def-table td.m { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; white-space: nowrap; }
+      .snippet {
+        margin: 8px 0 12px; padding: 10px 12px; border-radius: 6px;
+        background: #1a1a19; color: #e8e6e0; overflow-x: auto; font-size: 11.5px; line-height: 1.45;
+      }
+      @media (prefers-color-scheme: light) {
+        .snippet { background: #1e1e1c; }
+      }
+      .snippet code { background: transparent; padding: 0; color: inherit; font-size: inherit; }
+      .flow {
+        margin: 0 0 14px; padding: 14px 16px; border-radius: 8px;
+        background: #14140f; color: #c8e6c9; font-size: 12px; line-height: 1.55;
+        overflow-x: auto; border: 1px solid var(--line);
+      }
+      @media (prefers-color-scheme: light) {
+        .flow { background: #1b2a1c; color: #d7f0d9; }
+      }
+      .scroll { overflow-x: auto; margin: 0 0 12px; border: 1px solid var(--line); border-radius: 8px; }
+      .scroll .def-table { margin: 0; }
+      .scroll .def-table th { position: sticky; top: 0; }
+      ul { margin: 0 0 14px; padding-left: 20px; }
+      li { margin-bottom: 5px; }
+      footer { margin-top: 50px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12.5px; }
+
+      .t-ambient { color: var(--muted); background: color-mix(in srgb, var(--muted) 16%, transparent); }
+      .t-driver { color: #3b6fd4; background: color-mix(in srgb, #3b6fd4 14%, transparent); }
+      .t-observer { color: #0d9488; background: color-mix(in srgb, #0d9488 14%, transparent); }
+      .t-acp { color: #7c3aed; background: color-mix(in srgb, #7c3aed 14%, transparent); }
+      .group-h { margin: 16px 0 8px; font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: 0.03em; }
+      .row-used td:first-child { box-shadow: inset 3px 0 0 var(--live); }
+      .hook-chip.use-ambient { opacity: 0.9; }
+      .gt h5.group-h { text-transform: none; letter-spacing: 0; border: 0; padding: 0; margin: 18px 0 8px; }
+
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Grok adapter — event map</h1>
+      <p class="sub">
+        Grok is the only adapter with <strong>two independent event sources</strong>: ACP via
+        <code>createAcpSession()</code> plus a native session observer. Official Grok Build / leader / ACP packaging
+        and dual-source wiring are in <a href="#ground-truth">Ground truth</a>. Adapter code:
+        <code>src/backend.ts</code>, <code>src/session-observer.ts</code>; also
+        <a href="../../adapter-acp/docs/event-map.html">ACP event map</a>.
+      </p>
+
+
+
+      <section class="gt" id="ground-truth">
+        <header class="gt-hero">
+          <div>
+            <p class="gt-kicker">Vendor surface · Grok Build</p>
+            <h2>Ground truth</h2>
+            <p class="sub">Official Grok Build modes, ACP packaging, leader CLI, and session storage with <strong>field tables</strong>; dual-source observer record shapes; then how chopsticks combines them. Retrieved <time datetime="2026-08-03">2026-08-03</time>.</p>
+          </div>
+          <nav class="gt-toc">
+            <a href="#gt-official">1. Official surface</a>
+            <a href="#gt-gk-catalog">Catalog (fields)</a>
+            <a href="#gt-gk-acp-fields">ACP fields</a>
+            <a href="#gt-ours">2. How we use it</a>
+          </nav>
+        </header>
+        <div class="cites">
+          <strong>Primary citations</strong>
+          <ul>
+            <li><a href="https://docs.x.ai/build/overview" rel="noopener">Grok Build overview</a> <span class="cite-date">· 2026-08-03</span></li>
+            <li><a href="https://docs.x.ai/build/cli/headless-scripting" rel="noopener">Headless &amp; Scripting / ACP</a> <span class="cite-date">· 2026-08-03</span></li>
+            <li><a href="https://agentclientprotocol.com/protocol/v1/schema" rel="noopener">ACP schema</a> — full method/update fields (Grok implements ACP)</li>
+            <li><code>grok agent --help</code> — leader (2026-08-03)</li>
+          </ul>
+          <p class="cite-note">Complete ACP property tables: <a href="../../adapter-acp/docs/event-map.html#ground-truth">ACP Ground truth</a>.</p>
+        </div>
+        <div class="gt-part" id="gt-official">
+          <div class="gt-part-head part-official">
+            <span class="part-num">1</span>
+            <div>
+              <h3>Official &amp; observed surfaces — definitions with fields</h3>
+              <p>Grok-specific packaging first; ACP message fields are defined by the ACP schema (linked). Observer record shapes are adapter-observed on disk.</p>
+            </div>
+          </div>
+          <div class="hook-index" id="gt-gk-catalog"><a class="hook-chip use-used" href="#gk-tui"><code>Interactive TUI</code></a><a class="hook-chip use-unused" href="#gk-headless"><code>Headless</code></a><a class="hook-chip use-used" href="#gk-acp-stdio"><code>grok agent stdio (ACP)</code></a><a class="hook-chip use-used" href="#gk-leader"><code>grok agent leader / --leader</code></a><a class="hook-chip use-used" href="#gk-sessions-disk"><code>Session storage</code></a><a class="hook-chip use-used" href="#gk-updates-record"><code>updates.jsonl record shape</code></a><a class="hook-chip use-used" href="#gk-signals"><code>Session summary / signals (context, mode</code></a></div>
+          <div class="hook-catalog">
+<article class="hook-card use-used" id="gk-tui">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#gk-tui"><code>Interactive TUI · grok</code></a>
+      <span class="tag t-used">Used</span>
+    </div>
+  </header>
+  <div class="hook-card-body"><p>Official primary mode: run grok in a project directory for a fullscreen mouse-capable coding TUI.</p><h5>Launch (docs)</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">command</td><td>grok [PROMPT]</td><td>Optional initial prompt</td></tr><tr><td class="m">cwd</td><td>process / --cwd</td><td>Project root</td></tr><tr><td class="m">auth</td><td>browser or XAI_API_KEY</td><td>First launch browser login</td></tr><tr><td class="m">config</td><td>~/.grok/config.toml</td><td>models, cli, ui, …</td></tr></tbody></table></div></div>
+</article>
+<article class="hook-card use-unused" id="gk-headless">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#gk-headless"><code>Headless · grok -p</code></a>
+      <span class="tag t-unused">Not used for hosting</span>
+    </div>
+  </header>
+  <div class="hook-card-body"><p>Official scripting mode. Chopsticks does not use -p for live sessions (ADR-002: no shadow print process).</p><h5>Flags (docs)</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">-p / --single</td><td>PROMPT</td><td>One-shot prompt</td></tr><tr><td class="m">-m / --model</td><td>MODEL</td><td></td></tr><tr><td class="m">-s / --session-id</td><td>ID</td><td>Create/resume named headless session</td></tr><tr><td class="m">-r / --resume</td><td>ID</td><td>Resume session</td></tr><tr><td class="m">-c / --continue</td><td>flag</td><td>Most recent session in cwd</td></tr><tr><td class="m">--cwd</td><td>PATH</td><td></td></tr><tr><td class="m">--output-format</td><td>plain|json|streaming-json</td><td>streaming-json = NDJSON events</td></tr><tr><td class="m">--always-approve</td><td>flag</td><td>Auto-approve tools</td></tr><tr><td class="m">--no-auto-update</td><td>flag</td><td>Skip background update checks</td></tr></tbody></table></div></div>
+</article>
+<article class="hook-card use-used" id="gk-acp-stdio">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#gk-acp-stdio"><code>grok agent stdio (ACP)</code></a>
+      <span class="tag t-used">Used (via connector)</span>
+    </div>
+  </header>
+  <div class="hook-card-body"><p>Official ACP entry: Grok as JSON-RPC agent on stdin/stdout. Docs state session/prompt returns completion metadata; assistant text arrives as session/update chunks.</p><h5>Documented flow</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">initialize</td><td>protocolVersion, clientCapabilities</td><td>Same ACP InitializeRequest</td></tr><tr><td class="m">authenticate</td><td>methodId</td><td>xai.api_key or cached_token</td></tr><tr><td class="m">session/new</td><td>cwd, mcpServers</td><td>Returns sessionId</td></tr><tr><td class="m">session/prompt</td><td>sessionId, prompt[]</td><td>stopReason in result; text via updates</td></tr><tr><td class="m">session/update</td><td>agent_message_chunk, …</td><td>See ACP map for full field tables</td></tr></tbody></table></div><h5>Full ACP fields</h5><p class="muted-p">Every ACP method and sessionUpdate property table: <a href="../../adapter-acp/docs/event-map.html#ground-truth">ACP Ground truth</a>.</p></div>
+</article>
+<article class="hook-card use-used" id="gk-leader">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#gk-leader"><code>grok agent leader / --leader</code></a>
+      <span class="tag t-used">Used</span>
+    </div>
+  </header>
+  <div class="hook-card-body"><p>CLI multi-client surface (from grok agent --help). Shared backend process; multiple clients attach.</p><h5>Commands / flags</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">grok agent leader</td><td>subcommand</td><td>Run shared leader process</td></tr><tr><td class="m">--leader</td><td>flag</td><td>Connect to leader instead of new agent; default from [cli] use_leader</td></tr><tr><td class="m">--no-leader</td><td>flag</td><td>Force new agent despite config</td></tr><tr><td class="m">grok agent stdio | headless | serve</td><td>subcommands</td><td>stdio ACP; headless WS relay; serve WS server</td></tr></tbody></table></div><h5>Chopsticks</h5><p class="hook-usage"><strong>Chopsticks:</strong> backend spawns one leader; TUI uses --leader; ACP client attaches to same session.</p></div>
+</article>
+<article class="hook-card use-used" id="gk-sessions-disk">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#gk-sessions-disk"><code>Session storage · ~/.grok/sessions</code></a>
+      <span class="tag t-used">Used (observer)</span>
+    </div>
+  </header>
+  <div class="hook-card-body"><p>Official: headless sessions stored under ~/.grok/sessions. Adapter-observed layout includes per-cwd session dirs and updates.jsonl.</p><h5>Official</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">root</td><td>~/.grok/sessions</td><td>Documented storage root</td></tr><tr><td class="m">session flags</td><td>--session-id, --resume, --continue</td><td>Create/resume</td></tr></tbody></table></div><h5>Adapter-observed paths</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">session dir</td><td>~/.grok/sessions/<encodeURIComponent(cwd)>/<sessionId>/</td><td>Per-cwd, per-session</td></tr><tr><td class="m">updates.jsonl</td><td>NDJSON records</td><td>ACP-shaped updates + Grok hook_execution</td></tr><tr><td class="m">GROK_HOME</td><td>env override</td><td>Defaults to ~/.grok</td></tr></tbody></table></div></div>
+</article>
+<article class="hook-card use-observer" id="gk-updates-record">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#gk-updates-record"><code>updates.jsonl record shape</code></a>
+      <span class="tag t-observer">Native observer</span>
+    </div>
+  </header>
+  <div class="hook-card-body"><p>Each line is a JSON-RPC-like record of a session update (adapter-observed, ACP-compatible discriminators).</p><h5>Record fields</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">timestamp</td><td>number | string</td><td>Wall time; may be sec or ms</td></tr><tr><td class="m">method</td><td>string</td><td>Often session/update or similar</td></tr><tr><td class="m">params.sessionId</td><td>string</td><td>Native session id</td></tr><tr><td class="m">params.update</td><td>object</td><td>sessionUpdate discriminator + payload</td></tr><tr><td class="m">params._meta</td><td>object</td><td>promptId, agentTimestampMs, …</td></tr></tbody></table></div><h5>update.sessionUpdate values we map</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">user_message_chunk</td><td>content.text, messageId, _meta.promptId</td><td>→ turn.started</td></tr><tr><td class="m">agent_message_chunk</td><td>content.text, messageId</td><td>→ assistant.message</td></tr><tr><td class="m">agent_thought_chunk</td><td>content</td><td>→ reasoning.*</td></tr><tr><td class="m">tool_call / tool_call_update</td><td>ACP tool fields</td><td>→ tool.* via shared mapper</td></tr><tr><td class="m">turn_completed</td><td>stop_reason, …</td><td>→ turn.completed + reasoning.completed</td></tr><tr><td class="m">hook_execution</td><td>event_name, reason</td><td>session_start → session.started; session_end → session.exited</td></tr></tbody></table></div></div>
+</article>
+<article class="hook-card use-observer" id="gk-signals">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#gk-signals"><code>Session summary / signals (context, model)</code></a>
+      <span class="tag t-observer">Native observer</span>
+    </div>
+  </header>
+  <div class="hook-card-body"><p>Observer also reads session side-car metadata for tokens and model (not fully published as a schema page).</p><h5>Observed signal fields</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">contextTokensUsed</td><td>number</td><td>Used tokens</td></tr><tr><td class="m">contextWindowTokens</td><td>number</td><td>Capacity</td></tr><tr><td class="m">contextWindowUsage</td><td>number</td><td>Ratio/percentage when present</td></tr><tr><td class="m">primaryModelId / current_model_id</td><td>string</td><td>Active model</td></tr><tr><td class="m">compactionCount</td><td>number</td><td>Increments on compaction → invalidation</td></tr><tr><td class="m">cwd</td><td>string</td><td>Workspace path</td></tr></tbody></table></div><h5>Chopsticks</h5><p class="hook-usage"><strong>Chopsticks:</strong> context-window.updated|invalidated; session.environment.updated.</p></div>
+</article></div>
+        </div>
+
+          <h4 id="gt-gk-acp-fields">ACP sessionUpdate fields Grok carries (official ACP schema)</h4>
+          <p class="muted-p">Grok speaks ACP; these are the update kinds that appear on the wire and/or in <code>updates.jsonl</code>. Field tables from ACP schema; “Source” notes dual-source routing.</p>
+          <div class="hook-catalog">
+
+<article class="hook-card use-used" id="gk-acp-amsg">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#gk-acp-amsg"><code>sessionUpdate: agent_message_chunk</code></a>
+      <span class="tag t-used">Log + ACP</span>
+    </div>
+  </header>
+  <div class="hook-card-body"><p>Official: a chunk of the agent's response being streamed.</p><h5>Payload</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionUpdate</td><td>string (required)</td><td>"agent_message_chunk"</td></tr><tr><td class="m">content</td><td>ContentBlock (required)</td><td>Usually {{type:"text", text}}</td></tr><tr><td class="m">messageId</td><td>MessageId | null</td><td>Same id groups chunks into one message</td></tr><tr><td class="m">_meta</td><td>object | null</td><td></td></tr></tbody></table></div><h5>Envelope</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionId</td><td>SessionId (required)</td><td>On session/update params</td></tr><tr><td class="m">update</td><td>object (required)</td><td>Above fields</td></tr></tbody></table></div><h5>Chopsticks dual-source</h5><p class="hook-usage">When observer active: taken from <strong>log</strong> only (ACP path filtered out). → assistant.message</p></div>
+</article>
+
+<article class="hook-card use-used" id="gk-acp-umsg">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#gk-acp-umsg"><code>sessionUpdate: user_message_chunk</code></a>
+      <span class="tag t-used">Log (TUI turns)</span>
+    </div>
+  </header>
+  <div class="hook-card-body"><p>Official: a chunk of the user's message being streamed.</p><h5>Payload</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionUpdate</td><td>string (required)</td><td>"user_message_chunk"</td></tr><tr><td class="m">content</td><td>ContentBlock (required)</td><td>User text</td></tr><tr><td class="m">messageId</td><td>MessageId | null</td><td></td></tr><tr><td class="m">_meta.promptId</td><td>string (Grok)</td><td>Observed correlation on disk records</td></tr></tbody></table></div><h5>Chopsticks</h5><p class="hook-usage">From <strong>log</strong> → turn.started (makes TUI-typed turns visible). Plain ACP driver would drop this.</p></div>
+</article>
+
+<article class="hook-card use-used" id="gk-acp-thought">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#gk-acp-thought"><code>sessionUpdate: agent_thought_chunk</code></a>
+      <span class="tag t-used">Log</span>
+    </div>
+  </header>
+  <div class="hook-card-body"><p>Official: agent internal reasoning chunk.</p><h5>Payload</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionUpdate</td><td>string (required)</td><td>"agent_thought_chunk"</td></tr><tr><td class="m">content</td><td>ContentBlock (required)</td><td></td></tr><tr><td class="m">messageId</td><td>MessageId | null</td><td></td></tr></tbody></table></div><h5>Chopsticks</h5><p class="hook-usage">Log → reasoning.started / progress</p></div>
+</article>
+
+<article class="hook-card use-used" id="gk-acp-tool">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#gk-acp-tool"><code>sessionUpdate: tool_call / tool_call_update</code></a>
+      <span class="tag t-used">Log</span>
+    </div>
+  </header>
+  <div class="hook-card-body"><p>Official tool_call and tool_call_update field sets (ACP tool-calls).</p><h5>tool_call fields</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">toolCallId</td><td>ToolCallId (required)</td><td></td></tr><tr><td class="m">title</td><td>string (required)</td><td></td></tr><tr><td class="m">kind</td><td>ToolKind</td><td>read|edit|delete|move|search|execute|think|fetch|other</td></tr><tr><td class="m">status</td><td>ToolCallStatus</td><td>pending|in_progress|completed|failed</td></tr><tr><td class="m">content</td><td>ToolCallContent[]</td><td></td></tr><tr><td class="m">locations</td><td>ToolCallLocation[]</td><td>path + optional line</td></tr><tr><td class="m">rawInput / rawOutput</td><td>object</td><td></td></tr></tbody></table></div><h5>tool_call_update</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">toolCallId</td><td>ToolCallId (required)</td><td></td></tr><tr><td class="m">status / title / kind / content / rawInput / rawOutput</td><td>optional partial</td><td>All optional except id</td></tr></tbody></table></div><h5>Chopsticks</h5><p class="hook-usage">Log owns tools when observer active; shared ACP semantic mapper → tool.started/completed/failed</p></div>
+</article>
+
+<article class="hook-card use-used" id="gk-acp-usage">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#gk-acp-usage"><code>sessionUpdate: usage_update</code></a>
+      <span class="tag t-used">ACP allowlist</span>
+    </div>
+  </header>
+  <div class="hook-card-body"><p>Official: context window and cost update.</p><h5>Payload</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">used</td><td>number (required)</td><td>Tokens used in current context</td></tr><tr><td class="m">size</td><td>number (required)</td><td>Effective capacity</td></tr><tr><td class="m">cost</td><td>Cost | null</td><td>{{ amount, currency }} optional</td></tr></tbody></table></div><h5>Chopsticks</h5><p class="hook-usage">Allowlisted from <strong>ACP</strong> when observer runs → context-window.updated. Native log also recovers invalidation.</p></div>
+</article>
+
+<article class="hook-card use-used" id="gk-acp-perm">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#gk-acp-perm"><code>session/request_permission</code></a>
+      <span class="tag t-used">ACP allowlist</span>
+    </div>
+  </header>
+  <div class="hook-card-body"><p>Official Agent→Client permission request (not a sessionUpdate; JSON-RPC request).</p><h5>Input</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionId</td><td>SessionId (required)</td><td></td></tr><tr><td class="m">toolCall</td><td>ToolCallUpdate (required)</td><td></td></tr><tr><td class="m">options</td><td>PermissionOption[] (required)</td><td>optionId, name, kind allow_once|allow_always|reject_once|reject_always</td></tr></tbody></table></div><h5>Output</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">outcome</td><td>RequestPermissionOutcome</td><td>selected+optionId or cancelled</td></tr></tbody></table></div><h5>Chopsticks</h5><p class="hook-usage">Allowlisted from ACP → permission.requested / .resolved; onApproval default deny</p></div>
+</article>
+
+<article class="hook-card use-used" id="gk-acp-prompt">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#gk-acp-prompt"><code>session/prompt (control path)</code></a>
+      <span class="tag t-used">ACP control</span>
+    </div>
+  </header>
+  <div class="hook-card-body"><p>Official full prompt turn. Grok docs: result is completion metadata; text streams as updates.</p><h5>Input</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionId</td><td>SessionId (required)</td><td></td></tr><tr><td class="m">prompt</td><td>ContentBlock[] (required)</td><td>User content</td></tr></tbody></table></div><h5>Output</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">stopReason</td><td>StopReason (required)</td><td>end_turn|max_tokens|max_turn_requests|refusal|cancelled</td></tr></tbody></table></div><h5>Chopsticks</h5><p class="hook-usage">Used for host-side structured injection. Turn framing for TUI work comes from the log instead.</p></div>
+</article>
+
+<article class="hook-card use-observer" id="gk-hook-exec">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#gk-hook-exec"><code>hook_execution (Grok log)</code></a>
+      <span class="tag t-observer">Native only</span>
+    </div>
+  </header>
+  <div class="hook-card-body"><p>Grok-specific record in updates.jsonl (not an ACP method). Lifecycle hooks embedded in the session stream.</p><h5>Observed fields</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionUpdate</td><td>"hook_execution"</td><td></td></tr><tr><td class="m">event_name</td><td>string</td><td>session_start | session_end | …</td></tr><tr><td class="m">reason</td><td>string?</td><td>On session_end</td></tr></tbody></table></div><h5>Chopsticks</h5><p class="hook-usage">session_start → session.started; session_end → session.exited (Grok is the only ACP-family adapter emitting real session.exited)</p></div>
+</article>
+
+<article class="hook-card use-observer" id="gk-turn-completed">
+  <header class="hook-card-h">
+    <div class="hook-card-title">
+      <a class="hook-anchor" href="#gk-turn-completed"><code>turn_completed (Grok log)</code></a>
+      <span class="tag t-observer">Native only</span>
+    </div>
+  </header>
+  <div class="hook-card-body"><p>Grok-persisted turn boundary in the log (ACP v1 ends turns via prompt response instead).</p><h5>Observed fields</h5><div class="scroll"><table class="def-table"><thead><tr><th>Field</th><th>Type / shape</th><th>Notes</th></tr></thead><tbody><tr><td class="m">sessionUpdate</td><td>"turn_completed"</td><td></td></tr><tr><td class="m">stop_reason</td><td>string?</td><td>Stop-like reason when present</td></tr><tr><td class="m">_meta.promptId</td><td>string?</td><td>Turn correlation</td></tr></tbody></table></div><h5>Chopsticks</h5><p class="hook-usage">→ reasoning.completed + turn.completed</p></div>
+</article>
+          </div>
+
+        <div class="gt-part" id="gt-ours">
+          <div class="gt-part-head part-ours">
+            <span class="part-num">2</span>
+            <div>
+              <h3>How chopsticks uses this surface</h3>
+              <p><code>backend.ts</code> · <code>session-observer.ts</code> · ACP package</p>
+            </div>
+          </div>
+          <pre class="flow">createGrokBackend → grok agent leader
+  → host TUI: grok --leader
+  → createAcpSession (stdio/control to leader session)
+  → GrokSessionObserver(updates.jsonl)
+  → observer active ⇒ ACP allowlist only:
+      permission.* · context-window.* · session.environment.updated
+  → log owns turns/tools/messages/lifecycle
+  → observationLevel: native-log</pre>
+          <div class="scroll"><table class="def-table">
+            <thead><tr><th>Source field</th><th>AgentEvent</th></tr></thead>
+            <tbody>
+              <tr><td class="m">hook_execution session_start</td><td class="m">session.started</td></tr>
+              <tr><td class="m">hook_execution session_end</td><td class="m">session.exited</td></tr>
+              <tr><td class="m">user_message_chunk</td><td class="m">turn.started (TUI-visible)</td></tr>
+              <tr><td class="m">agent_message_chunk</td><td class="m">assistant.message</td></tr>
+              <tr><td class="m">agent_thought_chunk</td><td class="m">reasoning.*</td></tr>
+              <tr><td class="m">tool_call*</td><td class="m">tool.*</td></tr>
+              <tr><td class="m">turn_completed</td><td class="m">turn.completed</td></tr>
+              <tr><td class="m">token / compaction signals</td><td class="m">context-window.updated|invalidated</td></tr>
+              <tr><td class="m">ACP permission (allowlist)</td><td class="m">permission.requested|resolved</td></tr>
+              <tr><td class="m">ACP usage (allowlist)</td><td class="m">context-window.updated</td></tr>
+              <tr><td class="m">leader exit</td><td class="m">process.exited</td></tr>
+            </tbody>
+          </table></div>
+        </div>
+      </section>
+
+
+
+      <div class="note">
+        <strong>Read the ACP map first.</strong> Everything in it applies here: <code>agent_message_chunk</code>,
+        <code>agent_thought_chunk</code> → <code>reasoning.started</code>, <code>tool_call</code> /
+        <code>tool_call_update</code>, <code>usage_update</code>, plus driver-derived turn boundaries and permissions.
+        This page covers only what Grok adds on top.
+      </div>
+
+      <style>
+        .diagrams { margin: 26px 0 10px; }
+        .diagram { margin: 0 0 22px; padding: 16px 14px 10px; border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; }
+        .diagram > h3 { margin: 0 0 12px; font-size: 12px; font-weight: 700; letter-spacing: 0.05em;
+          text-transform: uppercase; color: var(--muted); }
+        .mermaid { display: flex; justify-content: center; min-width: 0; }
+      </style>
+
+      <h2>State machines</h2>
+      <div class="diagrams">
+        <div class="diagram">
+          <h3>Two sources, one authority each</h3>
+          <pre class="mermaid">
+flowchart LR
+  LOG["native session log<br/>(GrokSessionObserver)"] --> OWN1["session.started / .exited<br/>turn.started / .completed<br/>assistant.message<br/>reasoning.completed<br/>context-window.*"]
+  ACP["ACP driver + normalizer"] --> GATE{"observer active?"}
+  GATE -->|"yes — allowlist"| OWN2["permission.requested / .resolved<br/>context-window.updated / .invalidated<br/>session.environment.updated"]
+  GATE -->|"no"| FULL["full ACP stream"]
+  OWN1 --> RED["reduceSessionState"]
+  OWN2 --> RED
+  FULL --> RED
+  RED --> CLS{"classifyAgentStatus"}
+  CLS --> VIS["idle · working · waiting"]
+  CLS -.-> DROP["dropped"]
+  VIS --> SW["swarm"]
+  VIS --> LI["list"]
+  VIS --> RA["rain"]
+          </pre>
+        </div>
+
+        <div class="diagram">
+          <h3>Lifecycle — the widest coverage of any adapter</h3>
+          <pre class="mermaid">
+stateDiagram-v2
+  direction LR
+  [*] --> preparing
+  preparing --> ready : session started / leader ready
+  ready --> running : turn observed in the native log
+  running --> ready : response finished
+  ready --> exited : session ended OR leader exits
+  running --> exited : session ended OR leader exits
+  ready --> failed : leader exits non-zero
+  exited --> [*]
+  failed --> [*]
+  note right of running
+    Reached for TUI-typed turns too, because
+    the log is watched rather than our own
+    calls — the gap plain ACP has.
+  end note
+          </pre>
+        </div>
+
+        <div class="diagram">
+          <h3>Visual status</h3>
+          <pre class="mermaid">
+stateDiagram-v2
+  direction LR
+  [*] --> working : registered, no state yet
+  working --> waiting : ACP permission request
+  waiting --> working : permission answered
+  working --> idle : response finished, tools empty
+  idle --> working : observed turn · tool_call · agent_thought_chunk
+  idle --> waiting : ACP permission request
+  working --> dropped : session.exited / process.exited
+  idle --> dropped : session.exited / process.exited
+  waiting --> dropped : session.exited / process.exited
+  dropped --> [*]
+          </pre>
+        </div>
+      </div>
+      <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+          startOnLoad: true,
+          theme: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'neutral',
+        });
+      </script>
+
+      <h2>Tracked: Grok's own session observer</h2>
+      <p>
+        This is the layer that makes Grok different. It watches the native session rather than our own calls, so it can
+        see turns the user starts by typing into the TUI — the exact thing the ACP driver alone is blind to.
+      </p>
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr><th>Native signal</th><th>Normalized AgentEvent</th><th>Runtime state fold</th><th>Visual status</th><th>What you see</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="m">session started</td><td class="m">session.started</td>
+              <td>lifecycle → <code>ready</code></td>
+              <td><span class="tag t-live">idle</span></td>
+              <td>bubble appears</td>
+            </tr>
+            <tr>
+              <td class="m">session ended</td><td class="m">session.exited</td>
+              <td>lifecycle → <code>exited</code></td>
+              <td><span class="tag t-dead">dropped</span></td>
+              <td>disappears from every view. <strong>Grok is the only ACP-family adapter that reports this</strong> rather than relying on process exit</td>
+            </tr>
+            <tr>
+              <td class="m">user prompt observed</td><td class="m">turn.started</td>
+              <td>lifecycle → <code>running</code>; activeTurn</td>
+              <td><span class="tag t-live">working</span></td>
+              <td>ignites even for a prompt typed directly into the TUI</td>
+            </tr>
+            <tr>
+              <td class="m">assistant response</td><td class="m">assistant.message</td>
+              <td>lastAssistantMessage</td>
+              <td><span class="tag t-dead">none</span></td>
+              <td><strong>nothing</strong> — no view reads it</td>
+            </tr>
+            <tr>
+              <td class="m">response finished</td><td class="m">reasoning.completed<br />turn.completed</td>
+              <td>activeReasoning + activeTurn cleared</td>
+              <td><span class="tag t-live">idle</span></td>
+              <td>stops igniting</td>
+            </tr>
+            <tr>
+              <td class="m">token accounting</td><td class="m">context-window.updated</td>
+              <td>contextWindow</td>
+              <td><span class="tag t-dead">none</span></td>
+              <td>CTX badge, bubble fill height, rain tail length</td>
+            </tr>
+            <tr>
+              <td class="m">compaction</td><td class="m">context-window.invalidated</td>
+              <td>contextWindow cleared</td>
+              <td><span class="tag t-dead">none</span></td>
+              <td>CTX drops to <code>--%</code>. <strong>ACP alone never does this</strong> — Grok recovers the signal</td>
+            </tr>
+            <tr>
+              <td class="m">model / cwd change</td><td class="m">session.environment.updated</td>
+              <td>environment.model / currentCwd</td>
+              <td><span class="tag t-dead">none</span></td>
+              <td>model and project labels</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2>Tracked: backend / leader lifecycle</h2>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Trigger</th><th>Normalized</th><th>Fold</th><th>Visual status</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="m">leader ready</td><td class="m">session.ready</td>
+              <td>lifecycle → <code>ready</code></td><td><span class="tag t-live">idle</span></td>
+            </tr>
+            <tr>
+              <td class="m">leader process exits</td><td class="m">process.exited</td>
+              <td>lifecycle → <code>exited</code> | <code>failed</code></td><td><span class="tag t-dead">dropped</span></td>
+            </tr>
+            <tr>
+              <td class="m">unrecognized leader traffic</td><td class="m">adapter.native-event</td>
+              <td>counters.unknownEvents++</td><td><span class="tag t-dead">none</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2>Do the two sources double-count? No — verified</h2>
+      <p>
+        Both sources could describe the same turn: the ACP driver emits <code>turn.started</code> when <strong>we</strong>
+        call <code>prompt()</code>, and the observer emits one when it sees <strong>a</strong> prompt land, including
+        ours. They do not collide, because <code>backend.ts:263</code> filters the ACP stream to an explicit allowlist
+        whenever the observer is running:
+      </p>
+      <p>
+        <code class="m">permission.requested</code> · <code class="m">permission.resolved</code> ·
+        <code class="m">context-window.updated</code> · <code class="m">context-window.invalidated</code> ·
+        <code class="m">session.environment.updated</code>
+      </p>
+      <p>
+        Everything else from ACP — <code>turn.*</code>, <code>assistant.message</code>, <code>tool.*</code>,
+        <code>reasoning.*</code> — is dropped before it reaches the reducer. The split is stated in the code itself:
+        <em>“the native log owns TUI conversation and lifecycle. ACP remains the live authority for host-side permissions
+        and standard context usage.”</em> The observation level moves to <code>native-log</code> to match.
+      </p>
+      <p>
+        The Claude adapter resolves the same way and is documented on its own page: the live transcript path keeps only
+        assistant records, and <code>turn.*</code> is projected solely on resume under <code>replay: true</code>. Neither
+        adapter double-counts, and neither needed a live session to prove it.
+      </p>
+
+      <h2>Coverage relative to the union</h2>
+      <p>
+        Grok has the widest coverage of any adapter, because it is ACP <em>plus</em> a native observer: it is the only
+        one to reach both <code>session.exited</code> and <code>process.exited</code>, and it recovers
+        <code>context-window.invalidated</code>, which plain ACP lacks.
+      </p>
+      <p>
+        <strong>Union members never produced:</strong> <code class="m">reasoning.summary</code> ·
+        <code class="m">tool.requested</code> · <code class="m">subagent.started</code> ·
+        <code class="m">subagent.stopped</code> · <code class="m">task.created</code> ·
+        <code class="m">task.completed</code> · <code class="m">process.started</code> ·
+        <code class="m">workspace.changed</code> · <code class="m">notification</code>.
+      </p>
+
+      <footer>
+        Verify with <code>src/backend.ts</code> · <code>src/session-observer.ts</code> · the ACP map.
+      </footer>
+    </main>
+  </body>
+</html>

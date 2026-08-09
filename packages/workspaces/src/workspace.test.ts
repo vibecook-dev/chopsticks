@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -16,6 +16,23 @@ async function makeRepo(): Promise<string> {
 }
 
 const workspacesRoot = () => mkdtempSync(join(tmpdir(), 'ws-root-'));
+
+/**
+ * Windows only permits symlink creation under Developer Mode or elevation.
+ * Probe the capability instead of skipping the platform outright, so an
+ * elevated Windows shell still exercises the canonicalization contract.
+ */
+const canSymlink = ((): boolean => {
+  const probe = mkdtempSync(join(tmpdir(), 'ws-symlink-probe-'));
+  try {
+    symlinkSync(join(probe, 'target'), join(probe, 'link'));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(probe, { recursive: true, force: true });
+  }
+})();
 
 describe('worktree mode', () => {
   it('materializes an isolated worktree; writes never reach the source tree', async () => {
@@ -122,7 +139,13 @@ describe('in-place modes', () => {
     writeFileSync(join(repo, 'already-dirty.txt'), 'x\n');
 
     const ws = await createWorkspace({ path: repo, mode });
-    expect(ws.root).toBe(realpathSync(repo));
+    // `.native`, because the two sides canonicalize differently on Windows and
+    // only the OS call settles it: a workspace root comes from
+    // `git rev-parse --show-toplevel`, and git expands 8.3 short names, while
+    // node's JS `realpathSync` preserves whatever `TMP` held. On a runner whose
+    // TMP is `C:\Users\RUNNER~1\…` that is two spellings of one directory, and
+    // the comparison failed on the spelling rather than on the path.
+    expect(ws.root).toBe(realpathSync.native(repo));
     expect(ws.mode).toBe(mode);
     expect(ws.initialDirtyFiles).toEqual(['already-dirty.txt']);
 
@@ -131,7 +154,7 @@ describe('in-place modes', () => {
     expect(existsSync(repo)).toBe(true);
   });
 
-  it('canonicalizes symlinks and repository subdirectories to one identity', async () => {
+  it.skipIf(!canSymlink)('canonicalizes symlinks and repository subdirectories to one identity', async () => {
     const repo = await makeRepo();
     const subdir = join(repo, 'nested');
     mkdirSync(subdir);

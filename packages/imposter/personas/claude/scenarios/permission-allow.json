@@ -1,0 +1,55 @@
+{
+  "name": "permission-allow",
+  "steps": [
+    {
+      "at": 0,
+      "do": {
+        "emit": {
+          "event": "PermissionRequest",
+          "with": {
+            "prompt_id": "$uuid:prompt",
+            "tool_name": "Bash",
+            "tool_input": { "command": "echo allowed" },
+            "permission_suggestions": [],
+            "effort": { "level": "xhigh" },
+            "permission_mode": "$permissionMode"
+          }
+        }
+      }
+    },
+    {
+      "at": 100,
+      "do": {
+        "emit": {
+          "event": "PreToolUse",
+          "with": {
+            "prompt_id": "$uuid:prompt",
+            "tool_name": "Bash",
+            "tool_input": { "command": "echo allowed" },
+            "tool_use_id": "$uuid:tool",
+            "effort": { "level": "xhigh" },
+            "permission_mode": "$permissionMode"
+          }
+        }
+      }
+    },
+    {
+      "at": 200,
+      "do": {
+        "emit": {
+          "event": "PostToolUse",
+          "with": {
+            "prompt_id": "$uuid:prompt",
+            "tool_name": "Bash",
+            "tool_input": { "command": "echo allowed" },
+            "tool_response": { "output": "allowed" },
+            "tool_use_id": "$uuid:tool",
+            "duration_ms": 25,
+            "effort": { "level": "xhigh" },
+            "permission_mode": "$permissionMode"
+          }
+        }
+      }
+    }
+  ]
+}

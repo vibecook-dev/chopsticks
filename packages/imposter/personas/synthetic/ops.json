@@ -1,0 +1,18 @@
+{
+  "session.start": [{ "channel": "hook", "event": "agent.boot", "with": { "label": "$sessionTitle" } }],
+  "session.ready": [{ "channel": "hook", "event": "agent.boot", "with": { "label": "ready" } }],
+  "session.end": [{ "channel": "hook", "event": "agent.halt", "with": { "why": "$op.reason" } }],
+  "turn.start": [
+    { "channel": "hook", "event": "agent.prompt", "with": { "utterance": "$op.text" } },
+    { "channel": "transcript", "with": { "role": "user", "said": "$op.text", "at": "$now" } }
+  ],
+  "assistant.delta": [
+    { "channel": "hook", "event": "agent.reply", "with": { "utterance": "$op.text", "turn": "$op.turnId" } },
+    { "channel": "transcript", "with": { "role": "agent", "said": "$op.text", "at": "$now" } }
+  ],
+  "tool.start": [
+    { "channel": "hook", "event": "agent.action", "with": { "action": "$op.tool", "ref": "$op.toolId", "args": "$op.input" } }
+  ],
+  "tool.end": [{ "channel": "hook", "event": "agent.action", "with": { "action": "$op.tool", "ref": "$op.toolId" } }],
+  "turn.end": [{ "channel": "hook", "event": "agent.settled", "with": { "turn": "$op.turnId" } }]
+}

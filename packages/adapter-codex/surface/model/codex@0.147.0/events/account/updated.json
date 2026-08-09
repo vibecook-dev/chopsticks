@@ -1,0 +1,15 @@
+{
+  "surface": "codex",
+  "surfaceVersion": "0.147.0",
+  "event": "account/updated",
+  "channel": "appserver",
+  "transport": "jsonrpc-notification",
+  "payloadSchema": {
+    "type": "object",
+    "properties": {
+      "authMode": {},
+      "planType": {}
+    }
+  },
+  "confidence": "unverified"
+}

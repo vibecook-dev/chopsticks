@@ -1,0 +1,10 @@
+{
+  "name": "permission-allow",
+  "then": [
+    { "at": 0, "do": { "emit": { "event": "turn/started", "with": { "threadId": "$threadId", "turn": { "id": "$uuid:turn", "status": "inProgress" } } } } },
+    { "at": 20, "do": { "emit": { "event": "item/started", "with": { "threadId": "$threadId", "turnId": "$uuid:turn", "startedAtMs": "$nowMs", "item": { "type": "commandExecution", "id": "$uuid:item", "command": "curl -s https://example.com", "cwd": "$threadCwd", "status": "inProgress" } } } } },
+    { "at": 40, "do": { "emit": { "request": true, "event": "item/commandExecution/requestApproval", "with": { "threadId": "$threadId", "turnId": "$uuid:turn", "itemId": "$uuid:item", "startedAtMs": "$nowMs", "command": "curl -s https://example.com", "cwd": "$threadCwd", "availableDecisions": ["accept", "cancel"] } } } },
+    { "at": 60, "do": { "emit": { "event": "item/completed", "with": { "threadId": "$threadId", "turnId": "$uuid:turn", "completedAtMs": "$nowMs", "item": { "type": "commandExecution", "id": "$uuid:item", "command": "curl -s https://example.com", "cwd": "$threadCwd", "status": "completed", "exitCode": 0, "aggregatedOutput": "<html/>" } } } } },
+    { "at": 80, "do": { "emit": { "event": "turn/completed", "with": { "threadId": "$threadId", "turn": { "id": "$uuid:turn", "status": "completed", "error": null } } } } }
+  ]
+}
