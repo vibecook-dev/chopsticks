@@ -653,3 +653,15 @@ While fixing the second, the prompt line gained the minimum a real terminal need
 **Verified in a pane:** `ai --claude` → adopted as claude → prompt → `lastAssistantMessage: "imposter: ok"`, lifecycle back to `ready`, eleven native events observed by the real adapter.
 
 **Known gap.** `conversationSnapshot().items` stays empty for an imposted claude session, so a chat panel fed by the conversation projection shows nothing even though the reducer sees the whole turn. The transcript records the imposter writes are correctly claude-shaped and the adapter watches the path the hook envelope gives it, so the cause is further in than this work reached. Pre-existing, and unrelated to §11's three changes.
+
+### 11.4 Known gap: the control channel is unverified on Windows
+
+`apps/emulator`'s two spawn-based suites are skipped on Windows, and this records why rather than leaving a bare `skipIf` for someone to find.
+
+A spawned `ai` never dials into the plane there. The wait expired identically at 5 s and at 15 s across four CI rounds, so it is not slowness — the join does not happen at all. The plane takes a **named pipe** on Windows instead of a socket path (`control/protocol.ts` `defaultSocketPath`), and that path has never been observed working; it was written from the platform's documentation and shipped green because only POSIX ever ran it.
+
+What is still covered on Windows: `plane.test.ts`, which exercises the plane's HTTP surface and its socket server in-process, over a named pipe. What is not: a separately spawned imposter finding that pipe and completing `session.hello`. So the untested seam is narrow and named — dialing, not serving.
+
+The alternative was deleting the Windows job, which would have taken godview's and workbench's Windows coverage with it to hide one app's gap. Skipping two suites states the limitation; deleting the job would have concealed it.
+
+**To close it**, the first thing to check is whether the imposter's `connectControl` reaches `createConnection({ path })` with the pipe name intact — `CHOPSTICKS_IMPOSTER_SOCKET` crosses a process boundary as an environment variable, and a `\\.\pipe\…` value survives that differently than a filesystem path does.

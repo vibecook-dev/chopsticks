@@ -1,22 +1,25 @@
 import { defineConfig } from 'vitest/config';
 
 /**
- * The first vitest config in this repo, and it exists for one reason.
+ * The first vitest config in this repo, and it exists for one reason: most
+ * suites here are pure, and this package's are not. Conformance spawns `ai` as
+ * a real process and drives it through a real adapter.
  *
- * Most suites here are pure. This package's are not: conformance spawns `ai`
- * as a real process and drives it through a real adapter, and those tests wait
- * up to 8 s internally for a turn to complete. Vitest's default `testTimeout`
- * is 5 s — SHORTER than the deadline the tests set for themselves — so under
- * any load the runner killed the test first and reported "Test timed out in
- * 5000ms" instead of the honest "timed out waiting for turn.completed".
+ * `testTimeout` is 20 s because vitest's default 5 s is SHORTER than the waits
+ * the tests set for themselves, so the runner killed them first and reported
+ * "Test timed out in 5000ms" instead of naming the milestone that was missed.
  *
- * That is worse than a slow test: it hides which wait failed. Locally these
- * finish in ~300 ms and never came close; the first CI run on a loaded runner
- * found it immediately (2026-08-08).
+ * `fileParallelism: false` because raising the deadline was not enough: a
+ * 15 s wait for `session.started` still expired on a two-core runner, which is
+ * not slowness, it is contention. Several suites spawning node processes at
+ * once starve each other, and node's type stripping means every spawn compiles
+ * the source tree afresh. Serial is both honest about what these tests are and,
+ * under contention, faster than thrashing.
  */
 export default defineConfig({
   test: {
     testTimeout: 20_000,
     hookTimeout: 20_000,
+    fileParallelism: false,
   },
 });
