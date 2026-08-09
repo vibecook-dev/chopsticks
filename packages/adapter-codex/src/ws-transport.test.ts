@@ -18,7 +18,19 @@ function frame(opcode: number, payload: Buffer, options: { fin?: boolean; masked
   return Buffer.concat([Buffer.from([first, 0x80 | payload.length]), mask, masked]);
 }
 
-describe('createUnixWebSocketTapProxy', () => {
+/**
+ * Both suites here stand up a real Unix domain socket at a filesystem path,
+ * which is the transport codex's app-server actually uses (`--listen unix://`).
+ *
+ * Windows cannot do that: node maps `server.listen(path)` onto a NAMED PIPE, so
+ * a `…\\*.sock` path is `EACCES` by construction rather than by permissions.
+ * Skipped rather than reworked, because a named-pipe variant would be testing a
+ * transport the adapter does not speak — the real limitation is that codex
+ * sessions need a UDS, and pretending otherwise in a test would hide it.
+ */
+const posix = process.platform !== 'win32';
+
+describe.skipIf(!posix)('createUnixWebSocketTapProxy', () => {
   it('forwards bytes unchanged while observing a masked TUI thread/resume request', async () => {
     const upstreamPath = join(realpathSync(tmpdir()), `cx-up-${process.pid}.sock`);
     const upstreamBytes: Buffer[] = [];
@@ -54,7 +66,7 @@ describe('createUnixWebSocketTapProxy', () => {
   });
 });
 
-describe('wsOverUnixTransport', () => {
+describe.skipIf(!posix)('wsOverUnixTransport', () => {
   it('reassembles fragmented app-server responses before parsing JSON', async () => {
     const socketPath = join(realpathSync(tmpdir()), `cx-fragmented-${process.pid}.sock`);
     const message = JSON.stringify({ jsonrpc: '2.0', id: 7, result: { ok: true } });

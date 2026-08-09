@@ -41,7 +41,11 @@ export function controlPaths(): ControlPaths {
 export async function waitFor(
   predicate: () => boolean | Promise<boolean>,
   label: string,
-  timeoutMs = 5000,
+  // Generous because the thing being waited for is a spawned `ai` joining over
+  // a socket, and Windows process start is several times slower than POSIX —
+  // 5 s held on Linux and lost there (2026-08-09). Kept under the suite's
+  // 20 s testTimeout so THIS deadline fires first and names what it waited for.
+  timeoutMs = 15000,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
