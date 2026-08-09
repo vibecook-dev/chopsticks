@@ -1,6 +1,6 @@
 {
   "name": "@vibecook/chopsticks-surface",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "type": "module",
   "description": "Agent Surface Model (ASM) runtime: load, validate, report on, and diff the captured surface of a coding agent (draft/EMULATOR.md §2, §7).",
   "license": "MIT",
