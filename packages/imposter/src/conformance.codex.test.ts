@@ -47,8 +47,18 @@ async function reap(child: ChildProcess): Promise<void> {
   });
 }
 
-const removeDirectory = (path: string): void =>
-  rmSync(path, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
+const removeDirectory = (path: string): void => {
+  try {
+    rmSync(path, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
+  } catch (error) {
+    // Windows can hold a directory handle open after the process that owned it
+    // is gone, and the adapter spawns processes this file never sees. A leaked
+    // temp directory is the OS's problem; failing a test that already made its
+    // assertions, over cleanup, would be reporting the wrong thing.
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== 'EBUSY' && code !== 'ENOTEMPTY' && code !== 'EPERM') throw error;
+  }
+};
 
 afterEach(async () => {
   await session?.dispose().catch(() => undefined);

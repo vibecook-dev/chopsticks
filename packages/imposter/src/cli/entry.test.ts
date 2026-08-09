@@ -30,8 +30,11 @@ describe('reaching `ai`', () => {
       bin: Record<string, string>;
     };
     expect(manifest.bin).toEqual({ ai: './bin/ai.mjs', imposter: './bin/ai.mjs' });
-    // A bin the manager symlinks has to be executable on the other side of it.
-    expect(lstatSync(AI).mode & 0o111).toBeGreaterThan(0);
+    // A bin the manager symlinks has to be executable on the other side of it
+    // — on POSIX. Windows has no execute bit at all (`mode & 0o111` is always
+    // 0 there); npm and pnpm write `.cmd` shims instead, so there is nothing
+    // equivalent to assert.
+    if (process.platform !== 'win32') expect(lstatSync(AI).mode & 0o111).toBeGreaterThan(0);
   });
 
   it.skipIf(process.platform === 'win32')('answers to a vendor name through a hand-made symlink', () => {
