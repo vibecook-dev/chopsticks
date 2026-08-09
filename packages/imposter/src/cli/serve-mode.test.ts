@@ -18,10 +18,29 @@ const AI = join(dirname(dirname(dirname(fileURLToPath(import.meta.url)))), 'bin'
 const children = new Set<ChildProcess>();
 const temporaries = new Set<string>();
 
-afterEach(() => {
-  for (const child of children) child.kill('SIGKILL');
+/**
+ * Windows refuses to remove a directory that is a live process's cwd, and
+ * `kill()` returns before the process is actually gone — so tearing down a
+ * spawned `ai` and deleting its cwd in the same tick raced, and CI reported
+ * `EBUSY: rmdir` (2026-08-09). Wait for the exit, then retry the removal.
+ */
+async function reap(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  child.kill('SIGKILL');
+  await new Promise<void>((resolve) => {
+    const done = (): void => resolve();
+    child.once('exit', done);
+    setTimeout(done, 2000).unref?.();
+  });
+}
+
+const removeDirectory = (path: string): void =>
+  rmSync(path, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
+
+afterEach(async () => {
+  await Promise.all([...children].map(reap));
   children.clear();
-  for (const path of temporaries) rmSync(path, { recursive: true, force: true });
+  for (const path of temporaries) removeDirectory(path);
   temporaries.clear();
 });
 
@@ -50,7 +69,12 @@ function start(args: string[]): Run {
   return { child, stdout: () => out, stderr: () => err };
 }
 
-async function waitFor(predicate: () => boolean, label: string, timeoutMs = 8000): Promise<void> {
+// 15 s, not 5 or 8: what these wait for is a spawned `ai` reaching a milestone
+// through a real adapter, and a CI runner executing several package suites at
+// once is far slower than a laptop doing one. Kept UNDER the suite's 20 s
+// testTimeout on purpose, so this deadline fires first and says which milestone
+// was missed rather than leaving vitest to report a bare timeout (2026-08-09).
+async function waitFor(predicate: () => boolean, label: string, timeoutMs = 15000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (predicate()) return;
