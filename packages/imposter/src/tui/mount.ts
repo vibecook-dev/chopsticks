@@ -94,6 +94,13 @@ export async function createPresentation(options: PresentationOptions): Promise<
       // (§4.1.1); `patchConsole` would swallow the debug log.
       exitOnCtrlC: false,
       patchConsole: false,
+      // Ink's own detection is `!isInCi && stdout.isTTY`, and `is-in-ci` is
+      // just `CI` or `CONTINUOUS_INTEGRATION` being set. We only get here after
+      // checking BOTH ends are real terminals, so we know better than the
+      // guess: without this, an imposter run inside anything that exports CI —
+      // a container, a CI shell, plenty of dev environments — would paint one
+      // frame at exit and look frozen for the whole session.
+      interactive: true,
     },
   );
 

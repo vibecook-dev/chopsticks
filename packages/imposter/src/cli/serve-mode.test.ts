@@ -67,8 +67,12 @@ describe('ai --codex', () => {
     // A prompt still drives the shared op timeline — the ops run, they simply
     // reach no wire, which is what makes this a preview rather than a session.
     run.child.stdin!.write('\x1b[200~summarise the repo\x1b[201~\r');
-    await waitFor(() => run.stdout().includes('turn.start'), 'op frames');
-    expect(run.stdout()).toContain('turn.end');
+    // Wait for the LAST op, not the first. `turn.start` and `turn.end` are
+    // separate writes; asserting the second the moment the first appears is a
+    // race that only loses under load — it passed alone and failed in a full
+    // parallel run (2026-08-08).
+    await waitFor(() => run.stdout().includes('turn.end'), 'the whole turn');
+    expect(run.stdout()).toContain('turn.start');
 
     // The decisive assertion: not one line of this is JSON-RPC. If serving were
     // still keyed off the persona, every line here would be protocol.

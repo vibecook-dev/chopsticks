@@ -47,8 +47,6 @@ async function renderApp(columns = 90, rows = 20): Promise<Rendered> {
   const stdout = new PassThrough() as PassThrough & { columns: number; rows: number; isTTY: boolean };
   stdout.columns = columns;
   stdout.rows = rows;
-  // Without this Ink takes its non-interactive path and writes one frame at
-  // unmount, so every intermediate state would be invisible here.
   stdout.isTTY = true;
   let text = '';
   stdout.on('data', (chunk: Buffer) => void (text += chunk.toString()));
@@ -56,7 +54,16 @@ async function renderApp(columns = 90, rows = 20): Promise<Rendered> {
   const store = createTuiStore(['hook', 'transcript']);
   const instance = render(
     createElement(ImposterApp, { vendor: 'claude', version: '2.1.207', sessionId: 'abcdef1234567890', store }),
-    { stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false, exitOnCtrlC: false },
+    {
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      patchConsole: false,
+      exitOnCtrlC: false,
+      // Same reason mount.ts sets it, and the reason these tests passed locally
+      // and failed in CI: Ink's detection is `!isInCi && isTTY`, and CI wins.
+      // Without it Ink writes one frame at unmount and every assertion here
+      // sees an empty string.
+      interactive: true,
+    },
   );
   return {
     store,

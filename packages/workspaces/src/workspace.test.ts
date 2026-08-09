@@ -139,7 +139,13 @@ describe('in-place modes', () => {
     writeFileSync(join(repo, 'already-dirty.txt'), 'x\n');
 
     const ws = await createWorkspace({ path: repo, mode });
-    expect(ws.root).toBe(realpathSync(repo));
+    // `.native`, because the two sides canonicalize differently on Windows and
+    // only the OS call settles it: a workspace root comes from
+    // `git rev-parse --show-toplevel`, and git expands 8.3 short names, while
+    // node's JS `realpathSync` preserves whatever `TMP` held. On a runner whose
+    // TMP is `C:\Users\RUNNER~1\…` that is two spellings of one directory, and
+    // the comparison failed on the spelling rather than on the path.
+    expect(ws.root).toBe(realpathSync.native(repo));
     expect(ws.mode).toBe(mode);
     expect(ws.initialDirtyFiles).toEqual(['already-dirty.txt']);
 

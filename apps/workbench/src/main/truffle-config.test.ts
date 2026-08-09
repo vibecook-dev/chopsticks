@@ -1,3 +1,4 @@
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { workbenchTruffleConfig } from './truffle-config.js';
 
@@ -10,21 +11,29 @@ const base = {
   hostname: 'studio',
 };
 
+// Built with the same `resolve`/`join` calls truffle-config uses, never as
+// literals: on Windows those gain a drive letter and backslashes, so a POSIX
+// string fixture never equals what the code under test looked for — which is
+// how this passed everywhere except the Windows runner.
+const developmentSidecar = resolve(base.appRoot, 'dist/bin', 'sidecar-slim');
+const bundledSidecar = join(base.resourcesPath, 'bin', 'sidecar-slim');
+const stateDirectory = join(base.userDataPath, 'truffle');
+
 describe('workbenchTruffleConfig', () => {
   it('enables Truffle with stable development identity and state defaults', () => {
     const config = workbenchTruffleConfig({
       ...base,
       environment: {},
-      pathExists: (path) => path === '/project/p008/chopsticks/apps/workbench/dist/bin/sidecar-slim',
+      pathExists: (path) => path === developmentSidecar,
     });
 
     expect(config).toEqual({
       enabled: true,
       environment: {
         GHOSTTEA_TRUFFLE_ENABLED: 'true',
-        GHOSTTEA_TRUFFLE_STATE_DIR: '/user/chopsticks/truffle',
+        GHOSTTEA_TRUFFLE_STATE_DIR: stateDirectory,
         GHOSTTEA_TRUFFLE_DEVICE_NAME: 'studio · Chopsticks',
-        TRUFFLE_SIDECAR_PATH: '/project/p008/chopsticks/apps/workbench/dist/bin/sidecar-slim',
+        TRUFFLE_SIDECAR_PATH: developmentSidecar,
       },
     });
   });
@@ -46,9 +55,9 @@ describe('workbenchTruffleConfig', () => {
       ...base,
       isPackaged: true,
       environment: {},
-      pathExists: (path) => path === '/application/resources/bin/sidecar-slim',
+      pathExists: (path) => path === bundledSidecar,
     });
-    expect(packaged.environment.TRUFFLE_SIDECAR_PATH).toBe('/application/resources/bin/sidecar-slim');
+    expect(packaged.environment.TRUFFLE_SIDECAR_PATH).toBe(bundledSidecar);
 
     const explicit = workbenchTruffleConfig({
       ...base,
